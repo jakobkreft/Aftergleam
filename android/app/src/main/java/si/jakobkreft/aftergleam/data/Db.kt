@@ -155,6 +155,50 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
         }
     }
 
+    /**
+     * Papers shown between [fromDay] and [toDay] that the user did not take up, and whose
+     * metadata has since gained a venue.
+     *
+     * "Did not take up" means never rated, or rated below [threshold]. An explicit low
+     * rating still counts: being shown that a paper you actively dismissed went on to be
+     * accepted is the more interesting version of the feature, not the less.
+     */
+    fun resurfaceCandidates(
+        fromDay: String,
+        toDay: String,
+        threshold: Float = 0.5f,
+        limit: Int = 20,
+    ): List<Pair<Paper, Float?>> =
+        readableDatabase.rawQuery(
+            """
+            SELECT p.*, r.interest AS rated
+            FROM shown s
+            JOIN papers p ON p.id = s.paper_id
+            LEFT JOIN reactions r ON r.paper_id = s.paper_id
+            WHERE s.day BETWEEN ? AND ?
+              AND (r.interest IS NULL OR r.interest < ?)
+              AND (p.comments != '' OR p.journal_ref != '')
+            GROUP BY p.id
+            ORDER BY s.day DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(fromDay, toDay, threshold.toString(), limit.toString()),
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    val rated = if (c.isNull(c.getColumnIndexOrThrow("rated"))) null
+                    else c.getFloat(c.getColumnIndexOrThrow("rated"))
+                    add(cursorToPaper(c) to rated)
+                }
+            }
+        }
+
+    /** The day a paper was first shown, for the "you passed on this in March" line. */
+    fun firstShown(paperId: String): String? =
+        readableDatabase.rawQuery(
+            "SELECT MIN(day) FROM shown WHERE paper_id = ?", arrayOf(paperId)
+        ).use { if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null }
+
     fun clearReactions() = writableDatabase.use { it.delete("reactions", null, null) }
 
     fun allReactions(): Map<String, Reaction> =
@@ -218,6 +262,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
                 }
             }
         }
+
+    private fun cursorToPaper(c: android.database.Cursor): Paper = with(c) {
+        Paper(
+            id = getString(getColumnIndexOrThrow("id")),
+            title = getString(getColumnIndexOrThrow("title")),
+            abstract = getString(getColumnIndexOrThrow("abstract")),
+            authors = getString(getColumnIndexOrThrow("authors")).split("|").filter { it.isNotBlank() },
+            categories = getString(getColumnIndexOrThrow("categories")).split("|").filter { it.isNotBlank() },
+            published = getString(getColumnIndexOrThrow("published")),
+            updated = getString(getColumnIndexOrThrow("updated")),
+            comments = getString(getColumnIndexOrThrow("comments")),
+            journalRef = getString(getColumnIndexOrThrow("journal_ref")),
+        )
+    }
 
     private fun android.database.Cursor.toPapers(): List<Paper> = buildList {
         while (moveToNext()) {

@@ -48,8 +48,19 @@ Verified end to end on a Pixel 10 Pro, not just compiled:
   notification and only when there is something new. Empty results are a success, not a retry,
   because weekends and US holidays legitimately produce nothing.
 
+### Added since
+
+- **Backup export and restore.** Plain JSON, merge-on-restore, refuses a file from a newer
+  version rather than half-applying it. This is the whole multi-device story: no account, no
+  server, put the file in a synced folder. Round-trip is tested under Robolectric, because
+  `org.json` and SQLite are stubbed in plain android.jar and would fail silently.
+- **The Resurfacer** and **the attention signal**, both described below.
+
 ### Still missing from v1
 
+- **A paper detail screen.** Cards currently open arXiv in an external browser. The intended
+  shape is a screen per paper with the full abstract, a link out, and an inline PDF view
+  rather than an app switch. This is the main outstanding usability gap.
 - **Search.** Not started.
 - **The bridge card** exists but rarely fires: candidates come only from subscribed categories,
   so there is usually nothing outside them to promote. It needs its own small query.
@@ -103,7 +114,7 @@ suppressing the best matches. Negatives now come from older cached papers.
 The user's question was where the "everyone is reading this" idea stands. The honest answer
 differs per feature, because F1 removed the source three of them assumed.
 
-### M1 — The Resurfacer. Viable, reframed, not built
+### M1 — The Resurfacer. Built and verified
 
 Still the headline feature, but the evidence changes from a number we cannot get to a fact we
 can:
@@ -114,10 +125,20 @@ Citations are unavailable (91% of cs.LG preprints show zero in OpenAlex even at 
 months). Venue acceptance is available, free, offline, and arrives on exactly the right
 schedule, because authors edit the comments field when a paper is accepted.
 
-What it needs: keep skipped papers, re-fetch their metadata periodically, and diff the venue
-field. The harvester already detects this — OAI-PMH `from=` filters on metadata modification
-date, so a paper whose comments just gained "NeurIPS 2026" shows up in a datestamp query.
-Cost is one request per week.
+Built. At most one card per digest, framed as discovery, and dismissible with "still not for
+me", which is itself recorded as a strong negative. Workshop acceptances are excluded: a
+workshop is not the "this turned out to matter" moment the feature promises.
+
+Verified on device by injecting a digest entry dated five months back for a paper that had
+since gained a venue. It produced exactly the intended card:
+
+> You passed on this in April. UniMate: One Unified Model to Animate Diverse Skeletons.
+> It was accepted to SIGGRAPH 2026.
+
+It will fire naturally once there are three months of real history. Still to add: a weekly
+re-fetch of metadata for old papers, so venues that appear after a paper leaves the cache are
+picked up. OAI-PMH `from=` filters on metadata modification date, which is exactly the query
+for this, at one request per week.
 
 ### M2 — Catch-up mode. Blocked on a landmark source
 
@@ -139,7 +160,7 @@ Needs only centroid deltas and topic histograms over data already stored. Nothin
 
 Optional download, v3 at the earliest.
 
-### M5 — "Everyone is reading this". Viable and privacy-safe
+### M5 — "Everyone is reading this". Built
 
 **Hugging Face daily papers is live and verified** (HTTP 200, returns arXiv ids with upvote
 counts, current). It is the best available proxy for what the field is paying attention to
@@ -152,9 +173,13 @@ everybody else downloads, then joining it locally against the cache, reveals not
 user. So this feature is compatible with the no-backend promise in a way per-paper citation
 lookups never were.
 
-Caveats to design around: the endpoint is unofficial and undocumented, the list is small
-(tens of papers a day) and skewed to LLM work, and it can vanish. Treat it as enrichment that
-degrades to nothing, never a dependency.
+Built and verified on device: a card showed "widely read today, 378 upvotes". The score is
+log-scaled and capped, because the list spans roughly 3 to 300 upvotes and a linear scale
+would let one viral paper dominate an entire digest. It multiplies interest exactly as venue
+does, so it cannot rescue a paper the user would not want.
+
+The endpoint is unofficial, the list is small and skewed towards language models, and it can
+vanish. A failure returns an empty map and the digest is built exactly as it would have been.
 
 Other signals from M5:
 - **Version churn** already comes free from the harvester (`n_versions`), and rises with age
@@ -173,13 +198,12 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **The Resurfacer**, now that there is a rating history and skipped papers to re-check.
-   Weekly re-fetch of metadata for papers passed over 3 to 12 months ago, diffing the venue
-   field. One request a week.
-2. **A bridge query**, so the cross-field slot has candidates to work with.
-3. **Search**, keyword against the arXiv API with local re-ranking.
-4. **The drift report**, which needs only data already stored.
-5. **"Everyone is reading this"**, joining the Hugging Face daily list locally.
+1. **A paper detail screen**, with the full abstract and an inline PDF view. The biggest
+   remaining usability gap: tapping a card currently throws the user into a browser.
+2. **The weekly metadata refresh** that keeps the Resurfacer supplied.
+3. **A bridge query**, so the cross-field slot has candidates to work with.
+4. **Search**, keyword against the arXiv API with local re-ranking.
+5. **The drift report**, which needs only data already stored.
 
 ## Open items
 

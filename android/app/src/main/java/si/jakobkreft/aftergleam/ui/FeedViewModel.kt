@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
+import si.jakobkreft.aftergleam.data.Attention
+import si.jakobkreft.aftergleam.data.Backup
+import si.jakobkreft.aftergleam.data.Resurfaced
+import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
@@ -37,6 +41,9 @@ data class FeedState(
     val importProgress: LibraryImport.Progress? = null,
     val importSummary: String? = null,
     val saved: List<Paper> = emptyList(),
+    val attention: Map<String, Int> = emptyMap(),
+    val resurfaced: Resurfaced? = null,
+    val backupSummary: String? = null,
 )
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -80,11 +87,16 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             }
             val (cards, reactions) = restored
             if (cards.isNotEmpty()) {
+                // The resurfaced card has to be computed here too, not only when the digest
+                // is rebuilt. Reopening the app is the common path, and a feature that only
+                // appeared after a manual refresh would look broken.
+                val resurfaced = withContext(Dispatchers.IO) { findResurfaced() }
                 _state.value = _state.value.copy(
                     cards = cards,
                     reactions = reactions,
                     ratedCount = reactions.count { it.value.rated },
                     modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    resurfaced = resurfaced,
                 )
             } else {
                 sync(force = false)
@@ -119,6 +131,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     val papers = ArxivApi.recent(cats, max = 300)
                     withContext(Dispatchers.IO) { db.upsertPapers(papers) }
                     prefs.lastFetchMillis = System.currentTimeMillis()
+
+                    // Enrichment only. A failure here returns an empty map and the digest
+                    // is built exactly as it would have been.
+                    val hot = Attention.fetch()
+                    if (hot.isNotEmpty()) _state.value = _state.value.copy(attention = hot)
                 }
                 withContext(Dispatchers.Default) { rebuild(cats) }
             } catch (e: Exception) {
@@ -163,6 +180,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             subscribed = cats.toSet(),
             size = prefs.digestSize,
             negativePool = negativePool,
+            attention = _state.value.attention,
         )
         db.markShown(
             cards.map { ShownItem(it.paper.id, it.slot.name, it.why(), it.relevance) },
@@ -176,7 +194,65 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             emptyDay = cards.isEmpty(),
             ratedCount = rated.size,
             modelActive = rated.size >= Ranker.MIN_RATINGS,
+            resurfaced = findResurfaced(),
         )
+    }
+
+    /**
+     * At most one per digest. The design note is explicit that this reads as nagging
+     * otherwise, and the feature lives or dies on tone.
+     */
+    private fun findResurfaced(): Resurfaced? {
+        val today = LocalDate.now()
+        val candidates = db.resurfaceCandidates(
+            fromDay = today.minusMonths(12).toString(),
+            toDay = today.minusMonths(3).toString(),
+        )
+        for ((paper, rated) in candidates) {
+            val venue = Venue.of(paper) ?: continue
+            // A workshop is not the "this turned out to matter" moment the feature promises.
+            if (Venue.isWorkshop(paper)) continue
+            val shown = db.firstShown(paper.id) ?: continue
+            return Resurfaced(paper, venue, shown, rated)
+        }
+        return null
+    }
+
+    fun dismissResurfaced(stillNotInterested: Boolean) {
+        val r = _state.value.resurfaced ?: return
+        // "Still not interested" is itself a strong training signal, so record it.
+        if (stillNotInterested) db.setReaction(r.paper.id, Reaction(interest = Reaction.DISLIKED))
+        _state.value = _state.value.copy(
+            resurfaced = null,
+            reactions = db.allReactions(),
+        )
+    }
+
+    fun exportBackup(): String = Backup.export(db, prefs)
+
+    fun restoreBackup(json: String) {
+        viewModelScope.launch {
+            try {
+                val r = withContext(Dispatchers.IO) { Backup.restore(json, db, prefs) }
+                val reactions = db.allReactions()
+                _state.value = _state.value.copy(
+                    reactions = reactions,
+                    ratedCount = reactions.count { it.value.rated },
+                    modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    categories = prefs.categories,
+                    backupSummary = "Restored ${r.reactions} ratings.",
+                )
+                rerank()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    backupSummary = "Could not read that file: ${e.message}",
+                )
+            }
+        }
+    }
+
+    fun noteExported(name: String) {
+        _state.value = _state.value.copy(backupSummary = "Exported to $name.")
     }
 
     /** Sets an explicit interest rating. Passing null clears it. */

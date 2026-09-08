@@ -63,6 +63,28 @@ private fun App(vm: FeedViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission()
     ) { /* declining is fine: the digest still builds, it just does not announce itself */ }
 
+    // CreateDocument needs the MIME type up front; the suggested name is passed at launch.
+    val exportBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(si.jakobkreft.aftergleam.data.Backup.MIME)
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use {
+                it.write(vm.exportBackup().toByteArray())
+            }
+            vm.noteExported(uri.lastPathSegment?.substringAfterLast('/') ?: "file")
+        }
+    }
+
+    val restoreBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()?.let { vm.restoreBackup(it) }
+    }
+
     val pickLibrary = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -142,6 +164,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onOpen = open,
                         onRerank = vm::rerank,
                         onRefresh = vm::refresh,
+                        onDismissResurfaced = vm::dismissResurfaced,
                     )
                     Tab.SAVED -> SavedScreen(
                         papers = state.saved,
@@ -161,6 +184,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onExploration = vm::setExplorationRate,
                         onDiversity = vm::setDiversity,
                         onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
+                        onExport = {
+                            exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())
+                        },
+                        onRestore = { restoreBackup.launch(arrayOf("*/*")) },
+                        backupSummary = state.backupSummary,
                         onReset = vm::resetModel,
                         onApply = { vm.rerank(); tab = Tab.TODAY },
                     )

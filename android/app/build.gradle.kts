@@ -41,6 +41,7 @@ android {
     dependenciesInfo { includeInApk = false }
 
     testOptions {
+        unitTests.isIncludeAndroidResources = true
         unitTests.all {
             it.testLogging { showStandardStreams = true }
         }
@@ -49,6 +50,10 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // Robolectric for anything touching framework classes. Plain android.jar stubs return
+    // nulls or throw "not mocked", so org.json and SQLite cannot be tested without it.
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.test:core:1.7.0")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

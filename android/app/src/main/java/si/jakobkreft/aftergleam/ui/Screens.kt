@@ -109,6 +109,7 @@ fun FeedScreen(
     onOpen: (String) -> Unit,
     onRerank: () -> Unit,
     onRefresh: () -> Unit,
+    onDismissResurfaced: (Boolean) -> Unit = {},
 ) {
     when {
         state.loading -> Column(
@@ -155,11 +156,22 @@ fun FeedScreen(
                     )
                 }
             }
+            state.resurfaced?.let { r ->
+                item {
+                    ResurfacedCard(
+                        resurfaced = r,
+                        onOpen = onOpen,
+                        onInterested = { onRate(r.paper.id, Reaction.LIKED); onDismissResurfaced(false) },
+                        onDismiss = { onDismissResurfaced(true) },
+                    )
+                }
+            }
             items(state.cards, key = { it.paper.id }) { card ->
                 PaperCard(
                     card = card,
                     reaction = state.reactions[card.paper.id] ?: Reaction.NONE,
                     modelActive = state.modelActive,
+                    upvotes = state.attention[card.paper.id] ?: 0,
                     onRate = onRate,
                     onSave = onSave,
                     onOpen = onOpen,
@@ -218,6 +230,49 @@ private fun InterestControl(
     }
 }
 
+/**
+ * The Resurfacer. At most one per digest, framed as discovery rather than failure, and
+ * always dismissible. "Still not interested" is itself a strong training signal, so
+ * dismissing it teaches the model rather than just hiding the card.
+ */
+@Composable
+private fun ResurfacedCard(
+    resurfaced: si.jakobkreft.aftergleam.data.Resurfaced,
+    onOpen: (String) -> Unit,
+    onInterested: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                resurfaced.headline(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                resurfaced.paper.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { onOpen(resurfaced.paper.absUrl) },
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(resurfaced.detail(), style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                CompactAction("Interested after all") { onInterested() }
+                CompactAction("Still not for me") { onDismiss() }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CompactAction(label: String, onClick: () -> Unit) {
     Text(
@@ -236,6 +291,7 @@ private fun PaperCard(
     card: Scored,
     reaction: Reaction,
     modelActive: Boolean,
+    upvotes: Int,
     onRate: (String, Float?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (String) -> Unit,
@@ -279,6 +335,13 @@ private fun PaperCard(
                     it,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            if (upvotes > 0) {
+                Text(
+                    si.jakobkreft.aftergleam.data.Attention.label(upvotes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
                 )
             }
             Spacer(Modifier.height(4.dp))

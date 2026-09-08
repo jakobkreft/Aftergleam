@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.rank
 
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Venue
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -57,6 +58,8 @@ data class Weights(
      * other things.
      */
     val diversity: Float = 0.3f,
+    /** Weight on "lots of people are reading this today". Enrichment, so modest. */
+    val attention: Float = 0.25f,
 )
 
 /**
@@ -81,6 +84,7 @@ class Ranker(private val weights: Weights = Weights()) {
         size: Int = 25,
         random: Random = Random.Default,
         negativePool: List<String> = emptyList(),
+        attention: Map<String, Int> = emptyMap(),
     ): List<Scored> {
         // A paper the user has already judged is finished business. Leaving rated papers
         // in the pool made them dominate the top of the list, because the model scores its
@@ -102,6 +106,10 @@ class Ranker(private val weights: Weights = Weights()) {
 
             val venue = Venue.score(paper)
             val fresh = recency(paper, today)
+            // Attention is what the field is reading today, on the timescale where venue
+            // and citations both say nothing yet. It boosts like venue does, and for the
+            // same reason cannot rescue a paper the user would not want.
+            val buzz = attention[paper.id]?.let { Attention.score(it) } ?: 0f
 
             // Quality multiplies interest rather than being added to it.
             //
@@ -112,11 +120,12 @@ class Ranker(private val weights: Weights = Weights()) {
             // strong venue promotes a paper the user would want anyway, and cannot rescue
             // one they would not.
             val score = if (hasModel) {
-                rel * (1f + weights.quality * venue) + weights.recency * fresh
+                rel * (1f + weights.quality * venue + weights.attention * buzz) +
+                    weights.recency * fresh
             } else {
                 // Cold start: with no model every relevance is zero, so a multiplier would
-                // flatten everything. Venue and freshness are all there is to go on.
-                weights.quality * venue + weights.recency * fresh
+                // flatten everything. Venue, buzz and freshness are all there is to go on.
+                weights.quality * venue + weights.attention * buzz + weights.recency * fresh
             }
 
             Scored(

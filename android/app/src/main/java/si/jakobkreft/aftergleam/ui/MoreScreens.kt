@@ -94,6 +94,9 @@ fun TuneScreen(
     onExploration: (Float) -> Unit,
     onDiversity: (Float) -> Unit,
     onPickLibrary: () -> Unit,
+    onExport: () -> Unit,
+    onRestore: () -> Unit,
+    backupSummary: String?,
     onReset: () -> Unit,
     onApply: () -> Unit,
 ) {
@@ -186,6 +189,30 @@ fun TuneScreen(
         }
 
         item {
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+            Text("Backup", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Your ratings as a plain JSON file. There is no account and no server, so " +
+                    "this is how a model moves to another phone: put it in a synced folder " +
+                    "and the sync app does the rest.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.layout.Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(onClick = onExport) { Text("Export") }
+                OutlinedButton(onClick = onRestore) { Text("Restore") }
+            }
+            backupSummary?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
