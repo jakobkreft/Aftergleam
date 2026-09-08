@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Reaction
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.Scored
@@ -106,7 +107,7 @@ fun FeedScreen(
     state: FeedState,
     onRate: (String, Float?) -> Unit,
     onSave: (String) -> Unit,
-    onOpen: (String) -> Unit,
+    onOpen: (Paper) -> Unit,
     onRerank: () -> Unit,
     onRefresh: () -> Unit,
     onDismissResurfaced: (Boolean) -> Unit = {},
@@ -160,7 +161,7 @@ fun FeedScreen(
                 item {
                     ResurfacedCard(
                         resurfaced = r,
-                        onOpen = onOpen,
+                        onOpen = { onOpen(r.paper) },
                         onInterested = { onRate(r.paper.id, Reaction.LIKED); onDismissResurfaced(false) },
                         onDismiss = { onDismissResurfaced(true) },
                     )
@@ -192,7 +193,7 @@ fun FeedScreen(
  * reactions really are binary and dragging every time would be tiresome.
  */
 @Composable
-private fun InterestControl(
+fun InterestControl(
     confidence: Float,
     reaction: Reaction,
     modelActive: Boolean,
@@ -238,7 +239,7 @@ private fun InterestControl(
 @Composable
 private fun ResurfacedCard(
     resurfaced: si.jakobkreft.aftergleam.data.Resurfaced,
-    onOpen: (String) -> Unit,
+    onOpen: () -> Unit,
     onInterested: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -261,7 +262,7 @@ private fun ResurfacedCard(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { onOpen(resurfaced.paper.absUrl) },
+                modifier = Modifier.clickable { onOpen() },
             )
             Spacer(Modifier.height(4.dp))
             Text(resurfaced.detail(), style = MaterialTheme.typography.bodySmall)
@@ -294,7 +295,7 @@ private fun PaperCard(
     upvotes: Int,
     onRate: (String, Float?) -> Unit,
     onSave: (String) -> Unit,
-    onOpen: (String) -> Unit,
+    onOpen: (Paper) -> Unit,
 ) {
     val p = card.paper
     Card(
@@ -308,7 +309,7 @@ private fun PaperCard(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { onOpen(p.absUrl) },
+                modifier = Modifier.clickable { onOpen(p) },
             )
             Spacer(Modifier.height(4.dp))
             Text(
@@ -359,7 +360,7 @@ private fun PaperCard(
                 CompactAction("Interested") { onRate(p.id, Reaction.LIKED) }
                 CompactAction(if (reaction.saved) "Saved" else "Save") { onSave(p.id) }
                 CompactAction(if (reaction.rated) "Clear" else "Open") {
-                    if (reaction.rated) onRate(p.id, null) else onOpen(p.absUrl)
+                    if (reaction.rated) onRate(p.id, null) else onOpen(p)
                 }
             }
         }

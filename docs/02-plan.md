@@ -56,11 +56,19 @@ Verified end to end on a Pixel 10 Pro, not just compiled:
   `org.json` and SQLite are stubbed in plain android.jar and would fail silently.
 - **The Resurfacer** and **the attention signal**, both described below.
 
+### Added since
+
+- **A paper detail screen with an inline PDF reader.** Tapping a card opens the paper rather
+  than throwing the user into a browser: the complete abstract, the same rating control as on
+  the card, a link out, and the PDF rendered in place. Uses the framework's own `PdfRenderer`,
+  so no dependency, no native blob and nothing to upset a reproducible build. PDFs land in the
+  cache directory, which needs no storage permission and lets the system reclaim them.
+  Downloads write to a temporary name first, so an interrupted transfer cannot leave a
+  truncated file that later looks cached.
+- **A configurable digest time and a notification switch.**
+
 ### Still missing from v1
 
-- **A paper detail screen.** Cards currently open arXiv in an external browser. The intended
-  shape is a screen per paper with the full abstract, a link out, and an inline PDF view
-  rather than an app switch. This is the main outstanding usability gap.
 - **Search.** Not started.
 - **The bridge card** exists but rarely fires: candidates come only from subscribed categories,
   so there is usually nothing outside them to promote. It needs its own small query.
@@ -198,12 +206,11 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **A paper detail screen**, with the full abstract and an inline PDF view. The biggest
-   remaining usability gap: tapping a card currently throws the user into a browser.
-2. **The weekly metadata refresh** that keeps the Resurfacer supplied.
-3. **A bridge query**, so the cross-field slot has candidates to work with.
-4. **Search**, keyword against the arXiv API with local re-ranking.
-5. **The drift report**, which needs only data already stored.
+1. **The weekly metadata refresh** that keeps the Resurfacer supplied.
+2. **A bridge query**, so the cross-field slot has candidates to work with.
+3. **Search**, keyword against the arXiv API with local re-ranking.
+4. **The drift report**, which needs only data already stored.
+5. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
 
 ## Open items
 

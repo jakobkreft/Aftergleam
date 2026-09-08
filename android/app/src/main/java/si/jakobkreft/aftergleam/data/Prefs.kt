@@ -35,6 +35,15 @@ class Prefs(context: Context) {
         get() = sp.getInt("digest_size", 25)
         set(v) = sp.edit().putInt("digest_size", v.coerceIn(5, 100)).apply()
 
+    /** Local hour the daily digest is prepared. */
+    var digestHour: Int
+        get() = sp.getInt("digest_hour", 5)
+        set(v) = sp.edit().putInt("digest_hour", v.coerceIn(0, 23)).apply()
+
+    var notifyEnabled: Boolean
+        get() = sp.getBoolean("notify", true)
+        set(v) = sp.edit().putBoolean("notify", v).apply()
+
     var lastFetchMillis: Long
         get() = sp.getLong("last_fetch", 0L)
         set(v) = sp.edit().putLong("last_fetch", v).apply()

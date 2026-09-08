@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -33,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
@@ -123,10 +125,33 @@ private fun App(vm: FeedViewModel = viewModel()) {
         // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
         // also repairs the schedule if the user cleared app data or rebooted.
         LaunchedEffect(Unit) {
-            DailyDigestWorker.schedule(context)
+            DailyDigestWorker.schedule(context, vm.currentDigestHour())
             if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(
                 android.Manifest.permission.POST_NOTIFICATIONS
             )
+        }
+
+        val detail = state.detail
+        if (detail != null) {
+            BackHandler { vm.closeDetail() }
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    DetailScreen(
+                        paper = detail,
+                        reaction = state.reactions[detail.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE,
+                        confidence = state.cards.firstOrNull { it.paper.id == detail.id }?.relevance ?: 0f,
+                        modelActive = state.modelActive,
+                        upvotes = state.attention[detail.id] ?: 0,
+                        onRate = { vm.rate(detail.id, it) },
+                        onSave = { vm.toggleSave(detail.id) },
+                        onOpenExternal = { url ->
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        },
+                        onBack = vm::closeDetail,
+                    )
+                }
+            }
+            return@MaterialTheme
         }
 
         Scaffold(
@@ -152,7 +177,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 }
             }
         ) { inner ->
-            val open: (String) -> Unit = { url ->
+            val openExternal: (String) -> Unit = { url ->
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
             Box(Modifier.padding(inner)) {
@@ -161,14 +186,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         state = state,
                         onRate = vm::rate,
                         onSave = vm::toggleSave,
-                        onOpen = open,
+                        onOpen = vm::openDetail,
                         onRerank = vm::rerank,
                         onRefresh = vm::refresh,
                         onDismissResurfaced = vm::dismissResurfaced,
                     )
                     Tab.SAVED -> SavedScreen(
                         papers = state.saved,
-                        onOpen = open,
+                        onOpen = vm::openDetail,
                         onUnsave = vm::toggleSave,
                     )
                     Tab.TUNE -> TuneScreen(
@@ -176,6 +201,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         quality = vm.currentQualityWeight(),
                         exploration = vm.currentExplorationRate(),
                         diversity = vm.currentDiversity(),
+                        digestHour = vm.currentDigestHour(),
+                        notifyEnabled = vm.currentNotifyEnabled(),
                         ratedCount = state.ratedCount,
                         importProgress = state.importProgress,
                         importSummary = state.importSummary,
@@ -183,6 +210,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onQuality = vm::setQualityWeight,
                         onExploration = vm::setExplorationRate,
                         onDiversity = vm::setDiversity,
+                        onDigestHour = { h ->
+                            vm.setDigestHour(h)
+                            // Rescheduling is idempotent on a unique work name, so saving
+                            // simply moves the next run rather than stacking jobs.
+                            DailyDigestWorker.schedule(context, h)
+                        },
+                        onNotifyEnabled = vm::setNotifyEnabled,
                         onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
                         onExport = {
                             exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())

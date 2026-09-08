@@ -43,7 +43,7 @@ class DailyDigestWorker(
             val papers = ArxivApi.recent(cats, max = 300)
             Db(applicationContext).upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
-            if (papers.isNotEmpty()) notify(papers.size)
+            if (papers.isNotEmpty() && prefs.notifyEnabled) notify(papers.size)
             Result.success()
         } catch (e: Exception) {
             // Back off rather than hammer. 429s have been reported even inside the

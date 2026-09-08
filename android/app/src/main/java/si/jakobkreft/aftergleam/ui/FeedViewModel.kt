@@ -44,6 +44,7 @@ data class FeedState(
     val attention: Map<String, Int> = emptyMap(),
     val resurfaced: Resurfaced? = null,
     val backupSummary: String? = null,
+    val detail: Paper? = null,
 )
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -328,6 +329,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun currentQualityWeight() = prefs.qualityWeight
     fun currentExplorationRate() = prefs.explorationRate
     fun currentDiversity() = prefs.diversity
+    fun currentDigestHour() = prefs.digestHour
+    fun currentNotifyEnabled() = prefs.notifyEnabled
+    fun setDigestHour(h: Int) { prefs.digestHour = h }
+    fun setNotifyEnabled(v: Boolean) { prefs.notifyEnabled = v }
 
     /** Clears the model but keeps papers. Trust requires an exit. */
     fun resetModel() {
@@ -338,6 +343,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             )
             rerank()
         }
+    }
+
+    fun openDetail(paper: Paper) {
+        _state.value = _state.value.copy(detail = paper)
+    }
+
+    fun closeDetail() {
+        _state.value = _state.value.copy(detail = null)
     }
 
     fun toggleSave(paperId: String) {

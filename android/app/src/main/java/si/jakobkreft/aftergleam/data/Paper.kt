@@ -22,6 +22,8 @@ data class Paper(
 
     val absUrl: String get() = "https://arxiv.org/abs/$id"
 
+    val pdfUrl: String get() = "https://arxiv.org/pdf/$id"
+
     /** Text the ranker sees. Title first so its terms carry into the tf weighting twice. */
     val rankText: String get() = "$title. $abstract"
 }

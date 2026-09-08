@@ -34,7 +34,7 @@ import si.jakobkreft.aftergleam.data.Venue
 import kotlin.math.roundToInt
 
 @Composable
-fun SavedScreen(papers: List<Paper>, onOpen: (String) -> Unit, onUnsave: (String) -> Unit) {
+fun SavedScreen(papers: List<Paper>, onOpen: (Paper) -> Unit, onUnsave: (String) -> Unit) {
     if (papers.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
             Text("Nothing saved yet", style = MaterialTheme.typography.titleMedium)
@@ -62,7 +62,7 @@ fun SavedScreen(papers: List<Paper>, onOpen: (String) -> Unit, onUnsave: (String
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { onOpen(p.absUrl) },
+                        modifier = Modifier.clickable { onOpen(p) },
                     )
                     Venue.of(p)?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall,
@@ -71,7 +71,7 @@ fun SavedScreen(papers: List<Paper>, onOpen: (String) -> Unit, onUnsave: (String
                     Spacer(Modifier.height(6.dp))
                     Text(p.published, style = MaterialTheme.typography.labelSmall)
                     androidx.compose.foundation.layout.Row {
-                        TextButton(onClick = { onOpen(p.absUrl) }) { Text("Open") }
+                        TextButton(onClick = { onOpen(p) }) { Text("Open") }
                         TextButton(onClick = { onUnsave(p.id) }) { Text("Remove") }
                     }
                 }
@@ -86,6 +86,8 @@ fun TuneScreen(
     quality: Float,
     exploration: Float,
     diversity: Float,
+    digestHour: Int,
+    notifyEnabled: Boolean,
     ratedCount: Int,
     importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
@@ -93,6 +95,8 @@ fun TuneScreen(
     onQuality: (Float) -> Unit,
     onExploration: (Float) -> Unit,
     onDiversity: (Float) -> Unit,
+    onDigestHour: (Int) -> Unit,
+    onNotifyEnabled: (Boolean) -> Unit,
     onPickLibrary: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
@@ -104,6 +108,8 @@ fun TuneScreen(
     var qual by remember { mutableFloatStateOf(quality) }
     var expl by remember { mutableFloatStateOf(exploration) }
     var divr by remember { mutableFloatStateOf(diversity) }
+    var hour by remember { mutableFloatStateOf(digestHour.toFloat()) }
+    var notify by remember { mutableStateOf(notifyEnabled) }
     var confirmReset by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -189,6 +195,34 @@ fun TuneScreen(
         }
 
         item {
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+            Text("Daily digest", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Prepared at %02d:00, on wifi while charging.".format(hour.roundToInt()),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "arXiv announces once each weekday evening, so one run a day is all that " +
+                    "can be useful.",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Slider(hour, { hour = it }, valueRange = 0f..23f, steps = 22)
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Switch(checked = notify, onCheckedChange = { notify = it })
+                Spacer(Modifier.height(0.dp))
+                Text("  Notify me once when it is ready",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { onDigestHour(hour.roundToInt()); onNotifyEnabled(notify) }) {
+                Text("Save schedule")
+            }
+
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
