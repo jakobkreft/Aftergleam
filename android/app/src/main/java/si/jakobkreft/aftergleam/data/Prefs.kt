@@ -25,6 +25,11 @@ class Prefs(context: Context) {
         get() = sp.getFloat("quality", 0.35f)
         set(v) = sp.edit().putFloat("quality", v).apply()
 
+    /** Trade-off between pure ranking and variety. See Weights.diversity. */
+    var diversity: Float
+        get() = sp.getFloat("diversity", 0.3f)
+        set(v) = sp.edit().putFloat("diversity", v.coerceIn(0f, 1f)).apply()
+
     /** How many cards a digest holds. Ten proved too short to be worth opening. */
     var digestSize: Int
         get() = sp.getInt("digest_size", 25)

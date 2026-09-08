@@ -35,15 +35,26 @@ Verified end to end on a Pixel 10 Pro, not just compiled:
 
 10 unit tests, all verified as actually executing.
 
+### Added since
+
+- **BibTeX and RIS import**, ported from the prototype and driven end to end through the real
+  system file picker. The Kotlin parser reads the same 104 entries from the same file as the
+  Python version, which is asserted in a test rather than eyeballed. Offered both during
+  onboarding and from the Tune screen.
+- **Three-tab navigation**: Today, Saved, Tune.
+- **Saved list**, so saving leads somewhere. Kept deliberately separate from rating.
+- **Tuning screen**: digest size, venue weight, exploration rate, and a two-step model reset.
+- **Daily worker.** Periodic-daily on unmetered network and charging, with exactly one
+  notification and only when there is something new. Empty results are a success, not a retry,
+  because weekends and US holidays legitimately produce nothing.
+
 ### Still missing from v1
 
-- **BibTeX import.** Measured at 38/52 (73%) in Python, no false matches. The parser and the
-  title resolver exist in `prototype/aftergleam/library.py` and need porting to Kotlin. This is
-  the highest-leverage item left: it turns "accurate in three weeks" into "accurate on day one".
-- **The daily worker.** Nothing runs at 05:00 yet; the digest is built when the app opens.
-- **Tuning screen.** Weights, exploration rate and digest size are stored but not exposed.
-- **Saved list.** Papers can be saved but there is no screen that lists them.
 - **Search.** Not started.
+- **The bridge card** exists but rarely fires: candidates come only from subscribed categories,
+  so there is usually nothing outside them to promote. It needs its own small query.
+- **Dwell tracking** as a weak positive. Deferred deliberately; explicit ratings are working
+  and implicit signals were what D8 warned against.
 
 ## Design decisions changed by using the thing
 
@@ -162,13 +173,13 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **Port BibTeX import to Kotlin.** Highest leverage, already measured, solves cold start.
-2. **Daily worker plus one notification.** Turns the app into a ritual rather than a thing you
-   remember to open.
-3. **Tuning screen.** The weights already exist and the quality multiplier makes them
-   meaningful; exposing them is mostly UI.
-4. **Saved list**, so "save for later" leads somewhere.
-5. **The Resurfacer**, once there is a history of skipped papers worth re-checking.
+1. **The Resurfacer**, now that there is a rating history and skipped papers to re-check.
+   Weekly re-fetch of metadata for papers passed over 3 to 12 months ago, diffing the venue
+   field. One request a week.
+2. **A bridge query**, so the cross-field slot has candidates to work with.
+3. **Search**, keyword against the arXiv API with local re-ranking.
+4. **The drift report**, which needs only data already stored.
+5. **"Everyone is reading this"**, joining the Hugging Face daily list locally.
 
 ## Open items
 

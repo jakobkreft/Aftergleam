@@ -21,6 +21,9 @@ object ArxivApi {
     private const val ENDPOINT = "https://export.arxiv.org/api/query"
     private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
+    /** arXiv asks for one request every three seconds, single connection. */
+    const val SLEEP_MS = 3_000L
+
     class FetchError(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     /** Most recent submissions across [categories], newest first. */
@@ -30,6 +33,31 @@ object ArxivApi {
         val url = "$ENDPOINT?search_query=$q&sortBy=submittedDate&sortOrder=descending" +
             "&start=0&max_results=$max"
         return parse(get(url))
+    }
+
+    /** Look papers up by identifier. One request per 100 ids. */
+    suspend fun byIds(ids: List<String>): List<Paper> {
+        val clean = ids.filter { it.isNotBlank() }
+        if (clean.isEmpty()) return emptyList()
+        val out = mutableListOf<Paper>()
+        for (chunk in clean.chunked(100)) {
+            val url = "$ENDPOINT?id_list=${chunk.joinToString(",")}&max_results=${chunk.size}"
+            out += parse(get(url))
+            if (chunk !== clean.takeLast(chunk.size)) Thread.sleep(SLEEP_MS)
+        }
+        return out
+    }
+
+    /**
+     * Phrase search on the title field. Returns candidates for the caller to score; the
+     * caller decides what counts as a match, because arXiv will cheerfully return adjacent
+     * papers for a well-known title.
+     */
+    suspend fun searchTitle(title: String, max: Int = 5): List<Paper> {
+        val q = BibTeX.cleanTitle(title)
+        if (q.length < 12) return emptyList()
+        val encoded = java.net.URLEncoder.encode("ti:\"$q\"", "UTF-8")
+        return parse(get("$ENDPOINT?search_query=$encoded&max_results=$max"))
     }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {

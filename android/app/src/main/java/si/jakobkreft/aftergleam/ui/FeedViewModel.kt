@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Db
+import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
@@ -33,6 +34,9 @@ data class FeedState(
     val onboarded: Boolean = false,
     val ratedCount: Int = 0,
     val modelActive: Boolean = false,
+    val importProgress: LibraryImport.Progress? = null,
+    val importSummary: String? = null,
+    val saved: List<Paper> = emptyList(),
 )
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -147,7 +151,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val seen = db.shownIds() - db.digestFor(today).map { it.paperId }.toSet()
 
         val cards = Ranker(
-            Weights(quality = prefs.qualityWeight, explorationRate = prefs.explorationRate)
+            Weights(
+                quality = prefs.qualityWeight,
+                explorationRate = prefs.explorationRate,
+                diversity = prefs.diversity,
+            )
         ).digest(
             candidates = candidates,
             rated = rated,
@@ -181,6 +189,79 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             reactions = reactions,
             ratedCount = reactions.count { it.value.rated },
         )
+    }
+
+    /**
+     * Imports a library and rates every resolved paper as liked.
+     *
+     * These are papers the user chose to read, which is a stronger positive than anything
+     * the app can infer from a tap, so they seed the model at 0.9 rather than 1.0: leaving
+     * headroom means a later explicit rating can still outrank an imported one.
+     */
+    fun importLibrary(text: String) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(importSummary = null)
+            try {
+                val result = LibraryImport.run(text) { p ->
+                    _state.value = _state.value.copy(importProgress = p)
+                }
+                withContext(Dispatchers.IO) {
+                    db.upsertPapers(result.papers)
+                    result.papers.forEach {
+                        db.setReaction(it.id, Reaction(interest = Reaction.LIKED))
+                    }
+                }
+                val reactions = db.allReactions()
+                _state.value = _state.value.copy(
+                    importProgress = null,
+                    reactions = reactions,
+                    ratedCount = reactions.count { it.value.rated },
+                    modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    importSummary = buildString {
+                        append("Matched ${result.papers.size} of ${result.total}.")
+                        if (result.unmatched > 0) {
+                            append(" ${result.unmatched} had no arXiv record")
+                        }
+                        if (result.failed > 0) append(", ${result.failed} could not be checked")
+                        append(".")
+                    },
+                )
+                if (_state.value.onboarded) rerank()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    importProgress = null,
+                    importSummary = "Import failed: ${e.message}",
+                )
+            }
+        }
+    }
+
+    fun loadSaved() {
+        viewModelScope.launch {
+            val ids = _state.value.reactions.filterValues { it.saved }.keys
+            val papers = withContext(Dispatchers.IO) { db.papersById(ids) }
+            _state.value = _state.value.copy(saved = papers)
+        }
+    }
+
+    fun setDigestSize(n: Int) { prefs.digestSize = n }
+    fun setQualityWeight(v: Float) { prefs.qualityWeight = v }
+    fun setExplorationRate(v: Float) { prefs.explorationRate = v }
+    fun setDiversity(v: Float) { prefs.diversity = v }
+    fun currentDigestSize() = prefs.digestSize
+    fun currentQualityWeight() = prefs.qualityWeight
+    fun currentExplorationRate() = prefs.explorationRate
+    fun currentDiversity() = prefs.diversity
+
+    /** Clears the model but keeps papers. Trust requires an exit. */
+    fun resetModel() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { db.clearReactions() }
+            _state.value = _state.value.copy(
+                reactions = emptyMap(), ratedCount = 0, modelActive = false,
+            )
+            rerank()
+        }
     }
 
     fun toggleSave(paperId: String) {

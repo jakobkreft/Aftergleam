@@ -45,7 +45,14 @@ val COMMON_CATEGORIES = listOf(
 )
 
 @Composable
-fun OnboardingScreen(selected: Set<String>, onToggle: (String) -> Unit, onDone: () -> Unit) {
+fun OnboardingScreen(
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    onImport: () -> Unit,
+    importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
+    importSummary: String?,
+    onDone: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("Aftergleam", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
@@ -60,6 +67,33 @@ fun OnboardingScreen(selected: Set<String>, onToggle: (String) -> Unit, onDone: 
                 FilterChip(cat in selected, { onToggle(cat) }, { Text(cat) })
             }
         }
+        Spacer(Modifier.height(24.dp))
+        // Optional but prominent: importing a reading list is the difference between a feed
+        // that is useful today and one that takes three weeks to become useful.
+        Text("Already have a library?", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "A BibTeX or RIS export seeds the model with papers you actually chose to read.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        if (importProgress != null) {
+            Text(
+                "Resolving ${importProgress.done} of ${importProgress.total}, " +
+                    "matched ${importProgress.matched}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        } else {
+            androidx.compose.material3.OutlinedButton(onClick = onImport) {
+                Text("Import a .bib or .ris file")
+            }
+        }
+        importSummary?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary)
+        }
+
         Spacer(Modifier.height(24.dp))
         Button(onClick = onDone, enabled = selected.isNotEmpty()) {
             Text(if (selected.isEmpty()) "Pick at least one" else "Show me today")

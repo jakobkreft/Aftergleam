@@ -47,6 +47,16 @@ data class Weights(
     val quality: Float = 0.35f,
     val recency: Float = 0.25f,
     val explorationRate: Float = 0.2f,
+    /**
+     * How much to trade relevance for variety, 0 = pure ranking, 1 = pure novelty.
+     *
+     * Pure ranking produces a digest of near-duplicates: a real run returned twenty-five
+     * cards whose explanations all began "matches reasoning", because the model had learned
+     * one topic and the top of the list is where that topic lives. Nine slightly different
+     * papers about vision-language agents is a worse morning than six of those plus three
+     * other things.
+     */
+    val diversity: Float = 0.3f,
 )
 
 /**
@@ -119,20 +129,64 @@ class Ranker(private val weights: Weights = Weights()) {
             )
         }.sortedByDescending { it.score }
 
-        return compose(scored, subscribed, size, random, hasModel)
+        return compose(scored, subscribed, size, random, hasModel, model)
     }
 
     /**
-     * Six relevance, two exploration, one bridge, and a spare. Exploration picks from the
-     * decision boundary rather than at random: those are the papers whose answer the model
-     * actually needs, and labelling them "testing whether this is for you" is honest.
+     * Maximal marginal relevance: repeatedly take the best remaining card after penalising
+     * it for how much it looks like what has already been chosen.
+     *
+     * Similarity is cosine over the same TF-IDF vectors the ranker already computed, so
+     * this costs one dot product per candidate per slot and needs no extra model. With no
+     * vectoriser available (cold start) it degrades to plain ranking.
      */
+    private fun selectDiverse(scored: List<Scored>, n: Int, model: Model?): List<Scored> {
+        if (n <= 0) return emptyList()
+        if (model == null || weights.diversity <= 0f) return scored.take(n)
+
+        val vectors = HashMap<String, Map<Int, Float>>()
+        fun vec(s: Scored) = vectors.getOrPut(s.paper.id) {
+            model.vec.transform(s.paper.rankText)
+        }
+
+        val pool = scored.take((n * 6).coerceAtMost(scored.size)).toMutableList()
+        val chosen = mutableListOf<Scored>()
+        val lambda = 1f - weights.diversity
+
+        while (chosen.size < n && pool.isNotEmpty()) {
+            var bestIdx = 0
+            var bestValue = Float.NEGATIVE_INFINITY
+            for (i in pool.indices) {
+                val cand = pool[i]
+                val maxSim = chosen.maxOfOrNull { cosine(vec(cand), vec(it)) } ?: 0f
+                val value = lambda * cand.score - weights.diversity * maxSim
+                if (value > bestValue) {
+                    bestValue = value
+                    bestIdx = i
+                }
+            }
+            chosen += pool.removeAt(bestIdx)
+        }
+        return chosen
+    }
+
+    private fun cosine(a: Map<Int, Float>, b: Map<Int, Float>): Float {
+        if (a.isEmpty() || b.isEmpty()) return 0f
+        // Both vectors are already L2 normalised by Tfidf.transform, so the dot product is
+        // the cosine directly.
+        val (small, large) = if (a.size < b.size) a to b else b to a
+        var dot = 0f
+        for ((i, v) in small) large[i]?.let { dot += v * it }
+        return dot
+    }
+
     private fun compose(
         scored: List<Scored>,
         subscribed: Set<String>,
         size: Int,
         random: Random,
         hasModel: Boolean,
+        model: Model?,
     ): List<Scored> {
         if (scored.size <= size) return scored
 
@@ -144,7 +198,7 @@ class Ranker(private val weights: Weights = Weights()) {
         val nBridge = if (subscribed.isEmpty()) 0 else 1
         val nRelevance = size - nExplore - nBridge
 
-        scored.take(nRelevance).forEach { picked[it.paper.id] = it }
+        selectDiverse(scored, nRelevance, model).forEach { picked[it.paper.id] = it }
 
         // Uncertainty sampling: relevance nearest 0.5 is where a label teaches the most.
         scored.asSequence()

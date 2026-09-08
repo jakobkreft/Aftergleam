@@ -155,6 +155,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
         }
     }
 
+    fun clearReactions() = writableDatabase.use { it.delete("reactions", null, null) }
+
     fun allReactions(): Map<String, Reaction> =
         readableDatabase.rawQuery(
             "SELECT paper_id, interest, saved FROM reactions", null
