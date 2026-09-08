@@ -1,10 +1,19 @@
+# Prototype data and outputs are large and regenerable
 prototype/data/*
 !prototype/data/.gitkeep
 prototype/out/*
 !prototype/out/.gitkeep
+prototype/models/
 .venv/
 __pycache__/
 *.pyc
 *.parquet
-*.xml
-models/
+
+# Android build output. Note: do NOT add a blanket *.xml rule here. An earlier version
+# did, and it silently excluded AndroidManifest.xml and every resource file, which would
+# have produced a repository that cannot build from a fresh clone.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/

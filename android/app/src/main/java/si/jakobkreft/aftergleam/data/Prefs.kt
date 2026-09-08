@@ -1,0 +1,49 @@
+package si.jakobkreft.aftergleam.data
+
+import android.content.Context
+
+/**
+ * Settings. SharedPreferences rather than DataStore: this is a handful of scalars read
+ * once at startup, and the extra dependency bought nothing.
+ */
+class Prefs(context: Context) {
+    private val sp = context.getSharedPreferences("aftergleam", Context.MODE_PRIVATE)
+
+    var categories: Set<String>
+        get() = sp.getStringSet("categories", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("categories", v).apply()
+
+    var onboarded: Boolean
+        get() = sp.getBoolean("onboarded", false)
+        set(v) = sp.edit().putBoolean("onboarded", v).apply()
+
+    var explorationRate: Float
+        get() = sp.getFloat("exploration", 0.2f)
+        set(v) = sp.edit().putFloat("exploration", v).apply()
+
+    var qualityWeight: Float
+        get() = sp.getFloat("quality", 0.35f)
+        set(v) = sp.edit().putFloat("quality", v).apply()
+
+    /** How many cards a digest holds. Ten proved too short to be worth opening. */
+    var digestSize: Int
+        get() = sp.getInt("digest_size", 25)
+        set(v) = sp.edit().putInt("digest_size", v.coerceIn(5, 100)).apply()
+
+    var lastFetchMillis: Long
+        get() = sp.getLong("last_fetch", 0L)
+        set(v) = sp.edit().putLong("last_fetch", v).apply()
+
+    /**
+     * arXiv announces once per weekday at 20:00 US Eastern, so a second fetch on the same
+     * day returns exactly the same papers. Measured: the newest cs.CV submission stayed at
+     * 2026-09-04 across a whole day of polling. Re-ranking needs no network at all, which
+     * is why the two operations are separate.
+     */
+    fun fetchIsStale(now: Long = System.currentTimeMillis()): Boolean =
+        now - lastFetchMillis > FETCH_INTERVAL_MS
+
+    companion object {
+        const val FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000L
+    }
+}

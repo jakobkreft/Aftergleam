@@ -1,136 +1,183 @@
-# Plan — revised after the 2026-09-08 findings
+# Plan — status and next steps
 
-Evidence in `01-findings.md`. This supersedes the Part 1 experiment list where they disagree.
-
-## Phase 0 — data layer (DONE, 2026-09-08)
-
-- [x] Verify arXiv OAI-PMH, RSS, legacy API, OpenAlex, Semantic Scholar live
-- [x] E4 executed early: arXiv→OpenAlex join = 92% by DOI
-- [x] E3 executed early and **failed**: OpenAlex citations are unusable for arXiv ML preprints
-- [x] Venue signal discovered and measured: 35% coverage, free, offline
-- [x] `aftergleam/harvest.py` — OAI-PMH harvester on `arXivRaw`, verified live
-
-Phase 0 cost ~2 hours and killed a load-bearing assumption before any Kotlin existed. That was
-the entire point of having a prototype phase.
-
-## Phase 1 — E1, the gate
-
-**Nothing else proceeds until this passes.** Unchanged by today's findings.
-
-Does a linear model over abstract embeddings separate "interesting to me" from "not",
-*within a single narrow category*?
-
-- Corpus: ~20k cs.LG + cs.CV + q-bio.NC abstracts, last 18 months, via `harvest.py`
-- Positives: the user's own library (see **Blocker** below)
-- Negatives: random papers from the same categories ("easy negatives", the Scholar Inbox trick)
-- Baselines in order: random → category-filter → **TF-IDF + linear SVM** → embeddings
-- Metric: precision@10 on held-out positives mixed with 500 distractors
-- **Critical control:** restrict to one narrow category. Cross-field separation is trivial and
-  proves nothing.
-
-**Pass:** precision@10 ≥ 0.5 within-category, and ≥15% relative over TF-IDF.
-**Kill:** within-category precision@10 < 0.3 → abstracts don't carry the signal.
-**If TF-IDF wins:** ship TF-IDF. No model download, ~10 MB app, milliseconds. That is a *better*
-outcome, not a worse one.
-
-### Ground truth — `literatura.bib`, 104 entries
-
-Supplied 2026-09-08. It is a **hybrid file** and that shapes the experiment:
-
-- ~30 entries are Slovenian thesis-template boilerplate (LaTeX guides, Knuth's TAOCP,
-  citation instructions). These resolve to nothing on arXiv, which self-filters them.
-- The remainder is a tight, coherent research bibliography: **diffusion models, panoramic
-  and 360° image outpainting, arbitrary-scale super-resolution, GANs, VAEs**.
-
-Consequences:
-
-1. **The narrow-category control is cs.CV, not cs.LG.** The library is a computer-vision
-   thesis bibliography. cs.LG remains in the corpus as a near-neighbour, and q-bio.NC keeps
-   its role as the far-field contrast for E5's bridge test.
-2. This is close to a worst case for E1, in a good way: every positive shares the diffusion
-   /generative-imaging vocabulary, so the model cannot win on topic words alone. If
-   separation works here, risk #1 is retired.
-3. **0 of 104 entries carry an eprint field or a DOI.** Resolution is title-search only.
-   That number is itself a product finding: D10 assumes BibTeX import is the highest-leverage
-   onboarding path, and a hand-written .bib gives the importer nothing but titles to work with.
-   The measured match rate is therefore the real import match rate, not a lab number.
-
-## Phase 2 — E2 embedder bake-off
-
-Only if E1 beats TF-IDF. Candidates: all-MiniLM-L6-v2, bge-small-en-v1.5, **SPECTER2**,
-EmbeddingGemma. Measure precision@10, int8 size on disk, ms/abstract single-thread.
-Pass: <120 MB quantized, <60 ms/abstract on laptop CPU.
-
-### First measurements (all-MiniLM-L6-v2, ONNX Runtime, CPU)
-
-Benchmarked on the real corpus through onnxruntime — the same runtime D3 targets — so these
-project honestly rather than being flattered by a torch/GPU path.
-
-| Config | Size | ms/abstract | 300 abstracts |
-|---|---|---|---|
-| fp32, 1 thread | 90.4 MB | 82.1 | 24.6 s |
-| fp32, 4 threads | 90.4 MB | 31.8 | 9.5 s |
-| **int8, 1 thread** | **23.0 MB** | 53.7 | 16.1 s |
-| **int8, 4 threads** | **23.0 MB** | 22.1 | **6.6 s** |
-
-Three consequences:
-
-1. **The pass bar is met with room to spare.** 23 MB against a 120 MB budget, and the design's
-   "roughly fifteen seconds for 300 abstracts" is realistic on a phone at int8 with threading —
-   the daily digest is not compute-constrained.
-2. **The onboarding download shrinks from ~100 MB to ~23 MB.** That materially changes the
-   opt-in screen's tone, and F-Droid's stance on downloaded assets.
-3. int8 is *faster and 4× smaller* here, so the only open question for quantization is
-   precision loss — which E2 measures against E1's metric, not in the abstract.
-
-Still to measure: SPECTER2 (may beat MiniLM on scientific text and is the reason E2 exists),
-bge-small, and int8 precision loss. **And on-device**: a Pixel 10 Pro is available, so the
-projection above should eventually be replaced by a real measurement rather than a multiplier.
-
-## Phase 3 — E3-revised: the quality signal (replaces citation velocity)
-
-The original E3 is dead as written. The replacement question:
-
-**How much of "this paper mattered" is recoverable from arXiv metadata alone?**
-
-- V1: venue in `comments`/`journal-ref` (35% coverage, measured)
-- V2: version churn — `n_versions` now comes free from the harvester
-- V3: Semantic Scholar citations, from the **bulk ODC-BY dataset**, not the API
-- Compare all three against the user's own judgement of what was landmark in a field they know
-
-Also decide the blob: size, update cadence, hosting, and the offline join.
-
-## Phase 4 — E5 bridge, E6 exploration
-
-Unchanged. Both are cheap and neither gates anything.
-
-## Phase 5 — Android v1
-
-Only after E1 and E3-revised. Decision log stands except D5, D6, D7 (see findings table).
+Updated 2026-09-08, after the first working Android build. Evidence in `01-findings.md`
+(data layer) and `03-e1-results.md` (the ranking gate).
 
 ---
 
-## Revised architecture consequence
+## Where the project actually is
 
-The static blob is now the design, not the escape hatch, and it improves the privacy story
-rather than compromising it:
+| Phase | Status | Outcome |
+|---|---|---|
+| 0. Verify the data layer | **done** | OpenAlex ruled out, venue signal found. `01-findings.md` |
+| 1. E1, the ranking gate | **done, passed** | hit@10 = 0.875 in cs.CV. `03-e1-results.md` |
+| 2. E2, embedder bake-off | **answered early** | MiniLM does not beat TF-IDF. Ship TF-IDF |
+| 3. E3-revised, quality signal | **measured and shipped** | Venue from arXiv comments, ~30% at 6–12 months |
+| 4. E5 bridge / E6 exploration | not started | Neither gates anything |
+| 5. Android v1 | **core loop working** | See below |
 
-```
-Device                                    Built offline, by us, monthly
-------                                    -----------------------------
-arXiv OAI-PMH  ──> daily digest           S2 bulk (ODC-BY) ──┐
-arXiv metadata ──> venue + churn signal                      ├─> signals.blob (~3-4 MB)
-signals.blob   ──> "what mattered"        arXiv metadata ────┘     hosted on GH Releases
-```
+Two experiments were answered ahead of schedule and one was killed. That is the prototype
+phase doing its job: E3 as originally written (citation velocity via OpenAlex) is impossible,
+and it cost two hours to find out instead of two months.
 
-No per-user query ever leaves the device. The original design had the app asking OpenAlex
-"what happened to these 40 papers I skipped?" — which transmits the user's reading history to a
-third party and contradicts the core promise. The blob removes that call entirely.
+## What runs on the phone today
+
+Verified end to end on a Pixel 10 Pro, not just compiled:
+
+- Category onboarding, then a digest of 25 cards
+- Fetch from the arXiv Atom API, cached to SQLite
+- TF-IDF plus logistic regression, retrained on device
+- Graded interest per paper, with the model's own prediction shown next to it
+- Venue extracted from arXiv's comments field, workshops discounted and labelled
+- Re-rank offline in seconds, with networking switched off, as a test
+- Restores the same digest and the same explanations after a restart
+- Correct under three-button navigation as well as gestures
+
+10 unit tests, all verified as actually executing.
+
+### Still missing from v1
+
+- **BibTeX import.** Measured at 38/52 (73%) in Python, no false matches. The parser and the
+  title resolver exist in `prototype/aftergleam/library.py` and need porting to Kotlin. This is
+  the highest-leverage item left: it turns "accurate in three weeks" into "accurate on day one".
+- **The daily worker.** Nothing runs at 05:00 yet; the digest is built when the app opens.
+- **Tuning screen.** Weights, exploration rate and digest size are stored but not exposed.
+- **Saved list.** Papers can be saved but there is no screen that lists them.
+- **Search.** Not started.
+
+## Design decisions changed by using the thing
+
+These came from actually looking at the app, and each replaced something the original
+document specified.
+
+**Ten cards was too few.** Now 25 and configurable. Finishability is preserved: the digest
+still ends, and the end screen still marks it. Ten was chosen on the theory that a short
+ritual is more repeatable; in practice it was not enough to be worth opening.
+
+**Star, hide and save were three switches doing two jobs.** Replaced by one continuous
+interest rating in 0..1 plus an orthogonal save flag. "Star" and "save" really were nearly
+redundant: collapsing the judgement into a rating leaves "save" meaning only "come back to
+this", which is a genuinely different intent.
+
+**The model now shows its prediction and takes correction.** Each card displays the predicted
+interest and a slider seeded at that value, so the gesture is *correct the machine* rather than
+*fill in a form*. The buttons remain as shortcuts to 0.9 and 0.1. This is P3 and P4 made
+concrete, and it costs nothing: cross-entropy takes soft targets directly, so graded ratings
+needed no new model.
+
+**Rated papers leave the pool.** They were dominating the top of the digest, because a model
+scores its own training positives most confidently of all. A paper you have judged is finished
+business.
+
+**Fetching and re-ranking are separate operations.** Measured: arXiv's newest cs.CV submission
+stayed at 2026-09-04 across a full day of polling, because announcements happen once per
+weekday at 20:00 US Eastern. A second fetch the same day returns the same papers. So re-ranking
+is local, instant and offline, and fetching is throttled to six hours.
+
+**Quality multiplies interest instead of being added to it.** Additively, venue swamped
+everything: with the model's confidence near 0.2 and an accepted paper contributing 0.35
+outright, nine of the top ten cards were placed by venue and the digest was really "recently
+accepted papers". As a multiplier the count went to zero of twenty-five, and a strong venue now
+promotes a paper the user would want anyway without rescuing one they would not. There is a
+test for exactly that.
+
+**Easy negatives must not come from the candidates.** Sampling training negatives out of the
+pool being ranked means a paper can be labelled a negative in the very run that scores it,
+suppressing the best matches. Negatives now come from older cached papers.
+
+---
+
+## The magic layer, re-planned against what the data actually supports
+
+The user's question was where the "everyone is reading this" idea stands. The honest answer
+differs per feature, because F1 removed the source three of them assumed.
+
+### M1 — The Resurfacer. Viable, reframed, not built
+
+Still the headline feature, but the evidence changes from a number we cannot get to a fact we
+can:
+
+> **You passed on this in March. It was just accepted to NeurIPS 2026.**
+
+Citations are unavailable (91% of cs.LG preprints show zero in OpenAlex even at eighteen
+months). Venue acceptance is available, free, offline, and arrives on exactly the right
+schedule, because authors edit the comments field when a paper is accepted.
+
+What it needs: keep skipped papers, re-fetch their metadata periodically, and diff the venue
+field. The harvester already detects this — OAI-PMH `from=` filters on metadata modification
+date, so a paper whose comments just gained "NeurIPS 2026" shows up in a datestamp query.
+Cost is one request per week.
+
+### M2 — Catch-up mode. Blocked on a landmark source
+
+"The 15 papers everyone assumes you have read" needs a citation-ranked corpus, which is the
+thing F1 showed does not exist for ML preprints via OpenAlex. Options, in order of preference:
+
+1. Build the static blob from Semantic Scholar's bulk dataset (ODC-BY, 2.4B citation edges).
+   Proper fix, a few days of offline work, and it also serves onboarding screen 2.
+2. Rank by venue acceptance plus age from cached arXiv metadata. Free and immediate, but
+   "accepted at CVPR" is a much weaker landmark signal than "cited 4,000 times".
+
+Not started. Option 2 is a reasonable v2 stopgap.
+
+### M3 — Drift report. Viable and cheap, not built
+
+Needs only centroid deltas and topic histograms over data already stored. Nothing blocks it.
+
+### M4 — The LLM. Unchanged, still deferred
+
+Optional download, v3 at the earliest.
+
+### M5 — "Everyone is reading this". Viable and privacy-safe
+
+**Hugging Face daily papers is live and verified** (HTTP 200, returns arXiv ids with upvote
+counts, current). It is the best available proxy for what the field is paying attention to
+right now, on the timescale where citations are useless.
+
+The important point, which was not obvious: **fetching a public list leaks nothing.** The
+privacy objection in F2 was to asking a third party "what happened to *these forty papers I
+skipped*", which transmits the user's reading history. Downloading the same public list
+everybody else downloads, then joining it locally against the cache, reveals nothing about the
+user. So this feature is compatible with the no-backend promise in a way per-paper citation
+lookups never were.
+
+Caveats to design around: the endpoint is unofficial and undocumented, the list is small
+(tens of papers a day) and skewed to LLM work, and it can vanish. Treat it as enrichment that
+degrades to nothing, never a dependency.
+
+Other signals from M5:
+- **Version churn** already comes free from the harvester (`n_versions`), and rises with age
+  from 1.10 to 2.85. Cheap to surface, meaning not yet validated.
+- **Author priors** are free and CC0 but need the citation graph, so they inherit M2's blocker.
+- **Papers with Code is dead**, `paperswithcode.com/api/v1/` returns 302. Removed.
+
+### M6 — Small things. Unblocked
+
+Expiring mutes, focus mode, aging queue, deadline awareness, encrypted export for Syncthing,
+share card. None depend on anything that failed. Deadline awareness is now better founded: the
+corpus shows the venue-acceptance wave directly, so the app can say "ECCV results just landed,
+the digest is unusually competitive this week".
+
+---
+
+## Next, in order
+
+1. **Port BibTeX import to Kotlin.** Highest leverage, already measured, solves cold start.
+2. **Daily worker plus one notification.** Turns the app into a ritual rather than a thing you
+   remember to open.
+3. **Tuning screen.** The weights already exist and the quality multiplier makes them
+   meaningful; exposing them is mostly UI.
+4. **Saved list**, so "save for later" leads somewhere.
+5. **The Resurfacer**, once there is a history of skipped papers worth re-checking.
 
 ## Open items
 
-- RSS abstract content unverified — no non-empty feed existed on 2026-09-08 (F4). Non-blocking;
-  OAI-PMH is the better path regardless.
-- Onboarding screen 2 needs a new landmark source. OpenAlex's top-cited in cs.LG are journal
-  articles, not what the field calls landmarks. Candidate: venue-accepted papers from the blob.
-- Confirm S2 bulk dataset size and update cadence before committing to the blob.
+- Confidence tops out near 0.45 with three ratings. Diagnosed as honest uncertainty, not
+  undertraining: the model separates cleanly at 200 epochs (0.67 vs 0.11) and more epochs make
+  it slightly worse. Worth re-checking once a real user has fifty ratings rather than three.
+- E1 passed on one user's library, n=24 in the control. It is evidence the approach works, not
+  that it generalises.
+- On-device embedder timings are still a projection from a laptop. A Pixel 10 Pro is available
+  if the embedder is ever revisited.
+- RSS abstract content remains unverified; no non-empty feed existed on 2026-09-08. Not
+  blocking, since the app uses the Atom API instead.
