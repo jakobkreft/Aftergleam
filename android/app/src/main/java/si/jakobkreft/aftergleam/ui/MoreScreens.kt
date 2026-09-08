@@ -57,7 +57,7 @@ fun SavedScreen(papers: List<Paper>, onOpen: (Paper) -> Unit, onUnsave: (String)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
-                        p.title,
+                        p.displayTitle,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 3,

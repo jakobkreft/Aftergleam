@@ -23,6 +23,7 @@ import si.jakobkreft.aftergleam.data.ShownItem
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
 import si.jakobkreft.aftergleam.rank.Scored
+import si.jakobkreft.aftergleam.rank.SearchRanker
 import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
 import java.time.LocalDate
@@ -45,6 +46,11 @@ data class FeedState(
     val resurfaced: Resurfaced? = null,
     val backupSummary: String? = null,
     val detail: Paper? = null,
+    val searchQuery: String = "",
+    val searching: Boolean = false,
+    val searchHits: List<SearchRanker.Hit> = emptyList(),
+    val searchError: String? = null,
+    val personalisation: Float = 0.5f,
 )
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -158,11 +164,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             .filter { it.id !in candidateIds }
             .map { it.rankText }
 
-        val ratings = db.ratings()
-        val ratedPapers = db.papersById(ratings.keys)
-        val rated = ratedPapers.mapNotNull { p ->
-            ratings[p.id]?.let { RatedDoc(p.id, p.rankText, it) }
-        }
+        val rated = ratedDocs()
 
         // Papers shown on an earlier day stay out, but today's own digest does not count
         // as seen, otherwise re-ranking would empty the screen.
@@ -342,6 +344,69 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 reactions = emptyMap(), ratedCount = 0, modelActive = false,
             )
             rerank()
+        }
+    }
+
+    fun setSearchQuery(q: String) {
+        _state.value = _state.value.copy(searchQuery = q)
+    }
+
+    fun setPersonalisation(v: Float) {
+        _state.value = _state.value.copy(personalisation = v)
+        if (_state.value.searchHits.isNotEmpty()) reorderSearch()
+    }
+
+    /** Re-orders the results already fetched. Moving the slider must not re-query arXiv. */
+    private fun reorderSearch() {
+        val st = _state.value
+        viewModelScope.launch {
+            val hits = withContext(Dispatchers.Default) {
+                SearchRanker.rank(
+                    results = st.searchHits.map { it.paper },
+                    query = st.searchQuery,
+                    rated = ratedDocs(),
+                    personalisation = st.personalisation,
+                )
+            }
+            _state.value = _state.value.copy(searchHits = hits)
+        }
+    }
+
+    fun runSearch() {
+        val q = _state.value.searchQuery.trim()
+        if (q.length < 2) return
+        _state.value = _state.value.copy(searching = true, searchError = null)
+        viewModelScope.launch {
+            try {
+                val results = ArxivApi.search(q, max = 100)
+                val hits = withContext(Dispatchers.Default) {
+                    val rated = ratedDocs()
+                    // Papers the user has already judged make poor search results and good
+                    // training data, so they inform the ranking without appearing in it.
+                    val ratedIds = rated.mapNotNull { it.paperId }.toSet()
+                    SearchRanker.rank(
+                        results = results.filter { it.id !in ratedIds },
+                        query = q,
+                        rated = rated,
+                        personalisation = _state.value.personalisation,
+                        negativePool = db.recentPapers(limit = 800).map { it.rankText },
+                    )
+                }
+                withContext(Dispatchers.IO) { db.upsertPapers(results) }
+                _state.value = _state.value.copy(searching = false, searchHits = hits)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    searching = false,
+                    searchError = e.message ?: "Search failed",
+                )
+            }
+        }
+    }
+
+    private fun ratedDocs(): List<RatedDoc> {
+        val ratings = db.ratings()
+        return db.papersById(ratings.keys).mapNotNull { p ->
+            ratings[p.id]?.let { RatedDoc(p.id, p.rankText, it) }
         }
     }
 

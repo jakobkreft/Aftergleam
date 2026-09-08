@@ -49,6 +49,20 @@ object ArxivApi {
     }
 
     /**
+     * Free-text search across title, abstract and authors.
+     *
+     * This is arXiv's own keyword index, not semantic search. The UI says so: promising
+     * semantic search over three million papers and delivering keyword matching would be
+     * the kind of lie users notice on their second query.
+     */
+    suspend fun search(query: String, max: Int = 100): List<Paper> {
+        val cleaned = query.trim()
+        if (cleaned.length < 2) return emptyList()
+        val encoded = java.net.URLEncoder.encode("all:$cleaned", "UTF-8")
+        return parse(get("$ENDPOINT?search_query=$encoded&max_results=$max"))
+    }
+
+    /**
      * Phrase search on the title field. Returns candidates for the caller to score; the
      * caller decides what counts as a match, because arXiv will cheerfully return adjacent
      * papers for a well-known title.

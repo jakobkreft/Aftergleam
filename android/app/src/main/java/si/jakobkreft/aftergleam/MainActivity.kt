@@ -23,6 +23,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,8 +40,10 @@ import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
 import si.jakobkreft.aftergleam.ui.SavedScreen
+import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
 import si.jakobkreft.aftergleam.work.DailyDigestWorker
+import si.jakobkreft.aftergleam.work.MetadataRefreshWorker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,7 +53,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val label: String) { TODAY("Today"), SAVED("Saved"), TUNE("Tune") }
+private enum class Tab(val label: String) {
+    TODAY("Today"), SEARCH("Search"), SAVED("Saved"), TUNE("Tune")
+}
 
 @Composable
 private fun App(vm: FeedViewModel = viewModel()) {
@@ -126,6 +131,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
         // also repairs the schedule if the user cleared app data or rebooted.
         LaunchedEffect(Unit) {
             DailyDigestWorker.schedule(context, vm.currentDigestHour())
+            MetadataRefreshWorker.schedule(context)
             if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(
                 android.Manifest.permission.POST_NOTIFICATIONS
             )
@@ -165,6 +171,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 Icon(
                                     when (t) {
                                         Tab.TODAY -> Icons.Filled.List
+                                        Tab.SEARCH -> Icons.Filled.Search
                                         Tab.SAVED -> Icons.Filled.Star
                                         Tab.TUNE -> Icons.Filled.Settings
                                     },
@@ -190,6 +197,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onRerank = vm::rerank,
                         onRefresh = vm::refresh,
                         onDismissResurfaced = vm::dismissResurfaced,
+                    )
+                    Tab.SEARCH -> SearchScreen(
+                        state = state,
+                        onQuery = vm::setSearchQuery,
+                        onSubmit = vm::runSearch,
+                        onPersonalisation = vm::setPersonalisation,
+                        onOpen = vm::openDetail,
                     )
                     Tab.SAVED -> SavedScreen(
                         papers = state.saved,

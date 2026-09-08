@@ -75,7 +75,7 @@ fun DetailScreen(
         item {
             TextButton(onClick = onBack) { Text("Back to digest") }
             Text(
-                paper.title,
+                paper.displayTitle,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -106,7 +106,7 @@ fun DetailScreen(
             Spacer(Modifier.height(12.dp))
 
             // The whole abstract, not a preview. This is the point of the screen.
-            Text(paper.abstract, style = MaterialTheme.typography.bodyMedium)
+            Text(paper.displayAbstract, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(16.dp))
 
             InterestControl(confidence, reaction, modelActive, onRate)

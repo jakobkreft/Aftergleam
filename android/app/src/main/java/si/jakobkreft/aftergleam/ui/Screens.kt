@@ -257,7 +257,7 @@ private fun ResurfacedCard(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                resurfaced.paper.title,
+                resurfaced.paper.displayTitle,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 3,
@@ -304,7 +304,7 @@ private fun PaperCard(
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(
-                p.title,
+                p.displayTitle,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 3,

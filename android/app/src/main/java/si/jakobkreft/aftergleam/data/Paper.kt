@@ -20,6 +20,18 @@ data class Paper(
 ) {
     val primaryCategory: String get() = categories.firstOrNull() ?: ""
 
+    /**
+     * Title with LaTeX stripped, for display.
+     *
+     * arXiv titles are LaTeX source. Shown raw they read as
+     * "Cylin-Painting: Seamless {360\textdegree} Panoramic Image", which looks like a bug
+     * in the app rather than what it is. The ranker already strips this for its own
+     * purposes; the reader deserves the same courtesy.
+     */
+    val displayTitle: String get() = cleanLatex(title)
+
+    val displayAbstract: String get() = cleanLatex(abstract)
+
     val absUrl: String get() = "https://arxiv.org/abs/$id"
 
     val pdfUrl: String get() = "https://arxiv.org/pdf/$id"
@@ -27,6 +39,17 @@ data class Paper(
     /** Text the ranker sees. Title first so its terms carry into the tf weighting twice. */
     val rankText: String get() = "$title. $abstract"
 }
+
+// Raw strings take backslashes literally, so one `\\` here is the regex escape for a single
+// backslash. Writing `\\\\` would match two of them and silently pass everything through.
+private val LATEX_CMD = Regex("""\\(?:text|math)?[a-zA-Z]+\s*""")
+private val LATEX_BRACES = Regex("""[{}$]""")
+
+private fun cleanLatex(s: String): String =
+    LATEX_BRACES.replace(LATEX_CMD.replace(s) { m ->
+        // Keep a space so "360\textdegree Panoramic" does not become "360Panoramic".
+        if (m.value.trimEnd().endsWith("degree")) "\u00b0" else " "
+    }, "").replace(Regex("""\s+"""), " ").trim()
 
 /**
  * How the user reacted to a paper.

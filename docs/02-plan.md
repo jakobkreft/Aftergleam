@@ -67,9 +67,24 @@ Verified end to end on a Pixel 10 Pro, not just compiled:
   truncated file that later looks cached.
 - **A configurable digest time and a notification switch.**
 
+### Added since
+
+- **Search.** D11's two-tier design: arXiv's keyword index for retrieval, then local
+  re-ranking of the hundred results against the user's model. A single slider moves the
+  ordering between "closest to the query" and "closest to me", and moving it reorders what is
+  already fetched rather than re-querying arXiv. The UI says plainly that this is keyword
+  search with personalised reordering, not semantic search over the archive.
+- **A weekly metadata refresh**, which is what actually keeps the Resurfacer supplied. Venue
+  acceptance arrives months after a paper is cached, so the copy on disk is stale for exactly
+  the papers the feature is about. Only papers in the three-to-twelve month window that still
+  lack a venue are refetched, a hundred identifiers per request, so a run is two or three
+  requests a week.
+- **LaTeX stripped from displayed titles.** arXiv titles are LaTeX source and were rendering
+  as "Cylin-Painting: Seamless {360\textdegree} Panoramic Image", which reads as an app bug.
+
 ### Still missing from v1
 
-- **Search.** Not started.
+- Nothing from the original v1 scope. What remains is polish and the v2 features below.
 - **The bridge card** exists but rarely fires: candidates come only from subscribed categories,
   so there is usually nothing outside them to promote. It needs its own small query.
 - **Dwell tracking** as a weak positive. Deferred deliberately; explicit ratings are working
@@ -206,11 +221,13 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **The weekly metadata refresh** that keeps the Resurfacer supplied.
-2. **A bridge query**, so the cross-field slot has candidates to work with.
-3. **Search**, keyword against the arXiv API with local re-ranking.
-4. **The drift report**, which needs only data already stored.
-5. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
+1. **A bridge query**, so the cross-field slot has candidates to work with. It currently
+   almost never fires, because candidates come only from subscribed categories.
+2. **The drift report**, which needs only data already stored.
+3. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
+4. **Catch-up mode**, still blocked on a landmark source. See M2.
+5. **Real-world use.** Every measurement so far comes from one library and one device. The
+   next useful data is a fortnight of actual daily use.
 
 ## Open items
 

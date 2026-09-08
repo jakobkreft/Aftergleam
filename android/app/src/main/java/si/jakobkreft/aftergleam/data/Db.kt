@@ -193,6 +193,28 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
             }
         }
 
+    /**
+     * Papers shown in the given window that still carry no venue.
+     *
+     * These are the Resurfacer's supply. A paper accepted to a conference gets its comments
+     * field edited months after it was announced, long after the app cached it, so the copy
+     * on disk is stale precisely for the papers the feature cares about. Refetching is the
+     * only way to notice.
+     */
+    fun staleMetadataIds(fromDay: String, toDay: String, limit: Int = 200): List<String> =
+        readableDatabase.rawQuery(
+            """
+            SELECT DISTINCT s.paper_id
+            FROM shown s
+            JOIN papers p ON p.id = s.paper_id
+            WHERE s.day BETWEEN ? AND ?
+              AND p.comments = '' AND p.journal_ref = ''
+            ORDER BY s.day DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(fromDay, toDay, limit.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+
     /** The day a paper was first shown, for the "you passed on this in March" line. */
     fun firstShown(paperId: String): String? =
         readableDatabase.rawQuery(
