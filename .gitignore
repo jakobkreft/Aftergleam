@@ -1,0 +1,10 @@
+prototype/data/*
+!prototype/data/.gitkeep
+prototype/out/*
+!prototype/out/.gitkeep
+.venv/
+__pycache__/
+*.pyc
+*.parquet
+*.xml
+models/
