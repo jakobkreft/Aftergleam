@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Attention
+import si.jakobkreft.aftergleam.data.Bridge
 import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
@@ -143,6 +144,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     // is built exactly as it would have been.
                     val hot = Attention.fetch()
                     if (hot.isNotEmpty()) _state.value = _state.value.copy(attention = hot)
+
+                    // One extra request for the bridge slot. Without a pool from outside the
+                    // user's categories there is nothing for that slot to choose from, which
+                    // is why it never fired. Failure is silently fine: the slot just stays
+                    // empty and the digest backfills.
+                    val outside = Bridge.candidatesFor(
+                        subscribed = cats.toSet(),
+                        dayOfYear = LocalDate.now().dayOfYear,
+                    )
+                    if (outside.isNotEmpty()) {
+                        runCatching { ArxivApi.recent(outside, max = 80) }
+                            .onSuccess { withContext(Dispatchers.IO) { db.upsertPapers(it) } }
+                    }
                 }
                 withContext(Dispatchers.Default) { rebuild(cats) }
             } catch (e: Exception) {
@@ -351,25 +365,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(searchQuery = q)
     }
 
+    /**
+     * Moving the slider re-sorts what is already on screen, synchronously.
+     *
+     * Nothing is fetched and nothing is retrained: each hit already carries its query match
+     * and its predicted interest, so this is a comparison over a hundred items. The earlier
+     * version called the full ranker here, which refit the vectoriser and retrained the
+     * classifier for every pixel of the drag.
+     */
     fun setPersonalisation(v: Float) {
-        _state.value = _state.value.copy(personalisation = v)
-        if (_state.value.searchHits.isNotEmpty()) reorderSearch()
-    }
-
-    /** Re-orders the results already fetched. Moving the slider must not re-query arXiv. */
-    private fun reorderSearch() {
         val st = _state.value
-        viewModelScope.launch {
-            val hits = withContext(Dispatchers.Default) {
-                SearchRanker.rank(
-                    results = st.searchHits.map { it.paper },
-                    query = st.searchQuery,
-                    rated = ratedDocs(),
-                    personalisation = st.personalisation,
-                )
-            }
-            _state.value = _state.value.copy(searchHits = hits)
-        }
+        _state.value = st.copy(
+            personalisation = v,
+            searchHits = SearchRanker.reorder(st.searchHits, v),
+        )
     }
 
     fun runSearch() {

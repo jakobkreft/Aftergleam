@@ -24,6 +24,19 @@ object SearchRanker {
         }
     }
 
+    /**
+     * Re-orders hits that have already been scored.
+     *
+     * Both components are computed once, at search time, so changing the balance between
+     * them is a comparison and nothing more. Re-running [rank] here would refit the
+     * vectoriser and retrain the classifier on every pixel of a slider drag, which is a
+     * few hundred milliseconds of work repeated dozens of times a second.
+     */
+    fun reorder(hits: List<Hit>, personalisation: Float): List<Hit> =
+        hits.sortedByDescending {
+            (1f - personalisation) * it.queryMatch + personalisation * it.interest
+        }
+
     fun rank(
         results: List<Paper>,
         query: String,
@@ -44,9 +57,7 @@ object SearchRanker {
             val match = cosine(qv, queryVec.transform(paper.rankText))
             val interest = model?.let { (vec, clf) -> clf.predict(vec.transform(paper.rankText)) } ?: 0f
             Hit(paper, match, interest)
-        }.sortedByDescending {
-            (1f - personalisation) * it.queryMatch + personalisation * it.interest
-        }
+        }.let { reorder(it, personalisation) }
     }
 
     private fun trainInterest(

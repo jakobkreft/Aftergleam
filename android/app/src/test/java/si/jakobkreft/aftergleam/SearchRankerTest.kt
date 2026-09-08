@@ -68,6 +68,25 @@ class SearchRankerTest {
     }
 
     @Test
+    fun `reorder alone reproduces what a full rank would give`() {
+        val q = "panoramic camera calibration geometry"
+        val scored = SearchRanker.rank(results, q, rated, 0f, negatives)
+        // Re-sorting the existing hits must match re-running the whole ranker, otherwise
+        // the slider and the search button would disagree about the same results.
+        val viaReorder = SearchRanker.reorder(scored, 1f).map { it.paper.id }
+        val viaRank = SearchRanker.rank(results, q, rated, 1f, negatives).map { it.paper.id }
+        assertEquals(viaRank, viaReorder)
+    }
+
+    @Test
+    fun `reorder preserves every result`() {
+        val scored = SearchRanker.rank(results, "panoramic", rated, 0.5f, negatives)
+        val moved = SearchRanker.reorder(scored, 0.9f)
+        assertEquals(scored.size, moved.size)
+        assertEquals(scored.map { it.paper.id }.toSet(), moved.map { it.paper.id }.toSet())
+    }
+
+    @Test
     fun `empty results are handled`() {
         assertTrue(SearchRanker.rank(emptyList(), "anything", rated).isEmpty())
     }

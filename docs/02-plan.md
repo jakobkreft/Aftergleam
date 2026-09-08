@@ -82,6 +82,20 @@ Verified end to end on a Pixel 10 Pro, not just compiled:
 - **LaTeX stripped from displayed titles.** arXiv titles are LaTeX source and were rendering
   as "Cylin-Painting: Seamless {360\textdegree} Panoramic Image", which reads as an app bug.
 
+### Added since
+
+- **The bridge card actually fires.** It could not before, for a structural reason: candidates
+  came only from subscribed categories, so "the best paper outside your fields" was always
+  chosen from an empty set. It now costs one extra request against a rotating set of
+  neighbouring fields. Which neighbours matters — sampling the whole taxonomy uniformly
+  returns things with no plausible connection, and the risk the design named for this feature
+  was surfacing papers that share vocabulary rather than ideas. So the pool is a curated
+  adjacency map (cs.CV to graphics, medical imaging, neuroscience) that rotates by day.
+  Verified on device: `math.OC, outside your usual`.
+- **The search slider reorders instantly.** It never re-queried arXiv, but it did refit the
+  vectoriser and retrain the classifier on every pixel of a drag. Both components are already
+  computed per hit at search time, so changing the balance is now a re-sort of a hundred items.
+
 ### Still missing from v1
 
 - Nothing from the original v1 scope. What remains is polish and the v2 features below.
@@ -221,11 +235,12 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **A bridge query**, so the cross-field slot has candidates to work with. It currently
-   almost never fires, because candidates come only from subscribed categories.
-2. **The drift report**, which needs only data already stored.
-3. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
-4. **Catch-up mode**, still blocked on a landmark source. See M2.
+1. **The drift report**, which needs only data already stored.
+2. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
+3. **Catch-up mode**, still blocked on a landmark source. See M2.
+4. **Does the bridge survive contact with reality?** This was open question 4 in the original
+   design and is now answerable: the slot fires, so rating the cards it produces over a few
+   weeks will show whether cross-field suggestions are interesting or merely word-matched.
 5. **Real-world use.** Every measurement so far comes from one library and one device. The
    next useful data is a fortnight of actual daily use.
 
