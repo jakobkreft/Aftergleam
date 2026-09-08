@@ -179,6 +179,7 @@ fun FeedScreen(
                 )
             }
             item { EndCard(state, onRerank, onRefresh) }
+            state.drift?.let { item { DriftCard(it) } }
         }
     }
 }
@@ -385,6 +386,58 @@ private fun EndCard(state: FeedState, onRerank: () -> Unit, onRefresh: () -> Uni
         // arXiv announces once a weekday and a second fetch returns the same papers.
         TextButton(onClick = onRerank) { Text("Re-rank with my ratings") }
         TextButton(onClick = onRefresh) { Text("Check arXiv for new papers") }
+    }
+}
+
+/**
+ * The weekly read on where the user's attention has moved, and where the model missed.
+ *
+ * Deliberately placed after the end card. It is a reflection on the week, not another thing
+ * to get through, and it should not compete with the papers for attention.
+ */
+@Composable
+private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Your reading, lately", style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+
+            if (report.thin) {
+                // Saying "not yet" is better than inventing a trend from four papers.
+                Text(
+                    "Not enough history yet. After a couple of weeks of rating, this is " +
+                        "where the shift in what you read shows up.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                if (report.rising.isNotEmpty()) {
+                    Text("More of: " + report.rising.joinToString(", "),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (report.falling.isNotEmpty()) {
+                    Text("Less of: " + report.falling.joinToString(", "),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (report.recurringAuthors.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Authors you keep coming back to: " +
+                        report.recurringAuthors.joinToString(", "),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            report.explorationNote()?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

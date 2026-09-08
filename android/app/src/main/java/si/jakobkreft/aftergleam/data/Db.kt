@@ -221,6 +221,48 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
             "SELECT MIN(day) FROM shown WHERE paper_id = ?", arrayOf(paperId)
         ).use { if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null }
 
+    /** Papers rated in a time range, with the rating, for the drift report. */
+    fun ratedBetween(fromMillis: Long, toMillis: Long): List<Pair<Paper, Float>> =
+        readableDatabase.rawQuery(
+            """
+            SELECT p.*, r.interest AS rated
+            FROM reactions r JOIN papers p ON p.id = r.paper_id
+            WHERE r.interest IS NOT NULL AND r.ts >= ? AND r.ts < ?
+            """.trimIndent(),
+            arrayOf(fromMillis.toString(), toMillis.toString()),
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(cursorToPaper(c) to c.getFloat(c.getColumnIndexOrThrow("rated")))
+                }
+            }
+        }
+
+    /**
+     * How exploration cards fared: how many the user actually judged, and how many of those
+     * they liked.
+     *
+     * The denominator counts only rated cards on purpose. An exploration card the user never
+     * rated is not a card that failed, it is one they did not reach, and scoring it as a miss
+     * would be the same mistake as treating everything scrolled past as a negative. The first
+     * version of this counted all shown cards and duly announced that ten of ten had failed
+     * when in truth none had been judged at all.
+     */
+    fun explorationOutcome(fromDay: String, toDay: String): Pair<Int, Int> =
+        readableDatabase.rawQuery(
+            """
+            SELECT COUNT(*) AS judged,
+                   SUM(CASE WHEN r.interest >= 0.5 THEN 1 ELSE 0 END) AS liked
+            FROM shown s JOIN reactions r ON r.paper_id = s.paper_id
+            WHERE s.slot = 'EXPLORATION' AND s.day BETWEEN ? AND ?
+              AND r.interest IS NOT NULL
+            """.trimIndent(),
+            arrayOf(fromDay, toDay),
+        ).use { c ->
+            if (c.moveToFirst()) c.getInt(0) to (if (c.isNull(1)) 0 else c.getInt(1))
+            else 0 to 0
+        }
+
     fun clearReactions() = writableDatabase.use { it.delete("reactions", null, null) }
 
     fun allReactions(): Map<String, Reaction> =

@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Bridge
+import si.jakobkreft.aftergleam.data.Drift
 import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
@@ -52,6 +53,7 @@ data class FeedState(
     val searchHits: List<SearchRanker.Hit> = emptyList(),
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
+    val drift: Drift.Report? = null,
 )
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -105,6 +107,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     ratedCount = reactions.count { it.value.rated },
                     modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
                     resurfaced = resurfaced,
+                    drift = withContext(Dispatchers.IO) { computeDrift() },
                 )
             } else {
                 sync(force = false)
@@ -212,6 +215,29 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             ratedCount = rated.size,
             modelActive = rated.size >= Ranker.MIN_RATINGS,
             resurfaced = findResurfaced(),
+            drift = computeDrift(),
+        )
+    }
+
+    /**
+     * Compares the last fortnight of ratings against the fortnight before it.
+     *
+     * Two weeks is short enough that a change of project shows up and long enough that a
+     * single evening of reading does not look like a trend.
+     */
+    private fun computeDrift(): Drift.Report {
+        val now = System.currentTimeMillis()
+        val fortnight = 14L * 24 * 60 * 60 * 1000
+        val today = LocalDate.now()
+        val (judged, liked) = db.explorationOutcome(
+            fromDay = today.minusDays(14).toString(),
+            toDay = today.toString(),
+        )
+        return Drift.compute(
+            recent = db.ratedBetween(now - fortnight, now),
+            earlier = db.ratedBetween(now - 2 * fortnight, now - fortnight),
+            explorationJudged = judged,
+            explorationLiked = liked,
         )
     }
 

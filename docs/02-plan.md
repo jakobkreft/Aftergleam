@@ -189,9 +189,25 @@ thing F1 showed does not exist for ML preprints via OpenAlex. Options, in order 
 
 Not started. Option 2 is a reasonable v2 stopgap.
 
-### M3 — Drift report. Viable and cheap, not built
+### M3 — Drift report. Built
 
-Needs only centroid deltas and topic histograms over data already stored. Nothing blocks it.
+Sits after the end card, because it is a reflection on the week rather than another thing to
+get through. Compares the last fortnight of ratings against the one before it and reports
+topics rising and falling, authors the user keeps returning to, and how exploration fared.
+
+Three details that decide whether it reads as true:
+
+- **Shares, not counts.** A fortnight of simply reading more would otherwise register as
+  every topic rising at once.
+- **"Not enough history yet"** rather than a trend invented from four papers. Verified on
+  device, where two days of history correctly produces exactly that.
+- **The exploration line counts only cards the user actually rated.** The first version
+  counted every card shown and duly announced "none of the 10 exploration cards landed" when
+  in truth none had been judged at all. Scoring an unrated card as a failure is the same
+  error as treating everything scrolled past as a negative, which D8 exists to avoid.
+
+The last of those is the honest-miss line the design asked for, and it is worth keeping
+uncomfortable: an app that only ever reports success is one you stop believing.
 
 ### M4 — The LLM. Unchanged, still deferred
 
@@ -235,14 +251,15 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **The drift report**, which needs only data already stored.
-2. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
-3. **Catch-up mode**, still blocked on a landmark source. See M2.
-4. **Does the bridge survive contact with reality?** This was open question 4 in the original
+1. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
+2. **Catch-up mode**, still blocked on a landmark source. See M2.
+3. **Does the bridge survive contact with reality?** This was open question 4 in the original
    design and is now answerable: the slot fires, so rating the cards it produces over a few
    weeks will show whether cross-field suggestions are interesting or merely word-matched.
-5. **Real-world use.** Every measurement so far comes from one library and one device. The
-   next useful data is a fortnight of actual daily use.
+4. **Real-world use.** Every measurement so far comes from one library and one device, and
+   several features now say "not enough history yet" because that is the truth. The next
+   useful data is a fortnight of actual daily use: it is what makes the drift report, the
+   resurfacer and the bridge answerable rather than merely built.
 
 ## Open items
 
