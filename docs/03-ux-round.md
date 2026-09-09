@@ -93,6 +93,55 @@ judgement worth moving between devices.
 list, and leaving the reader parked halfway down the previous ranking hides the very change
 they asked to see.
 
+## Third pass: the survey was only ever about machine learning
+
+The paper survey drew from a hardcoded list of a dozen probes, almost all of them machine
+learning, and offered a "skip, just show me machine learning" escape. For a biologist or a
+physicist that is a survey about somebody else's field followed by an insulting exit.
+
+**Onboarding is now two stages, subjects then papers.**
+
+`Topics.kt` is a two-level map of the archive: seven fields, roughly forty topics, each
+carrying the arXiv categories it covers and a short seed text written in the vocabulary those
+abstracts actually use.
+
+**Do keyword seeds work as a preference?** Yes, and this was worth checking rather than
+assuming. The ranker is TF-IDF over text, so a topic is just a short pseudo-document. A test
+confirms that seeds alone, with no paper judged, already rank a genomics abstract above a
+finance one. That is enough for a first digest and it costs no network call.
+
+They are weaker than a judged paper, so they are weighted at 0.7 against the 0.9 an explicit
+"interested" carries. They keep contributing rather than being discarded at the first rating,
+because three ratings is a thinner picture of a person than the fields they told us about.
+
+What the subjects mainly buy is **direction**: they decide which categories are fetched and
+which papers the survey asks about. Verified on device by onboarding as a physicist, which now
+produces `astro-ph.CO astro-ph.GA` as the first question instead of a language model paper.
+
+**The survey has an undo.** A one-tap judgement with no way back bakes a slip into the model,
+and by the time the reader notices they cannot find the card again. Undo deletes the rating
+rather than inverting it, so it leaves no trace; confirmed against the database.
+
+**Subjects are editable afterwards**, in Tune, because the onboarding copy promises exactly
+that.
+
+## PDF reading
+
+- Already-downloaded papers open straight into the reader. Asking a second time for a file
+  sitting on disk is a button whose only function is to be pressed.
+- Pinch to zoom, up to 4x, with a "Fit" control once zoomed. The page is **re-rendered** at
+  the zoomed width rather than scaled as a bitmap, so text stays sharp: zooming in to read a
+  figure caption is the main reason to zoom a paper, and a blurry enlargement would defeat it.
+  Render requests are rounded to half steps so a pinch does not ask for a new render per frame.
+
+## A note on device data
+
+Partway through this round the app's uid changed from `u0_a304` to `u0_a305`, which means it
+was uninstalled and reinstalled rather than updated, and the ratings went with it. Restored
+from a backup taken earlier in the session. Exactly which command caused it is not something
+I could establish after the fact. The lesson is to export a backup before any onboarding test,
+which the app can now do from Tune.
+
 ## Still open
 
 - Fetching shows a label for each stage but no true progress bar, because the arXiv call is a

@@ -24,6 +24,31 @@ object Taste {
      */
     data class Probe(val label: String, val category: String, val phrase: String)
 
+    /**
+     * Probes for the topics the user actually chose.
+     *
+     * Each topic contributes one probe per category it covers, capped so a reader who picks
+     * many topics is not asked forty questions.
+     */
+    fun probesFor(topicKeys: Set<String>, cap: Int = 12): List<Probe> {
+        val chosen = topicKeys.mapNotNull { Topics.topic(it) }
+        if (chosen.isEmpty()) return PROBES.take(cap)
+        // Round-robin over topics so the questions alternate subject from the start.
+        val perTopic = chosen.map { t ->
+            t.categories.map { cat -> Probe(t.label, cat, t.seed.split(" ").take(4).joinToString(" ")) }
+        }
+        val out = mutableListOf<Probe>()
+        var i = 0
+        while (out.size < cap && perTopic.any { i < it.size }) {
+            for (group in perTopic) {
+                group.getOrNull(i)?.let { if (out.size < cap) out += it }
+            }
+            i++
+        }
+        return out
+    }
+
+    /** Fallback set, used only if somebody reaches the survey having chosen nothing. */
     val PROBES: List<Probe> = listOf(
         Probe("Language models", "cs.CL", "large language model reasoning"),
         Probe("Image generation", "cs.CV", "diffusion model image generation"),

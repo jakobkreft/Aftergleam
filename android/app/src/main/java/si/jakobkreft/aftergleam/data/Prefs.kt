@@ -13,6 +13,11 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("categories", emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet("categories", v).apply()
 
+    /** Topic keys chosen during onboarding, seeding the model before any paper is judged. */
+    var seedTopics: Set<String>
+        get() = sp.getStringSet("seed_topics", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("seed_topics", v).apply()
+
     var onboarded: Boolean
         get() = sp.getBoolean("onboarded", false)
         set(v) = sp.edit().putBoolean("onboarded", v).apply()

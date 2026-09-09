@@ -44,6 +44,7 @@ fun TuneScreen(
     reminderHour: Int,
     reminderEnabled: Boolean,
     theme: String,
+    topics: Set<String>,
     ratedCount: Int,
     importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
@@ -55,6 +56,7 @@ fun TuneScreen(
     onNotifyEnabled: (Boolean) -> Unit,
     onReminder: (Boolean, Int) -> Unit,
     onTheme: (String) -> Unit,
+    onTopics: (Set<String>) -> Unit,
     onPickLibrary: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
@@ -113,6 +115,39 @@ fun TuneScreen(
         }
 
         item {
+            // Onboarding promises these can be changed later, so they must be changeable.
+            Text("Subjects", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "What you chose at the start. These seed the ranking and decide which " +
+                    "categories are fetched; your ratings matter more as they accumulate.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            si.jakobkreft.aftergleam.data.Topics.FIELDS.forEach { field ->
+                Text(
+                    field.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                )
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    field.topics.forEach { t ->
+                        androidx.compose.material3.FilterChip(
+                            selected = t.key in topics,
+                            onClick = {
+                                onTopics(if (t.key in topics) topics - t.key else topics + t.key)
+                            },
+                            label = { Text(t.label) },
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
             Text("Ranking", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(10.dp))
 

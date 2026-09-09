@@ -24,6 +24,7 @@ import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
 import si.jakobkreft.aftergleam.data.ShownItem
 import si.jakobkreft.aftergleam.data.Taste
+import si.jakobkreft.aftergleam.data.Topics
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
 import si.jakobkreft.aftergleam.rank.Scored
@@ -60,6 +61,7 @@ data class FeedState(
     val drift: Drift.Report? = null,
     val theme: String = "system",
     val survey: SurveyState = SurveyState(),
+    val topics: Set<String> = emptySet(),
 )
 
 /**
@@ -78,7 +80,10 @@ data class SurveyState(
     val seen: Int = 0,
     val expected: Int = 0,
     val failed: Boolean = false,
+    /** Answered cards, newest last, so a mis-tap can be taken back. */
+    val history: List<Pair<Taste.Probe, Paper>> = emptyList(),
 ) {
+    val canGoBack: Boolean get() = history.isNotEmpty()
     val started: Boolean get() = expected > 0
     /** Out of papers and none still coming. */
     val done: Boolean get() = deck.isEmpty() && !loading && started
@@ -90,6 +95,12 @@ data class SurveyState(
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
+    private companion object {
+        /** Below the 0.9 an explicit "interested" carries, so real judgements dominate. */
+        const val SEED_WEIGHT = 0.7f
+    }
+
+
     private val db = Db(app)
     private val prefs = Prefs(app)
 
@@ -98,6 +109,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             categories = prefs.categories,
             onboarded = prefs.onboarded,
             theme = prefs.theme,
+            topics = prefs.seedTopics,
         )
     )
     val state: StateFlow<FeedState> = _state.asStateFlow()
@@ -113,17 +125,27 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * first pass alone gives a card from every field, so the questions alternate subject
      * from the very start, and the second pass only matters for someone who keeps going.
      */
+    /**
+     * Starts the paper survey using the topics the user chose, not a fixed list.
+     *
+     * The previous version drew from a hardcoded set that was almost all machine learning,
+     * so anyone outside that field was asked to judge a dozen papers they had no reason to
+     * care about.
+     */
     fun startSurvey() {
         val sv = _state.value.survey
         if (sv.started || sv.loading) return
+
+        val probes = Taste.probesFor(prefs.seedTopics)
+        if (probes.isEmpty()) return
         _state.value = _state.value.copy(
-            survey = SurveyState(loading = true, expected = Taste.PROBES.size * 2)
+            survey = SurveyState(loading = true, expected = probes.size * 2)
         )
 
         viewModelScope.launch {
             var any = false
             for (pass in 0 until 2) {
-                for (probe in Taste.PROBES) {
+                for (probe in probes) {
                     val fetched = runCatching {
                         ArxivApi.probe(probe.category, probe.phrase, max = pass + 1)
                     }.getOrDefault(emptyList())
@@ -172,15 +194,50 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 deck = sv.deck.drop(1),
                 liked = if (liked) sv.liked + head else sv.liked,
                 seen = sv.seen + 1,
+                history = sv.history + head,
             ),
             reactions = db.allReactions(),
         )
     }
 
+    /**
+     * Takes back the last answer.
+     *
+     * A survey of one-tap judgements with no way back punishes a slip by baking it into the
+     * model, and the reader has no way of knowing which card it was by the time they notice.
+     * The rating is deleted rather than inverted, so undo leaves no trace.
+     */
+    fun undoSurveyAnswer() {
+        val sv = _state.value.survey
+        val last = sv.history.lastOrNull() ?: return
+        db.setReaction(last.second.id, Reaction.NONE)
+        _state.value = _state.value.copy(
+            survey = sv.copy(
+                deck = listOf(last) + sv.deck,
+                liked = sv.liked.filterNot { it.second.id == last.second.id },
+                seen = (sv.seen - 1).coerceAtLeast(0),
+                history = sv.history.dropLast(1),
+            ),
+            reactions = db.allReactions(),
+        )
+    }
+
+    /** Records the chosen topics and their categories, before any papers are fetched. */
+    fun setTopics(keys: Set<String>) {
+        prefs.seedTopics = keys
+        val cats = Topics.categoriesFor(keys)
+        if (cats.isNotEmpty()) prefs.categories = cats
+        _state.value = _state.value.copy(categories = cats, topics = keys)
+    }
+
     /** Finishes onboarding using what the survey learned. */
     fun finishSurvey() {
         val sv = _state.value.survey
-        val cats = Taste.categoriesFrom(sv.liked.map { it.second }, sv.liked.map { it.first })
+        // Categories from the topics chosen, widened by what the liked papers turned out to
+        // be cross-listed under. A paper found under "generative models" is often filed
+        // somewhere more useful than the probe that surfaced it.
+        val cats = Topics.categoriesFor(prefs.seedTopics) +
+            Taste.categoriesFrom(sv.liked.map { it.second }, sv.liked.map { it.first })
         prefs.categories = cats
         prefs.onboarded = true
         val reactions = db.allReactions()
@@ -605,11 +662,21 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Training documents: papers the user rated, plus the topics they chose at onboarding.
+     *
+     * Topic seeds are weighted below an explicit rating. They are a statement of direction
+     * rather than a judgement of a specific paper, and once real ratings exist those should
+     * win. They keep contributing rather than being discarded at the first rating, because a
+     * handful of ratings is a thinner picture of someone than the fields they told us about.
+     */
     private fun ratedDocs(): List<RatedDoc> {
         val ratings = db.ratings()
-        return db.papersById(ratings.keys).mapNotNull { p ->
+        val judged = db.papersById(ratings.keys).mapNotNull { p ->
             ratings[p.id]?.let { RatedDoc(p.id, p.rankText, it) }
         }
+        val seeds = Topics.seedsFor(prefs.seedTopics).map { RatedDoc(null, it, SEED_WEIGHT) }
+        return judged + seeds
     }
 
     fun openDetail(paper: Paper) {

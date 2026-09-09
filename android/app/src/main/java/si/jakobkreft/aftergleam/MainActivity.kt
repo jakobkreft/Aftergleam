@@ -115,16 +115,16 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 Box(Modifier.padding(inner)) {
                     OnboardingScreen(
                         survey = state.survey,
+                        topics = state.topics,
                         importProgress = state.importProgress,
                         importSummary = state.importSummary,
+                        onTopics = vm::setTopics,
                         onStart = vm::startSurvey,
                         onAnswer = vm::answerSurvey,
+                        onBack = vm::undoSurveyAnswer,
                         onFinish = vm::finishSurvey,
                         onImport = { pickLibrary.launch(arrayOf("*/*")) },
-                        onSkip = {
-                            vm.setCategories(setOf("cs.LG"))
-                            vm.finishOnboarding()
-                        },
+                        onSkip = vm::finishOnboarding,
                     )
                 }
             }
@@ -236,6 +236,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         reminderHour = vm.currentReminderHour(),
                         reminderEnabled = vm.currentReminderEnabled(),
                         theme = state.theme,
+                        topics = state.topics,
                         ratedCount = state.ratedCount,
                         importProgress = state.importProgress,
                         importSummary = state.importSummary,
@@ -251,6 +252,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         },
                         onNotifyEnabled = vm::setNotifyEnabled,
                         onTheme = vm::setTheme,
+                        onTopics = vm::setTopics,
                         onReminder = { on, hour ->
                             vm.setReminderEnabled(on)
                             vm.setReminderHour(hour)

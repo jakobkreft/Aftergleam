@@ -25,7 +25,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import si.jakobkreft.aftergleam.data.LibraryImport
+import si.jakobkreft.aftergleam.data.Topics
 
 /**
  * Onboarding as a taste survey rather than a category form.
@@ -43,20 +50,34 @@ import si.jakobkreft.aftergleam.data.LibraryImport
 @Composable
 fun OnboardingScreen(
     survey: SurveyState,
+    topics: Set<String>,
     importProgress: LibraryImport.Progress?,
     importSummary: String?,
+    onTopics: (Set<String>) -> Unit,
     onStart: () -> Unit,
     onAnswer: (Boolean) -> Unit,
+    onBack: () -> Unit,
     onFinish: () -> Unit,
     onImport: () -> Unit,
     onSkip: () -> Unit,
 ) {
+    var step by rememberSaveable { mutableStateOf(0) }
     when {
-        !survey.started -> Column(
+        !survey.started && step == 0 -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)
-        ) { Intro(onStart, onImport, onSkip, importProgress, importSummary) }
+        ) { Intro({ step = 1 }, onImport, importProgress, importSummary) }
 
-        survey.deck.isNotEmpty() -> Question(survey, onAnswer, onFinish)
+        !survey.started -> TopicPicker(
+            selected = topics,
+            onToggle = { key ->
+                onTopics(if (key in topics) topics - key else topics + key)
+            },
+            onBack = { step = 0 },
+            onSurvey = onStart,
+            onSkip = onSkip,
+        )
+
+        survey.deck.isNotEmpty() -> Question(survey, onAnswer, onBack, onFinish)
 
         // Only reachable if the reader outpaces the loader, or on the very first fetch.
         survey.waiting -> Column(
@@ -73,7 +94,6 @@ fun OnboardingScreen(
 private fun Intro(
     onStart: () -> Unit,
     onImport: () -> Unit,
-    onSkip: () -> Unit,
     importProgress: LibraryImport.Progress?,
     importSummary: String?,
 ) {
@@ -85,9 +105,9 @@ private fun Intro(
     )
     Spacer(Modifier.height(16.dp))
     Text(
-        "Rather than asking which categories you follow, it will show you a dozen real " +
-            "papers and ask whether you would read them. That takes about a minute and " +
-            "gives a far better starting point than any list of category names.",
+        "First pick the subjects you work in. Then, if you like, judge a few real papers " +
+            "from those subjects, which sharpens the ranking considerably. About a minute " +
+            "in total.",
         style = MaterialTheme.typography.bodyMedium,
     )
     Spacer(Modifier.height(12.dp))
@@ -98,7 +118,7 @@ private fun Intro(
     )
     Spacer(Modifier.height(24.dp))
     Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-        Text("Show me some papers")
+        Text("Choose my subjects")
     }
     Spacer(Modifier.height(12.dp))
 
@@ -130,8 +150,75 @@ private fun Intro(
         Text(it, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary)
     }
-    Spacer(Modifier.height(8.dp))
-    TextButton(onClick = onSkip) { Text("Skip, just show me machine learning") }
+}
+
+/**
+ * Subjects first, papers second.
+ *
+ * This is the whole archive, not one corner of it. Each topic carries vocabulary drawn from
+ * how its abstracts are actually written, so choosing a few is already enough to rank a
+ * first digest, and it decides which papers the survey will ask about.
+ */
+@Composable
+private fun TopicPicker(
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    onBack: () -> Unit,
+    onSurvey: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("Back") }
+            Spacer(Modifier.weight(1f))
+            Text("${selected.size} chosen", style = MaterialTheme.typography.labelMedium)
+        }
+        Text("What do you work on?", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Pick as many as apply. You can change all of this later.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Topics.FIELDS.forEach { field ->
+                Text(
+                    field.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    field.topics.forEach { t ->
+                        FilterChip(
+                            selected = t.key in selected,
+                            onClick = { onToggle(t.key) },
+                            label = { Text(t.label) },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = onSurvey,
+            enabled = selected.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                if (selected.isEmpty()) "Pick at least one subject"
+                else "Now show me some papers"
+            )
+        }
+        if (selected.isNotEmpty()) {
+            TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
+                Text("Skip the papers, these subjects are enough")
+            }
+        }
+    }
 }
 
 /** Shown only while the deck is momentarily empty, which is the first fetch or a fast reader. */
@@ -159,14 +246,27 @@ private fun Preparing(survey: SurveyState) {
  * every time is the difference between a minute and a chore.
  */
 @Composable
-private fun Question(survey: SurveyState, onAnswer: (Boolean) -> Unit, onFinish: () -> Unit) {
+private fun Question(
+    survey: SurveyState,
+    onAnswer: (Boolean) -> Unit,
+    onBack: () -> Unit,
+    onFinish: () -> Unit,
+) {
     val (_, paper) = survey.deck.first()
     Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Text(
-            "Would you read this?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Would you read this?",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.weight(1f))
+            // A one-tap survey with no way back turns a slip into a training example the
+            // reader cannot find again.
+            if (survey.canGoBack) {
+                TextButton(onClick = onBack) { Text("Undo") }
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             "Paper ${survey.seen + 1} · ${survey.liked.size} kept" +

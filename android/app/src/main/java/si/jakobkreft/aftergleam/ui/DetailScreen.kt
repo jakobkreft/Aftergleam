@@ -27,7 +27,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,10 +72,12 @@ fun DetailScreen(
 ) {
     val context = LocalContext.current
     val store = remember { PdfStore(context) }
-    // rememberSaveable, not remember: a rotation recreates the activity and plain remember
-    // would close the PDF the reader had open. The file itself is already cached on disk,
-    // so only this flag was standing between them and their place in the paper.
-    var showPdf by rememberSaveable(paper.id) { mutableStateOf(false) }
+    // Already downloaded means already wanted: asking a second time for a file that is
+    // sitting on disk is a button whose only function is to be pressed.
+    //
+    // rememberSaveable, not remember: a rotation recreates the activity, and plain remember
+    // would close the PDF the reader had open.
+    var showPdf by rememberSaveable(paper.id) { mutableStateOf(store.isCached(paper.id)) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -124,9 +132,7 @@ fun DetailScreen(
             Spacer(Modifier.height(12.dp))
 
             if (!showPdf) {
-                Button(onClick = { showPdf = true }) {
-                    Text(if (store.isCached(paper.id)) "Read the PDF" else "Download the PDF")
-                }
+                Button(onClick = { showPdf = true }) { Text("Download the PDF") }
                 Text(
                     "Downloads once and stays available offline.",
                     style = MaterialTheme.typography.labelSmall,
@@ -184,27 +190,71 @@ private fun PdfSection(store: PdfStore, paper: Paper, onOpenExternal: (String) -
     }
 }
 
-/** Pages render one at a time and are held only while on screen. */
+/**
+ * One page, pinch to zoom.
+ *
+ * The page is re-rendered at the zoomed width rather than scaled as a bitmap, so text stays
+ * sharp instead of going soft the moment anyone zooms in to read a figure caption, which is
+ * the main reason to zoom a paper at all. Re-rendering is debounced by rounding the request
+ * to whole steps, so a pinch does not ask for a new render on every frame.
+ */
 @Composable
 private fun PdfPage(store: PdfStore, file: java.io.File, index: Int, widthPx: Int) {
-    val bitmap by produceState<Bitmap?>(null, file, index, widthPx) {
-        value = store.renderPage(file, index, widthPx)
+    var scale by remember(file, index) { mutableFloatStateOf(1f) }
+    var offset by remember(file, index) { mutableStateOf(Offset.Zero) }
+    val renderScale = scale.coerceIn(1f, MAX_ZOOM).let { kotlin.math.round(it * 2f) / 2f }
+
+    val bitmap by produceState<Bitmap?>(null, file, index, widthPx, renderScale) {
+        value = store.renderPage(file, index, (widthPx * renderScale).toInt())
     }
+
     val bmp = bitmap
-    if (bmp == null) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(0.707f)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) { CircularProgressIndicator() }
-    } else {
-        Image(
-            bitmap = bmp.asImageBitmap(),
-            contentDescription = "Page ${index + 1}",
-            modifier = Modifier.fillMaxWidth().background(Color.White),
-        )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clipToBounds()
+            .pointerInput(file, index) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, MAX_ZOOM)
+                    offset = if (scale <= 1f) Offset.Zero else offset + pan
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bmp == null) {
+            Box(
+                Modifier.fillMaxWidth().aspectRatio(0.707f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
+        } else {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Page ${index + 1}",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        // The bitmap is already rendered at renderScale, so only the
+                        // remainder is applied as a transform.
+                        val residual = scale / renderScale
+                        scaleX = residual
+                        scaleY = residual
+                        translationX = offset.x
+                        translationY = offset.y
+                    }
+                    .background(Color.White),
+            )
+        }
+        if (scale > 1f) {
+            TextButton(
+                onClick = { scale = 1f; offset = Offset.Zero },
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) { Text("Fit") }
+        }
     }
 }
+
+private const val MAX_ZOOM = 4f
 
 private sealed interface PdfState {
     data object Loading : PdfState
