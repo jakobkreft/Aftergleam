@@ -121,7 +121,7 @@ fun TuneScreen(
             Spacer(Modifier.height(4.dp))
             Text(
                 "What you chose at the start. These seed the ranking and decide which " +
-                    "categories are fetched; your ratings matter more as they accumulate.",
+                    "categories are fetched; your reactions matter more as they accumulate.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -223,18 +223,22 @@ fun TuneScreen(
                     "can be useful.",
                 style = MaterialTheme.typography.labelSmall,
             )
-            Slider(hour, { hour = it }, valueRange = 0f..23f, steps = 22)
+            Slider(
+                value = hour,
+                onValueChange = { hour = it },
+                onValueChangeFinished = { onDigestHour(hour.roundToInt()) },
+                valueRange = 0f..23f,
+                steps = 22,
+            )
             androidx.compose.foundation.layout.Row(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Switch(checked = notify, onCheckedChange = { notify = it })
-                Spacer(Modifier.height(0.dp))
+                androidx.compose.material3.Switch(
+                    checked = notify,
+                    onCheckedChange = { notify = it; onNotifyEnabled(it) },
+                )
                 Text("  Notify me once when it is ready",
                     style = MaterialTheme.typography.bodyMedium)
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = { onDigestHour(hour.roundToInt()); onNotifyEnabled(notify) }) {
-                Text("Save schedule")
             }
 
             Spacer(Modifier.height(20.dp))
@@ -244,21 +248,27 @@ fun TuneScreen(
                     "stays quiet if you have already been through the digest.",
                 style = MaterialTheme.typography.labelSmall,
             )
+            // Saved as it changes. A switch and an hour are single, reversible choices,
+            // and asking someone to confirm a toggle they can see the effect of is a step
+            // that only exists to be forgotten.
             androidx.compose.foundation.layout.Row(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
                 androidx.compose.material3.Switch(
-                    checked = remindOn, onCheckedChange = { remindOn = it }
+                    checked = remindOn,
+                    onCheckedChange = { remindOn = it; onReminder(it, remindHour.roundToInt()) },
                 )
                 Text("  Remind me at %02d:00".format(remindHour.roundToInt()),
                     style = MaterialTheme.typography.bodyMedium)
             }
             if (remindOn) {
-                Slider(remindHour, { remindHour = it }, valueRange = 0f..23f, steps = 22)
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = { onReminder(remindOn, remindHour.roundToInt()) }) {
-                Text("Save reminder")
+                Slider(
+                    value = remindHour,
+                    onValueChange = { remindHour = it },
+                    onValueChangeFinished = { onReminder(remindOn, remindHour.roundToInt()) },
+                    valueRange = 0f..23f,
+                    steps = 22,
+                )
             }
 
             Spacer(Modifier.height(24.dp))
@@ -267,7 +277,7 @@ fun TuneScreen(
             Text("Backup", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Your ratings as a plain JSON file. There is no account and no server, so " +
+                "Your reactions as a plain JSON file. There is no account and no server, so " +
                     "this is how a model moves to another phone: put it in a synced folder " +
                     "and the sync app does the rest.",
                 style = MaterialTheme.typography.bodySmall,
@@ -290,14 +300,14 @@ fun TuneScreen(
             Spacer(Modifier.height(12.dp))
             Text("Model", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
-            Text("$ratedCount papers rated.", style = MaterialTheme.typography.bodySmall)
+            Text("$ratedCount papers reacted to.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             // Trust requires an exit. Confirming in place avoids a dialog dependency.
             if (!confirmReset) {
                 OutlinedButton(onClick = { confirmReset = true }) { Text("Reset the model") }
             } else {
                 Text(
-                    "This deletes every rating and save. Papers stay cached.",
+                    "This deletes every reaction and save. Papers stay cached.",
                     style = MaterialTheme.typography.labelSmall,
                 )
                 androidx.compose.foundation.layout.Row {

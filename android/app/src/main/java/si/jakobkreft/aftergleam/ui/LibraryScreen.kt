@@ -43,9 +43,9 @@ private enum class Shelf(val label: String) {
 /**
  * Everything the reader has accumulated, in one place.
  *
- * The Rated shelf exists because a model trained on ratings the user cannot see or change is
- * not tunable, only obeyed. Every rating here can be moved or removed, and the model picks
- * that up on the next re-rank.
+ * The reacted shelf exists because a model trained on judgements the reader cannot see or
+ * change is not tunable, only obeyed. Every reaction here can be changed or cleared, and the
+ * model picks that up on the next re-rank.
  */
 @Composable
 fun LibraryScreen(
@@ -80,8 +80,8 @@ fun LibraryScreen(
         when (shelf) {
             Shelf.SAVED -> Shelf(
                 papers = saved,
-                empty = "Nothing saved yet. Saving is separate from rating: rate a paper to " +
-                    "teach the model, save it to come back to it.",
+                empty = "Nothing saved yet. Saving is separate from reacting: react to teach " +
+                    "the model, save to come back to it.",
                 onOpen = onOpen,
             ) { p ->
                 IconButton(onClick = { onUnsave(p.id) }) {

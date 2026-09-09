@@ -75,8 +75,6 @@ data class FeedState(
     val personalisation: Float = 0.5f,
     val searchScope: SearchScope = SearchScope.ARXIV,
     val drift: Drift.Report? = null,
-    /** A first, unpersonalised digest is on screen while the model is still training. */
-    val personalising: Boolean = false,
     val explore: List<Scored> = emptyList(),
     val exploreLoading: Boolean = false,
     val popular: List<Paper> = emptyList(),
@@ -493,7 +491,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val reactions = db.allReactions()
         _state.value = _state.value.copy(
             loading = false,
-            personalising = false,
             cards = cards,
             reactions = reactions,
             emptyDay = cards.isEmpty(),

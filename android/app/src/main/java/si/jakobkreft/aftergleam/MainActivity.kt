@@ -245,7 +245,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 putExtra(Intent.EXTRA_SUBJECT, detail.displayTitle)
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "${detail.displayTitle}\n${detail.absUrl}",
+                                    // Title, link, then a single quiet line of provenance.
+                                    // Anything longer turns a shared paper into an advert,
+                                    // and the person receiving it wanted the paper.
+                                    "${detail.displayTitle}\n${detail.absUrl}" +
+                                        "\n\nFound with Aftergleam, an offline arXiv reader.",
                                 )
                             }
                             context.startActivity(Intent.createChooser(share, null))
@@ -368,15 +372,23 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             selected = tab == t,
                             onClick = { tab = t },
                             icon = {
-                                Icon(
-                                    when (t) {
-                                        Tab.TODAY -> Icons.Filled.List
-                                        Tab.EXPLORE -> Icons.Filled.Place
-                                        Tab.POPULAR -> Icons.Filled.ThumbUp
-                                        Tab.LIBRARY -> Icons.Filled.Star
-                                    },
-                                    contentDescription = t.label,
-                                )
+                                if (t == Tab.EXPLORE) {
+                                    Icon(
+                                        androidx.compose.ui.res.painterResource(
+                                            si.jakobkreft.aftergleam.R.drawable.ic_explore
+                                        ),
+                                        contentDescription = t.label,
+                                    )
+                                } else {
+                                    Icon(
+                                        when (t) {
+                                            Tab.TODAY -> Icons.Filled.List
+                                            Tab.POPULAR -> Icons.Filled.ThumbUp
+                                            else -> Icons.Filled.Star
+                                        },
+                                        contentDescription = t.label,
+                                    )
+                                }
                             },
                             label = { Text(t.label) },
                         )

@@ -177,7 +177,9 @@ fun InterestControl(
                 when (liked) {
                     true -> "You asked for more like this"
                     false -> "You asked for less like this"
-                    null -> "Predicted for you: ${(confidence * 100).roundToInt()}%"
+                    // No percentage. It was taken off the cards for looking precise when it
+                    // is not, and it was no more honest here.
+                    null -> "Ranked for you. Tell it if that is wrong."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = if (liked != null) MaterialTheme.colorScheme.primary
@@ -267,7 +269,7 @@ private fun EndCard(state: FeedState, onRerank: () -> Unit, onRefresh: () -> Uni
         Spacer(Modifier.height(12.dp))
         // Re-ranking is local and instant. Fetching is separate and rate limited, because
         // arXiv announces once a weekday and a second fetch returns the same papers.
-        TextButton(onClick = onRerank) { Text("Re-rank with my ratings") }
+        TextButton(onClick = onRerank) { Text("Shuffle with my reactions") }
         TextButton(onClick = onRefresh) { Text("Check arXiv for new papers") }
     }
 }

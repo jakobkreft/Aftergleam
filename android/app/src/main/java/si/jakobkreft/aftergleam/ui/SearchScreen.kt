@@ -87,7 +87,9 @@ fun SearchScreen(
                 value = state.searchQuery,
                 onValueChange = onQuery,
                 modifier = Modifier.weight(1f),
-                label = { Text("Search arXiv") },
+                // Not "Search arXiv": the scope chips below say where, and two of the three
+                // do not touch arXiv at all.
+                label = { Text("Search anything") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { dismiss(); onSubmit() }),
