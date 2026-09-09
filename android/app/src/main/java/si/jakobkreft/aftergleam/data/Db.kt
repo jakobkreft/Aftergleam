@@ -212,7 +212,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
         } else {
             db.insertWithOnConflict("reactions", null, ContentValues().apply {
                 put("paper_id", paperId)
-                if (r.interest != null) put("interest", r.interest) else putNull("interest")
+                // `interest` is left untouched: the column exists only so the migration that
+                // reads it once still can. Judgements go to the signal ledger.
                 put("saved", if (r.saved) 1 else 0)
                 put("viewed", if (r.viewed) 1 else 0)
                 put("ts", System.currentTimeMillis())
@@ -231,32 +232,25 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
     fun resurfaceCandidates(
         fromDay: String,
         toDay: String,
-        threshold: Float = 0.5f,
         limit: Int = 20,
-    ): List<Pair<Paper, Float?>> =
+    ): List<Paper> =
         readableDatabase.rawQuery(
             """
-            SELECT p.*, r.interest AS rated
+            SELECT p.*
             FROM shown s
             JOIN papers p ON p.id = s.paper_id
-            LEFT JOIN reactions r ON r.paper_id = s.paper_id
             WHERE s.day BETWEEN ? AND ?
-              AND (r.interest IS NULL OR r.interest < ?)
               AND (p.comments != '' OR p.journal_ref != '')
+              AND NOT EXISTS (
+                SELECT 1 FROM signals g
+                WHERE g.paper_id = s.paper_id AND g.signal != 'PASSED'
+              )
             GROUP BY p.id
             ORDER BY s.day DESC
             LIMIT ?
             """.trimIndent(),
-            arrayOf(fromDay, toDay, threshold.toString(), limit.toString()),
-        ).use { c ->
-            buildList {
-                while (c.moveToNext()) {
-                    val rated = if (c.isNull(c.getColumnIndexOrThrow("rated"))) null
-                    else c.getFloat(c.getColumnIndexOrThrow("rated"))
-                    add(cursorToPaper(c) to rated)
-                }
-            }
-        }
+            arrayOf(fromDay, toDay, limit.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) add(cursorToPaper(c)) } }
 
     /**
      * Papers shown in the given window that still carry no venue.
@@ -286,22 +280,21 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
             "SELECT MIN(day) FROM shown WHERE paper_id = ?", arrayOf(paperId)
         ).use { if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null }
 
-    /** Papers rated in a time range, with the rating, for the drift report. */
-    fun ratedBetween(fromMillis: Long, toMillis: Long): List<Pair<Paper, Float>> =
-        readableDatabase.rawQuery(
-            """
-            SELECT p.*, r.interest AS rated
-            FROM reactions r JOIN papers p ON p.id = r.paper_id
-            WHERE r.interest IS NOT NULL AND r.ts >= ? AND r.ts < ?
-            """.trimIndent(),
+    /**
+     * Papers judged in a time range, with their label, for the drift report.
+     *
+     * Dated by the first signal each paper earned in the window, so "what moved this
+     * fortnight" means what the reader engaged with this fortnight.
+     */
+    fun ratedBetween(fromMillis: Long, toMillis: Long): List<Pair<Paper, Float>> {
+        val ids = readableDatabase.rawQuery(
+            "SELECT DISTINCT paper_id FROM signals WHERE ts >= ? AND ts < ?",
             arrayOf(fromMillis.toString(), toMillis.toString()),
-        ).use { c ->
-            buildList {
-                while (c.moveToNext()) {
-                    add(cursorToPaper(c) to c.getFloat(c.getColumnIndexOrThrow("rated")))
-                }
-            }
-        }
+        ).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
+        if (ids.isEmpty()) return emptyList()
+        val labels = evidence()
+        return papersById(ids).mapNotNull { p -> labels[p.id]?.label()?.let { p to it } }
+    }
 
     /**
      * How exploration cards fared: how many the user actually judged, and how many of those
@@ -316,11 +309,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
     fun explorationOutcome(fromDay: String, toDay: String): Pair<Int, Int> =
         readableDatabase.rawQuery(
             """
-            SELECT COUNT(*) AS judged,
-                   SUM(CASE WHEN r.interest >= 0.5 THEN 1 ELSE 0 END) AS liked
-            FROM shown s JOIN reactions r ON r.paper_id = s.paper_id
+            SELECT COUNT(DISTINCT s.paper_id) AS judged,
+                   COUNT(DISTINCT CASE WHEN g.signal = 'LIKED' THEN s.paper_id END) AS liked
+            FROM shown s JOIN signals g ON g.paper_id = s.paper_id
             WHERE s.slot = 'EXPLORATION' AND s.day BETWEEN ? AND ?
-              AND r.interest IS NOT NULL
+              AND g.signal IN ('LIKED', 'DISLIKED')
             """.trimIndent(),
             arrayOf(fromDay, toDay),
         ).use { c ->
@@ -420,44 +413,48 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
             "(lower(p.title) LIKE ? OR lower(p.abstract) LIKE ? OR lower(p.authors) LIKE ?)"
         }
         val args = terms.flatMap { listOf("%$it%", "%$it%", "%$it%") }.toMutableList()
-        val join = if (savedOnly) {
-            "JOIN reactions r ON r.paper_id = p.id AND (r.saved = 1 OR r.interest IS NOT NULL)"
+        // "My library" is what the reader has saved or reacted to. The reaction half of that
+        // has to come from the ledger; keyed off `interest` it silently narrowed to saves.
+        val where2 = if (savedOnly) {
+            """ AND (
+              EXISTS (SELECT 1 FROM reactions r WHERE r.paper_id = p.id AND r.saved = 1)
+              OR EXISTS (SELECT 1 FROM signals g WHERE g.paper_id = p.id
+                         AND g.signal IN ('LIKED', 'DISLIKED'))
+            )"""
         } else ""
         args += limit.toString()
         return readableDatabase.rawQuery(
-            "SELECT p.* FROM papers p $join WHERE $where ORDER BY p.published DESC LIMIT ?",
+            "SELECT p.* FROM papers p WHERE $where$where2 ORDER BY p.published DESC LIMIT ?",
             args.toTypedArray(),
         ).use { it.toPapers() }
     }
 
     fun clearSignals() { writableDatabase.delete("signals", null, null) }
 
-    fun clearReactions() { writableDatabase.delete("reactions", null, null) }
+    /**
+     * Forgets everything the reader has taught the app.
+     *
+     * Both tables. Clearing only `reactions` left the whole signal ledger in place, so the
+     * setting that promises to reset the model kept every judgement it had ever recorded and
+     * the next digest was ranked exactly as before. Trust requires the exit to actually work.
+     */
+    fun clearFeedback() = writableDatabase.let { db ->
+        db.delete("reactions", null, null)
+        db.delete("signals", null, null)
+    }
 
     fun allReactions(): Map<String, Reaction> =
         readableDatabase.rawQuery(
-            "SELECT paper_id, interest, saved, viewed FROM reactions", null
+            "SELECT paper_id, saved, viewed FROM reactions", null
         ).use { c ->
             buildMap {
                 while (c.moveToNext()) {
                     put(
                         c.getString(0),
-                        Reaction(
-                            interest = if (c.isNull(1)) null else c.getFloat(1),
-                            saved = c.getInt(2) == 1,
-                            viewed = c.getInt(3) == 1,
-                        )
+                        Reaction(saved = c.getInt(1) == 1, viewed = c.getInt(2) == 1),
                     )
                 }
             }
-        }
-
-    /** Rated papers with their rating, the training set. */
-    fun ratings(): Map<String, Float> =
-        readableDatabase.rawQuery(
-            "SELECT paper_id, interest FROM reactions WHERE interest IS NOT NULL", null
-        ).use { c ->
-            buildMap { while (c.moveToNext()) put(c.getString(0), c.getFloat(1)) }
         }
 
     fun markShown(items: List<ShownItem>, day: String) = writableDatabase.let { db ->

@@ -21,7 +21,6 @@ data class Resurfaced(
     val paper: Paper,
     val venue: String,
     val shownOn: String,
-    val wasRated: Float?,
 ) {
     /**
      * Framed as discovery, never as failure. The design note is explicit that this reads as

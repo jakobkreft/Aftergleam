@@ -61,19 +61,20 @@ private fun cleanLatex(s: String): String =
     }, "").replace(Regex("""\s+"""), " ").trim()
 
 /**
- * How the user reacted to a paper.
+ * The two flags that are not judgements: whether a paper is on the reader's shelf, and
+ * whether they have opened it.
  *
- * [interest] is a continuous 0..1 rating rather than a star, so the user can say "somewhat"
- * instead of only yes or no. The buttons remain, as shortcuts to 0.9 and 0.1, because most
- * reactions really are binary and dragging a slider for each one would be tedious.
+ * Everything the model learns from lives in the signal ledger instead. This class used to
+ * carry an `interest` rating as well, and keeping it after the ledger arrived was the whole
+ * problem: onboarding, library import and backup restore all wrote judgements here, where
+ * nothing read them, so a reader could answer twenty survey questions and teach the ranker
+ * nothing. The field is gone so that it cannot happen again; the column survives in the
+ * database only for the migration that reads it once.
  *
- * [saved] is deliberately orthogonal and does not train anything. Starring and saving were
- * originally separate actions that did nearly the same job; collapsing the judgement into
- * [interest] leaves "save" to mean only "come back to this", which is a different intent
- * from "this is my kind of paper".
+ * [saved] is deliberately orthogonal and does not train anything, so "save" means only
+ * "come back to this", which is a different intent from "this is my kind of paper".
  */
 data class Reaction(
-    val interest: Float? = null,
     val saved: Boolean = false,
     /**
      * The paper's own screen has been opened.
@@ -85,13 +86,9 @@ data class Reaction(
      */
     val viewed: Boolean = false,
 ) {
-    val rated: Boolean get() = interest != null
-
-    val empty: Boolean get() = interest == null && !saved && !viewed
+    val empty: Boolean get() = !saved && !viewed
 
     companion object {
-        const val LIKED = 0.9f
-        const val DISLIKED = 0.1f
         val NONE = Reaction()
     }
 }

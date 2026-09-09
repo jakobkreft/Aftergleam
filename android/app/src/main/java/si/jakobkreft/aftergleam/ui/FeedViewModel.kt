@@ -103,6 +103,17 @@ data class FeedState(
             else -> null
         }
     }
+
+    /** The paper behind an id, from whichever surface is currently holding it. */
+    fun paperById(id: String): Paper? =
+        cards.firstOrNull { it.paper.id == id }?.paper
+            ?: explore.firstOrNull { it.paper.id == id }?.paper
+            ?: searchHits.firstOrNull { it.paper.id == id }?.paper
+            ?: popular.firstOrNull { it.id == id }
+            ?: saved.firstOrNull { it.id == id }
+            ?: downloaded.firstOrNull { it.id == id }
+            ?: detail?.takeIf { it.id == id }
+            ?: resurfaced?.paper?.takeIf { it.id == id }
 }
 
 /**
@@ -267,10 +278,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun answerSurvey(liked: Boolean) {
         val sv = _state.value.survey
         val head = sv.deck.firstOrNull() ?: return
-        db.setReaction(
-            head.second.id,
-            Reaction(interest = if (liked) Reaction.LIKED else Reaction.DISLIKED),
-        )
+        // Into the ledger, which is the only thing the model reads. This used to write the
+        // legacy `interest` column instead, so a reader who finished onboarding taught the
+        // ranker precisely nothing and the library showed their answers with neither chip lit.
+        db.addSignal(head.second.id, if (liked) Signal.LIKED else Signal.DISLIKED)
+        invalidateModel()
         _state.value = _state.value.copy(
             survey = sv.copy(
                 deck = sv.deck.drop(1),
@@ -278,7 +290,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 seen = sv.seen + 1,
                 history = sv.history + head,
             ),
-            reactions = db.allReactions(),
+            evidence = db.evidence(),
+            ratedCount = evidenceCount(),
         )
     }
 
@@ -292,7 +305,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun undoSurveyAnswer() {
         val sv = _state.value.survey
         val last = sv.history.lastOrNull() ?: return
-        db.setReaction(last.second.id, Reaction.NONE)
+        db.removeSignal(last.second.id, Signal.LIKED)
+        db.removeSignal(last.second.id, Signal.DISLIKED)
+        invalidateModel()
         _state.value = _state.value.copy(
             survey = sv.copy(
                 deck = listOf(last) + sv.deck,
@@ -300,7 +315,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 seen = (sv.seen - 1).coerceAtLeast(0),
                 history = sv.history.dropLast(1),
             ),
-            reactions = db.allReactions(),
+            evidence = db.evidence(),
+            ratedCount = evidenceCount(),
         )
     }
 
@@ -327,8 +343,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             categories = cats,
             onboarded = true,
             reactions = reactions,
-            ratedCount = reactions.count { it.value.rated },
-            modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+            evidence = db.evidence(),
+            ratedCount = evidenceCount(),
+            modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
         )
         sync(force = true)
     }
@@ -367,8 +384,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value = _state.value.copy(
                     cards = cards,
                     reactions = reactions,
-                    ratedCount = reactions.count { it.value.rated },
-                    modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    evidence = db.evidence(),
+                    ratedCount = evidenceCount(),
+                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     resurfaced = resurfaced,
                     drift = withContext(Dispatchers.IO) { computeDrift() },
                 )
@@ -507,8 +525,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             cards = cards,
             reactions = reactions,
             emptyDay = cards.isEmpty(),
-            ratedCount = rated.size,
-            modelActive = rated.size >= Ranker.MIN_RATINGS,
+            // `rated` includes the seed documents built from the chosen subjects, which the
+            // ranker legitimately fits on but the reader never reacted to. Counting them
+            // here made the header claim judgements that did not exist and switched the
+            // model on before it had been taught anything.
+            ratedCount = evidenceCount(),
+            modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
             resurfaced = findResurfaced(),
             drift = computeDrift(),
         )
@@ -546,12 +568,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             fromDay = today.minusMonths(12).toString(),
             toDay = today.minusMonths(3).toString(),
         )
-        for ((paper, rated) in candidates) {
+        for (paper in candidates) {
             val venue = Venue.of(paper) ?: continue
             // A workshop is not the "this turned out to matter" moment the feature promises.
             if (Venue.isWorkshop(paper)) continue
             val shown = db.firstShown(paper.id) ?: continue
-            return Resurfaced(paper, venue, shown, rated)
+            return Resurfaced(paper, venue, shown)
         }
         return null
     }
@@ -559,10 +581,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissResurfaced(stillNotInterested: Boolean) {
         val r = _state.value.resurfaced ?: return
         // "Still not interested" is itself a strong training signal, so record it.
-        if (stillNotInterested) db.setReaction(r.paper.id, Reaction(interest = Reaction.DISLIKED))
+        if (stillNotInterested) {
+            db.addSignal(r.paper.id, Signal.DISLIKED)
+            invalidateModel()
+        }
         _state.value = _state.value.copy(
             resurfaced = null,
-            reactions = db.allReactions(),
+            evidence = db.evidence(),
+            ratedCount = evidenceCount(),
         )
     }
 
@@ -575,8 +601,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val reactions = db.allReactions()
                 _state.value = _state.value.copy(
                     reactions = reactions,
-                    ratedCount = reactions.count { it.value.rated },
-                    modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    evidence = db.evidence(),
+                    ratedCount = evidenceCount(),
+                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     categories = prefs.categories,
                     backupSummary = "Restored ${r.reactions} ratings.",
                 )
@@ -593,29 +620,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(backupSummary = "Exported to $name.")
     }
 
-    /** Sets an explicit interest rating. Passing null clears it. */
-    fun rate(paperId: String, interest: Float?) {
-        val current = _state.value.reactions[paperId] ?: Reaction.NONE
-        val next = current.copy(interest = interest)
-        db.setReaction(paperId, next)
-        val reactions = db.allReactions()
-        _state.value = _state.value.copy(
-            reactions = reactions,
-            ratedCount = reactions.count { it.value.rated },
-            // Keep the library list in step, so changing a rating there does not leave the
-            // row showing the old value until the tab is reopened.
-            ratedPapers = _state.value.ratedPapers.mapNotNull { (p, old) ->
-                if (p.id == paperId) interest?.let { p to it } else p to old
-            },
-        )
-    }
-
     /**
-     * Imports a library and rates every resolved paper as liked.
+     * Imports a library, recording every resolved paper as an explicit like.
      *
-     * These are papers the user chose to read, which is a stronger positive than anything
-     * the app can infer from a tap, so they seed the model at 0.9 rather than 1.0: leaving
-     * headroom means a later explicit rating can still outrank an imported one.
+     * These are papers the reader chose to keep, which is the same claim the "more like
+     * this" button makes, so it is written as the same signal. It used to be written to the
+     * legacy rating column, where the model never saw it: importing a hundred papers taught
+     * the ranker nothing at all.
      */
     fun importLibrary(text: String) {
         viewModelScope.launch {
@@ -626,16 +637,15 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 withContext(Dispatchers.IO) {
                     db.upsertPapers(result.papers)
-                    result.papers.forEach {
-                        db.setReaction(it.id, Reaction(interest = Reaction.LIKED))
-                    }
+                    result.papers.forEach { db.addSignal(it.id, Signal.LIKED) }
                 }
                 val reactions = db.allReactions()
                 _state.value = _state.value.copy(
                     importProgress = null,
                     reactions = reactions,
-                    ratedCount = reactions.count { it.value.rated },
-                    modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+                    evidence = db.evidence(),
+                    ratedCount = evidenceCount(),
+                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     importSummary = buildString {
                         append("Matched ${result.papers.size} of ${result.total}.")
                         if (result.unmatched > 0) {
@@ -662,7 +672,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             val store = PdfStore(getApplication())
             val loaded = withContext(Dispatchers.IO) {
                 val saved = db.papersById(reactions.filterValues { it.saved }.keys)
-                val ratings = db.ratings()
+                // Explicit judgements only. The shelf's promise is "everything you told it,
+                // where you can change your mind", and a paper you merely opened is not
+                // something you said. It used to read the legacy rating column, so it showed
+                // whatever onboarding had written and never grew as you reacted.
+                val judged = db.evidence().filterValues { it.explicit }
+                val ratings = judged.mapValues { (_, e) -> e.label() ?: 0f }
                 val rated = db.papersById(ratings.keys)
                     .mapNotNull { p -> ratings[p.id]?.let { p to it } }
                     .sortedByDescending { it.second }
@@ -706,9 +721,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Clears the model but keeps papers. Trust requires an exit. */
     fun resetModel() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { db.clearReactions() }
+            withContext(Dispatchers.IO) { db.clearFeedback() }
+            invalidateModel()
             _state.value = _state.value.copy(
-                reactions = emptyMap(), ratedCount = 0, modelActive = false,
+                reactions = emptyMap(), evidence = emptyMap(), ratedPapers = emptyList(),
+                ratedCount = 0, modelActive = false,
             )
             rerank()
         }
@@ -852,10 +869,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             null -> Unit
         }
         val ev = db.evidence()
+        val judged = ev.count { it.value.label() != null }
+        // Keep the library shelf in step. Reacting to a paper in the digest has to make it
+        // appear there, and clearing a reaction has to remove it, without reopening the tab.
+        val shelf = _state.value.ratedPapers.filterNot { it.first.id == paperId } +
+            listOfNotNull(
+                _state.value.ratedPapers.firstOrNull { it.first.id == paperId }?.first
+                    ?: _state.value.paperById(paperId),
+            ).filter { liked != null }.map { it to (ev[paperId]?.label() ?: 0f) }
         _state.value = _state.value.copy(
             evidence = ev,
-            ratedCount = ev.count { it.value.label() != null },
-            modelActive = ev.count { it.value.label() != null } >= Ranker.MIN_RATINGS,
+            ratedCount = judged,
+            modelActive = judged >= Ranker.MIN_RATINGS,
+            ratedPapers = shelf.sortedByDescending { it.second },
         )
     }
 

@@ -448,3 +448,42 @@ on every launch where no fetch was due, which is most weekends, with nothing on 
 so. They are now a table, loaded before the first frame, replaced wholesale on each fetch and
 pruned at thirty days. Confirmed on device: force-stop, relaunch with no fetch due, and the
 tab still ranks by attention with the Hugging Face attribution on the cards.
+
+## The ledger had two halves that never met
+
+Reported from use: after onboarding from scratch, the library's reacted shelf listed the
+survey answers with neither chip lit, and reacting to papers in the digest never made the
+count grow.
+
+Both were the same defect. The signal ledger replaced the rating column, but the column stayed
+behind, and the code split down the middle: onboarding, library import, backup restore and the
+resurfacer all wrote judgements to `reactions.interest`, while the model, the library and the
+chips all read the ledger. Nothing failed. The two halves simply addressed different tables.
+
+What that cost, beyond the two visible symptoms:
+
+- **Onboarding taught the ranker nothing.** Twenty survey answers, zero training examples. The
+  only reason any of this worked was the one-off migration that copied the column into the
+  ledger when the ledger was introduced; every judgement written afterwards was invisible.
+- **Importing a library taught it nothing either**, which was meant to be the fastest way in.
+- **Backups carried saves and no judgements.** A year of reactions would have silently failed
+  to arrive on a new phone.
+- **"Reset the model" reset nothing the model reads.** It cleared the reactions table and left
+  the entire ledger in place, so the next digest ranked exactly as before.
+- **The drift report and the exploration outcome** were empty for anyone who had only ever
+  used the buttons, and the resurfacer offered back papers the reader had already engaged with.
+
+Everything now reads and writes one store. The rating field is deleted from the `Reaction`
+class rather than merely abandoned, so there is no second place left to write and the compiler
+enforces it; the column survives in the database only for the migration that reads it once.
+
+**A third, smaller version of the same confusion.** The header claimed "ranked from N papers
+you have reacted to" using a count that included the seed documents built from the chosen
+subjects. Those are synthetic text the ranker legitimately fits on, not papers anyone reacted
+to, so a reader who had judged nothing was told they had judged two, and the model switched
+itself on one reaction early.
+
+Verified by wiping the device and onboarding from scratch: six survey answers produced four
+ledger rows and no rows in the old column, the shelf showed four papers with three More and
+one Less lit, and reacting to two more in the digest took the shelf to six.
+
