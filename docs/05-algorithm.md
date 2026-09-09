@@ -583,3 +583,47 @@ needed a model. The catch-up list took seventeen seconds for that reason. Traini
 digest is already on screen took it to five, and does the same for the first search of a
 session, which had been an open item since the search rewrite.
 
+## More than one preprint server
+
+"No cell biology?" turned out to be two questions with two different answers.
+
+**The taxonomy was a fraction of arXiv's own**: 37 topics reaching 54 categories where arXiv
+has around 150. Cell biology, software engineering, chemistry, information retrieval,
+programming languages, nuclear physics and most of pure mathematics were all missing, for no
+reason except that the list had been written from one field outward. Now 82 topics reaching
+105 categories.
+
+**And the rest is genuinely not on arXiv.** No chemistry archive, no medicine, and a biology
+section that is quantitative biology rather than wet-lab work. bioRxiv and medRxiv are now
+first-class sources: one public JSON API, no key and no bot check, returning the title and
+abstract the ranker needs plus a `published` field that gives the venue signal for free by
+the same route arXiv does, months later on a paper that turned out to matter.
+
+**What multi-source costs.** Identifiers, URLs and category names all become per-server, and
+every one of those is a place where a bioRxiv DOI can be handed to arXiv. Three real bugs came
+out of it, and the shape of each is worth keeping:
+
+- **A filter comparing two different namespaces.** Subjects are stored qualified
+  (`biorxiv:cell biology`) so that bioRxiv's "genomics" and arXiv's `q-bio.GN` stay separate
+  feeds; the fetch then compared the qualified form against the API's bare subject name and
+  matched nothing. The failure was not an error, it was a server appearing to have posted
+  nothing that week.
+- **Two cursor mappers.** `Db` built a `Paper` column by column in two places, and the new
+  `source` column was added to one of them. Every paper in every *list* claimed to be from
+  arXiv while the row in the table said bioRxiv: a missing label first, a broken PDF link next.
+  There is one mapper now.
+- **Text that had quietly become false.** "On arXiv" on a bioRxiv paper, and "recent in your
+  categories" on a paper fetched for the bridge slot that was in nobody's categories. The
+  second now names the category instead of claiming it.
+
+**The picker had to change shape.** Nine fields and 82 topics in one flat scroll buried biology
+and medicine under twenty computer science chips, so the reader who most needed to know they
+were there had to scroll past everything they did not want to find out. Collapsed, the first
+screen is the map: nine lines saying what this app covers, with a count on each.
+
+Verified end to end on a fresh install as a cell biologist: 95 bioRxiv papers fetched across
+cell biology, cancer biology and immunology; a digest of 25 with 23 of them from bioRxiv; the
+card reading "Grzes et al. · bioRxiv · cancer biology"; and a 21-page bioRxiv PDF downloading
+and rendering in the built-in reader. The v6 to v7 migration was then run against a real
+database of 1974 papers and 125 signals with nothing lost.
+

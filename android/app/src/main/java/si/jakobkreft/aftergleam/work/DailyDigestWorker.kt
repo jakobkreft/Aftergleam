@@ -14,6 +14,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import si.jakobkreft.aftergleam.MainActivity
 import si.jakobkreft.aftergleam.data.ArxivApi
+import si.jakobkreft.aftergleam.data.BioRxivApi
+import si.jakobkreft.aftergleam.data.Source
+import si.jakobkreft.aftergleam.data.Topics
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Prefs
 import java.time.Duration
@@ -36,11 +39,20 @@ class DailyDigestWorker(
 
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
-        val cats = prefs.categories.toList()
-        if (cats.isEmpty()) return Result.success()
+        val subscribed = prefs.categories
+        if (subscribed.isEmpty()) return Result.success()
 
         return try {
-            val papers = ArxivApi.recent(cats, max = 300)
+            val papers = mutableListOf<si.jakobkreft.aftergleam.data.Paper>()
+            val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
+            if (arxivCats.isNotEmpty()) papers += ArxivApi.recent(arxivCats, max = 300)
+            for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
+                val subjects = Topics.categoriesOf(server, subscribed)
+                if (subjects.isNotEmpty()) {
+                    papers += runCatching { BioRxivApi.recent(server, subjects) }
+                        .getOrDefault(emptyList())
+                }
+            }
             Db(applicationContext).upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
             if (papers.isNotEmpty() && prefs.notifyEnabled) notify(papers.size)

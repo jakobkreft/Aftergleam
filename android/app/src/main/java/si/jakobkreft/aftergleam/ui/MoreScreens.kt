@@ -220,7 +220,8 @@ fun TuneScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                "arXiv announces once each weekday evening, so one run a day is all that " +
+                "arXiv announces once each weekday evening and bioRxiv posts daily, so " +
+                "one run a day is all that " +
                     "can be useful.",
                 style = MaterialTheme.typography.labelSmall,
             )
@@ -334,7 +335,8 @@ fun TuneScreen(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Papers come from arXiv, which asks for one request every three seconds; " +
+                "Papers come from arXiv, bioRxiv and medRxiv, whichever subjects you " +
+                "chose. arXiv asks for one request every three seconds; " +
                     "the app stays well inside that. Popularity counts come from the " +
                     "Hugging Face daily papers list, fetched whole so it says nothing " +
                     "about you. Ranking, your reactions and everything you read stay on " +
@@ -343,7 +345,8 @@ fun TuneScreen(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Thanks to arXiv for its open access interoperability.",
+                "Thanks to arXiv for its open access interoperability, and to bioRxiv and " +
+                    "medRxiv for a public API that asks nothing of the reader.",
                 style = MaterialTheme.typography.labelSmall,
             )
             Spacer(Modifier.height(32.dp))

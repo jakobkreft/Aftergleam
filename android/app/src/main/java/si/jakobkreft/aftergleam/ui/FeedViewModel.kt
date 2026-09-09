@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
+import si.jakobkreft.aftergleam.data.Source
+import si.jakobkreft.aftergleam.data.BioRxivApi
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Bridge
 import si.jakobkreft.aftergleam.data.Drift
@@ -306,8 +308,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             var any = false
             for (pass in 0 until 2) {
                 for (probe in probes) {
+                    // bioRxiv has no keyword-plus-subject search, so a probe there is
+                    // simply the subject's recent papers. Either way the survey shows real
+                    // current work rather than a frozen list that ages badly.
                     val fetched = runCatching {
-                        ArxivApi.probe(probe.category, probe.phrase, max = pass + 1)
+                        if (probe.source == Source.ARXIV) {
+                            ArxivApi.probe(probe.category, probe.phrase, max = pass + 1)
+                        } else {
+                            BioRxivApi.recent(
+                                server = probe.source,
+                                subjects = setOf(probe.category),
+                                days = 4,
+                                maxPages = 4,
+                            )
+                        }
                     }.getOrDefault(emptyList())
 
                     // On the second pass ask for two and keep the one not already seen.
@@ -493,8 +507,28 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 if (shouldFetch) {
-                    _state.value = _state.value.copy(loadingLabel = "Fetching from arXiv")
-                    val papers = ArxivApi.recent(cats, max = 300)
+                    val subscribed = cats.toSet()
+                    val papers = mutableListOf<Paper>()
+
+                    val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
+                    if (arxivCats.isNotEmpty()) {
+                        _state.value = _state.value.copy(loadingLabel = "Fetching from arXiv")
+                        papers += ArxivApi.recent(arxivCats, max = 300)
+                    }
+
+                    // Each server is optional and independent: somebody who only reads
+                    // biology never waits on arXiv, and a server being down or slow costs
+                    // the digest that server's papers rather than the whole morning.
+                    for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
+                        val subjects = Topics.categoriesOf(server, subscribed)
+                        if (subjects.isEmpty()) continue
+                        _state.value = _state.value.copy(
+                            loadingLabel = "Fetching from ${Source.label(server)}"
+                        )
+                        papers += runCatching { BioRxivApi.recent(server, subjects) }
+                            .getOrDefault(emptyList())
+                    }
+
                     _state.value = _state.value.copy(
                         loadingLabel = "Got ${papers.size} papers, checking what is popular"
                     )
@@ -521,8 +555,22 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         dayOfYear = LocalDate.now().dayOfYear,
                     )
                     if (outside.isNotEmpty()) {
-                        runCatching { ArxivApi.recent(outside, max = 80) }
-                            .onSuccess { withContext(Dispatchers.IO) { db.upsertPapers(it) } }
+                        val across = mutableListOf<Paper>()
+                        val outsideArxiv = Topics.categoriesOf(Source.ARXIV, outside.toSet())
+                        if (outsideArxiv.isNotEmpty()) {
+                            across += runCatching { ArxivApi.recent(outsideArxiv.toList(), max = 80) }
+                                .getOrDefault(emptyList())
+                        }
+                        for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
+                            val subjects = Topics.categoriesOf(server, outside.toSet())
+                            if (subjects.isEmpty()) continue
+                            across += runCatching {
+                                BioRxivApi.recent(server, subjects, days = 2, maxPages = 4)
+                            }.getOrDefault(emptyList())
+                        }
+                        if (across.isNotEmpty()) {
+                            withContext(Dispatchers.IO) { db.upsertPapers(across) }
+                        }
                     }
                 }
                 _state.value = _state.value.copy(loadingLabel = "Ranking")
@@ -1285,7 +1333,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         )
         viewModelScope.launch {
             try {
-                val file = store.download(paper.id)
+                val file = store.download(paper)
                 // The download itself is not the signal. Tapping Read is one tap, and this
                 // used to score it 0.7 whether the reader took in a word of it or reversed
                 // straight back out. The clock starts once the file is actually on screen.

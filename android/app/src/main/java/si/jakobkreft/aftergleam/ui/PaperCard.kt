@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.Slot
 
@@ -118,7 +119,11 @@ fun PaperCard(
                 Text(
                     listOfNotNull(
                         paper.shortAuthors.ifBlank { null },
-                        paper.primaryCategory,
+                        // Named only when it is not arXiv. Where a paper came from changes
+                        // what it is: a medRxiv preprint is not peer reviewed and may never
+                        // be, and the reader is entitled to know that at a glance.
+                        paper.sourceLabel,
+                        Source.display(paper.primaryCategory),
                         Venue.of(paper),
                         if (upvotes > 0) Attention.label(upvotes) else null,
                     ).joinToString(" · "),

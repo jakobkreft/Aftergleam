@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Reaction
 import si.jakobkreft.aftergleam.data.Venue
@@ -98,7 +99,12 @@ fun DetailScreen(
             Text(paper.authors.joinToString(", "), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                "${paper.id} · ${paper.categories.joinToString(" ")} · submitted ${paper.published}",
+                listOfNotNull(
+                    paper.sourceLabel,
+                    paper.id,
+                    paper.displayCategories.joinToString(" "),
+                    "submitted ${paper.published}",
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
             )
             Venue.of(paper)?.let {
@@ -130,7 +136,9 @@ fun DetailScreen(
                 OutlinedButton(onClick = onSave) {
                     Text(if (reaction.saved) "Saved" else "Save for later")
                 }
-                OutlinedButton(onClick = { onOpenExternal(paper.absUrl) }) { Text("On arXiv") }
+                OutlinedButton(onClick = { onOpenExternal(paper.absUrl) }) {
+                    Text("On " + Source.label(paper.source))
+                }
                 OutlinedButton(onClick = onShare) { Text("Share") }
             }
             Spacer(Modifier.height(12.dp))

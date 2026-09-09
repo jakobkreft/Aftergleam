@@ -22,7 +22,12 @@ object Taste {
      * Broad probes across the archive. Each is a category plus a search phrase, so the
      * survey draws real current papers rather than shipping a frozen list that ages badly.
      */
-    data class Probe(val label: String, val category: String, val phrase: String)
+    data class Probe(
+        val label: String,
+        val category: String,
+        val phrase: String,
+        val source: String = Source.ARXIV,
+    )
 
     /**
      * Probes for the topics the user actually chose.
@@ -35,7 +40,9 @@ object Taste {
         if (chosen.isEmpty()) return PROBES.take(cap)
         // Round-robin over topics so the questions alternate subject from the start.
         val perTopic = chosen.map { t ->
-            t.categories.map { cat -> Probe(t.label, cat, t.seed.split(" ").take(4).joinToString(" ")) }
+            t.categories.map { cat ->
+                Probe(t.label, cat, t.seed.split(" ").take(4).joinToString(" "), t.source)
+            }
         }
         val out = mutableListOf<Probe>()
         var i = 0
@@ -78,7 +85,7 @@ object Taste {
             .eachCount()
             .filterValues { it >= 2 }
             .keys
-        val fromProbes = likedProbes.map { it.category }.toSet()
+        val fromProbes = likedProbes.map { Source.qualify(it.source, it.category) }.toSet()
         return (counted + fromProbes).ifEmpty { setOf("cs.LG") }
     }
 }

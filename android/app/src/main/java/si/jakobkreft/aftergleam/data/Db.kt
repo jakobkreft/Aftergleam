@@ -16,7 +16,7 @@ import java.time.temporal.ChronoUnit
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7) {
 
     // Never call `use` on the database this helper returns. It is a single shared instance,
     // and closing it leaves the helper handing a closed connection pool to the next caller.
@@ -36,6 +36,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
               updated TEXT NOT NULL,
               comments TEXT NOT NULL DEFAULT '',
               journal_ref TEXT NOT NULL DEFAULT '',
+              source TEXT NOT NULL DEFAULT 'arxiv',
               fetched_at INTEGER NOT NULL
             )
             """.trimIndent()
@@ -82,6 +83,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
         if (old < 6) db.execSQL(ATTENTION_TABLE)
+        if (old < 7) {
+            // Everything already stored came from arXiv, which is what the default says.
+            runCatching {
+                db.execSQL("ALTER TABLE papers ADD COLUMN source TEXT NOT NULL DEFAULT 'arxiv'")
+            }
+        }
         if (old < 5) {
             db.execSQL(
                 """
@@ -182,6 +189,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
                     put("categories", p.categories.joinToString("|"))
                     put("published", p.published); put("updated", p.updated)
                     put("comments", p.comments); put("journal_ref", p.journalRef)
+                    put("source", p.source)
                     put("fetched_at", System.currentTimeMillis())
                 }, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -268,6 +276,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
             JOIN papers p ON p.id = s.paper_id
             WHERE s.day BETWEEN ? AND ?
               AND p.comments = '' AND p.journal_ref = ''
+              -- arXiv ids only: the refresher asks arXiv, and a bioRxiv DOI sent there is a
+              -- request that can only fail.
+              AND p.source = 'arxiv'
             ORDER BY s.day DESC
             LIMIT ?
             """.trimIndent(),
@@ -577,25 +588,22 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
             updated = getString(getColumnIndexOrThrow("updated")),
             comments = getString(getColumnIndexOrThrow("comments")),
             journalRef = getString(getColumnIndexOrThrow("journal_ref")),
+            source = c.getColumnIndex("source").let {
+                if (it >= 0 && !isNull(it)) getString(it) else Source.ARXIV
+            },
         )
     }
 
+    /**
+     * Every list query goes through the single mapper.
+     *
+     * There used to be two, this one and [cursorToPaper], built column by column in
+     * parallel. Adding `source` to one of them and not the other made every paper in every
+     * list claim to be from arXiv while the row in the table said bioRxiv, which showed up
+     * as a missing label and would have shown up next as a broken PDF link.
+     */
     private fun android.database.Cursor.toPapers(): List<Paper> = buildList {
-        while (moveToNext()) {
-            add(
-                Paper(
-                    id = getString(getColumnIndexOrThrow("id")),
-                    title = getString(getColumnIndexOrThrow("title")),
-                    abstract = getString(getColumnIndexOrThrow("abstract")),
-                    authors = getString(getColumnIndexOrThrow("authors")).split("|").filter { it.isNotBlank() },
-                    categories = getString(getColumnIndexOrThrow("categories")).split("|").filter { it.isNotBlank() },
-                    published = getString(getColumnIndexOrThrow("published")),
-                    updated = getString(getColumnIndexOrThrow("updated")),
-                    comments = getString(getColumnIndexOrThrow("comments")),
-                    journalRef = getString(getColumnIndexOrThrow("journal_ref")),
-                )
-            )
-        }
+        while (moveToNext()) add(cursorToPaper(this@toPapers))
     }
 
     /**

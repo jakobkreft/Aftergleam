@@ -21,6 +21,27 @@ object Bridge {
      * more likely to find something in graphics or medical imaging than in econometrics.
      */
     private val NEIGHBOURS: Map<String, List<String>> = mapOf(
+        // The bridge crosses servers as well as archives. A cell biologist's most useful
+        // "outside your usual" is often a methods paper on arXiv, and an arXiv reader's is
+        // often the biology their methods are aimed at; neither would ever meet the other
+        // without this, because the two archives share no vocabulary of categories.
+        "biorxiv:cell biology" to listOf("q-bio.SC", "q-bio.CB", "biorxiv:biophysics"),
+        "biorxiv:neuroscience" to listOf("q-bio.NC", "cs.NE", "medrxiv:neurology"),
+        "biorxiv:genomics" to listOf("q-bio.GN", "biorxiv:bioinformatics", "cs.LG"),
+        "biorxiv:bioinformatics" to listOf("q-bio.QM", "cs.LG", "stat.ME"),
+        "biorxiv:cancer biology" to listOf("medrxiv:oncology", "q-bio.TO", "biorxiv:immunology"),
+        "biorxiv:immunology" to listOf("medrxiv:infectious diseases", "q-bio.MN"),
+        "biorxiv:ecology" to listOf("q-bio.PE", "biorxiv:evolutionary biology"),
+        "biorxiv:evolutionary biology" to listOf("q-bio.PE", "biorxiv:ecology"),
+        "biorxiv:biophysics" to listOf("physics.bio-ph", "cond-mat.soft", "q-bio.BM"),
+        "biorxiv:systems biology" to listOf("q-bio.MN", "q-bio.QM"),
+        "medrxiv:epidemiology" to listOf("q-bio.PE", "stat.AP", "medrxiv:public and global health"),
+        "medrxiv:health informatics" to listOf("cs.LG", "cs.CY", "medrxiv:radiology and imaging"),
+        "medrxiv:radiology and imaging" to listOf("eess.IV", "cs.CV", "physics.med-ph"),
+        "medrxiv:neurology" to listOf("q-bio.NC", "biorxiv:neuroscience"),
+        "medrxiv:genetic and genomic medicine" to listOf("q-bio.GN", "biorxiv:genomics"),
+        "medrxiv:psychiatry and clinical psychology" to listOf("q-bio.NC", "medrxiv:neurology"),
+
         "cs.LG" to listOf("stat.ML", "math.OC", "q-bio.NC", "cs.NE", "physics.data-an"),
         "cs.CV" to listOf("eess.IV", "cs.GR", "q-bio.NC", "astro-ph.IM", "cs.RO"),
         "cs.CL" to listOf("cs.IR", "q-bio.NC", "cs.CY", "cs.SD"),

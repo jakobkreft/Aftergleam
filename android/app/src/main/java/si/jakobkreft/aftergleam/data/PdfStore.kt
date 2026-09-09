@@ -28,18 +28,23 @@ class PdfStore(private val context: Context) {
 
     private val dir = File(context.cacheDir, "pdf").apply { mkdirs() }
 
-    fun cachedFile(arxivId: String): File = File(dir, arxivId.replace('/', '_') + ".pdf")
+    fun cachedFile(paperId: String): File = File(dir, paperId.replace('/', '_') + ".pdf")
 
-    fun isCached(arxivId: String) = cachedFile(arxivId).let { it.exists() && it.length() > 0 }
+    fun isCached(paperId: String) = cachedFile(paperId).let { it.exists() && it.length() > 0 }
 
     class DownloadError(message: String) : Exception(message)
 
-    /** Fetches the PDF if it is not already cached. Returns the local file. */
-    suspend fun download(arxivId: String): File = withContext(Dispatchers.IO) {
-        val target = cachedFile(arxivId)
+    /**
+     * Fetches the PDF if it is not already cached. Returns the local file.
+     *
+     * Takes the paper rather than the id: each server keeps its PDFs somewhere different,
+     * and the paper is the only thing that knows which server it came from.
+     */
+    suspend fun download(paper: Paper): File = withContext(Dispatchers.IO) {
+        val target = cachedFile(paper.id)
         if (target.exists() && target.length() > 0) return@withContext target
 
-        val url = "https://arxiv.org/pdf/$arxivId"
+        val url = paper.pdfUrl
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             setRequestProperty("User-Agent", "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)")
             instanceFollowRedirects = true
@@ -48,7 +53,9 @@ class PdfStore(private val context: Context) {
         }
         try {
             if (conn.responseCode != 200) {
-                throw DownloadError("arXiv returned HTTP ${conn.responseCode}")
+                throw DownloadError(
+                    "${Source.label(paper.source)} returned HTTP ${conn.responseCode}"
+                )
             }
             // Write to a temporary name first, so an interrupted download cannot leave a
             // truncated file that later looks cached and renders as a corrupt document.

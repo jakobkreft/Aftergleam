@@ -7,6 +7,45 @@ package si.jakobkreft.aftergleam.data
  * ("ICLR 2025 Oral") that replaces citation counts as the quality signal. Coverage runs
  * from ~9% at one month to ~30% at 6-12 months, and it costs no extra network call.
  */
+/**
+ * Where a paper came from.
+ *
+ * arXiv is not the whole of preprinting and never was. It has no chemistry archive, no
+ * medicine, and its biology is quantitative biology rather than the wet-lab work that goes
+ * to bioRxiv, so a cell biologist opening an arXiv reader finds almost nothing addressed to
+ * them. Each server is its own identifier scheme and its own URL shape, and that is the only
+ * thing the rest of the app needs to know about them: the ranker sees title and abstract,
+ * which every one of them provides.
+ */
+object Source {
+    const val ARXIV = "arxiv"
+    const val BIORXIV = "biorxiv"
+    const val MEDRXIV = "medrxiv"
+
+    fun label(source: String): String = when (source) {
+        BIORXIV -> "bioRxiv"
+        MEDRXIV -> "medRxiv"
+        else -> "arXiv"
+    }
+
+    /**
+     * Categories are qualified by server, as in `biorxiv:cell biology`.
+     *
+     * bioRxiv has a "genomics" and arXiv has a `q-bio.GN`, and they are not the same feed:
+     * one is wet-lab sequencing work and the other is quantitative modelling. Subscribing to
+     * one must not silently subscribe to the other, and the topic bandit has to be able to
+     * learn that a reader engages with one and ignores the other. arXiv categories are left
+     * bare because they already carry an archive prefix of their own.
+     */
+    fun qualify(source: String, category: String): String =
+        if (source == ARXIV) category else "$source:$category"
+
+    fun display(category: String): String = category.substringAfter(':')
+
+    fun of(category: String): String =
+        if (':' in category) category.substringBefore(':') else ARXIV
+}
+
 data class Paper(
     val id: String,
     val title: String,
@@ -17,8 +56,12 @@ data class Paper(
     val updated: String,
     val comments: String = "",
     val journalRef: String = "",
+    val source: String = Source.ARXIV,
 ) {
     val primaryCategory: String get() = categories.firstOrNull() ?: ""
+
+    /** Without the server prefix, which is plumbing rather than something to read. */
+    val displayCategories: List<String> get() = categories.map { Source.display(it) }
 
     /**
      * Title with LaTeX stripped, for display.
@@ -41,9 +84,25 @@ data class Paper(
             return if (authors.size > 1) "$surname et al." else surname
         }
 
-    val absUrl: String get() = "https://arxiv.org/abs/$id"
+    /**
+     * The bioRxiv identifier carries its version, as in `10.64898/2026.09.01.747412v2`,
+     * because the content URL needs it and a separate column for one integer that only
+     * matters inside a URL would be a column to keep in step for nothing.
+     */
+    val absUrl: String get() = when (source) {
+        Source.BIORXIV -> "https://www.biorxiv.org/content/$id"
+        Source.MEDRXIV -> "https://www.medrxiv.org/content/$id"
+        else -> "https://arxiv.org/abs/$id"
+    }
 
-    val pdfUrl: String get() = "https://arxiv.org/pdf/$id"
+    val pdfUrl: String get() = when (source) {
+        Source.BIORXIV, Source.MEDRXIV -> "$absUrl.full.pdf"
+        else -> "https://arxiv.org/pdf/$id"
+    }
+
+    /** Named only when it is not arXiv, so the common case carries no extra noise. */
+    val sourceLabel: String? get() =
+        if (source == Source.ARXIV) null else Source.label(source)
 
     /** Text the ranker sees. Title first so its terms carry into the tf weighting twice. */
     val rankText: String get() = "$title. $abstract"

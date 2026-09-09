@@ -223,3 +223,49 @@ noise inside a narrow category. It remains the gate, and it is still the next th
 
 D1 (embeddings + logistic regression) is independently validated by Scholar Inbox.
 D2, D3, D4, D8, D9, D11, D12 are untouched.
+
+## F8. arXiv is not the whole of preprinting, and the app was pretending it was
+
+Two separate gaps, found by asking why there was no cell biology.
+
+**The taxonomy was a fraction of arXiv's own.** The app offered 37 topics reaching 54
+categories; arXiv has roughly 150. Missing outright were cell biology (`q-bio.CB`,
+`q-bio.SC`), tissues and organs (`q-bio.TO`), software engineering (`cs.SE`), information
+retrieval (`cs.IR`), programming languages, graphics, databases, AI and planning, chemistry
+(`physics.chem-ph`), plasma, geophysics, atomic physics, nuclear physics, mathematical
+statistics, economic theory, and most of pure mathematics. Nothing technical prevented any of
+it; the list had simply been written from one reader's field outward. Now 82 topics reaching
+105 categories.
+
+**And arXiv genuinely does not have the rest.** It has no chemistry archive, no medicine, and
+its biology is *quantitative* biology: models, networks, population dynamics. Cell biology,
+immunology, cancer biology, cardiology, psychiatry and epidemiology are not filed somewhere
+awkward on arXiv, they are not there. A cell biologist opening an arXiv reader finds nothing
+addressed to them, and no amount of taxonomy fixing changes that.
+
+### What the other servers actually offer, tested
+
+| Server | API | Verdict |
+|---|---|---|
+| bioRxiv | `api.biorxiv.org/details/biorxiv/{from}/{to}/{cursor}` | **Built.** Title, abstract, authors, subject, DOI, and a `published` field naming the journal if it later appeared. ~190 papers a working day across 23 subjects. |
+| medRxiv | same endpoint, `medrxiv` | **Built.** ~70 a day across 44 subjects. |
+| OSF (PsyArXiv, SocArXiv, EarthArXiv, engrXiv, AgriXiv, EdArXiv, LawArXiv, +25 more) | `api.osf.io/v2/preprints` | **Works, not built.** One API covers 32 servers; 620 preprints in nine days with full abstracts and a subject taxonomy. The obvious next source. |
+| Europe PMC | `ebi.ac.uk/europepmc/.../search?query=SRC:PPR` | **Works, not built.** 5645 preprints in eight days, every one with an abstract, aggregating Research Square, bioRxiv, medRxiv, PsyArXiv, SciELO and others. Broadest single source, but biomedically skewed and duplicates what bioRxiv already gives directly. |
+| chemRxiv | `chemrxiv.org/engage/chemrxiv/public-api/v1/items` | **Blocked.** HTTP 403 from Cloudflare bot protection, with a browser-fingerprinting challenge. The "public API" is not reachable without pretending to be a browser, which is not something to ship in an F-Droid app. |
+| SSRN | `api.ssrn.com` | **Blocked.** 403. Elsevier-owned, no open access. |
+| TechRxiv | `techrxiv.org/api` | **Blocked.** 403 since the move off Figshare to IEEE's platform. |
+| preprints.org | `preprints.org/api` | **Blocked.** 403 / no such host. MDPI. |
+| Crossref | `api.crossref.org/works?filter=type:posted-content` | Works and covers everything, 10016 items a day, but abstracts are present only sometimes and the metadata is uneven. A fallback for coverage, not a feed.
+
+The pattern is clean: **the servers run by non-profits and universities have open APIs, and the
+ones owned by publishers do not.** bioRxiv, medRxiv, OSF, arXiv and Europe PMC all answer an
+unauthenticated request with full abstracts. chemRxiv, SSRN, TechRxiv and preprints.org all
+return 403. That is not a technical obstacle to route around, it is those organisations saying
+no, and the honest thing is to record it rather than to defeat a bot check.
+
+**A note on privacy.** Adding servers does not change the posture. The app already tells arXiv
+which categories a reader follows, because that is what fetching a category feed is. bioRxiv
+and medRxiv are asked for a date range with no subject filter at all, so they learn strictly
+less: the request is the same for every reader on any given day, and the subject filtering
+happens on the device.
+

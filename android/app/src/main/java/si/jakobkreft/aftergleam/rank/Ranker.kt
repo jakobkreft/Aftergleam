@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.rank
 
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Venue
 import java.time.LocalDate
@@ -37,7 +38,12 @@ data class Scored(
                 "ranked up for its venue, matches " +
                     distinctTerms(reasonTerms).take(2).joinToString(", ")
             placedByQuality -> "ranked up for its venue"
-            reasonTerms.isEmpty() -> "recent in your categories"
+            // Naming the category rather than claiming it is one of the reader's. Papers
+            // fetched for the bridge slot stay in the pool and can be picked into an
+            // ordinary slot, and this line told a cell biologist that cond-mat.soft was one
+            // of their categories. Saying which category it is happens to be more useful too.
+            reasonTerms.isEmpty() ->
+                "recent in " + Source.display(paper.primaryCategory).ifBlank { "your feed" }
             else -> "matches " + distinctTerms(reasonTerms).joinToString(", ")
         }
     }

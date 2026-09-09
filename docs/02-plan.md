@@ -264,6 +264,16 @@ the digest is unusually competitive this week".
 
 ## Open items
 
+- **OSF is the next source.** One API covers PsyArXiv, SocArXiv, EarthArXiv, engrXiv, AgriXiv,
+  EdArXiv, LawArXiv and 25 more, with abstracts and a subject taxonomy, and the source
+  abstraction bioRxiv forced is exactly what it needs. It would take the app from science into
+  psychology, education, law and the social sciences in one integration.
+- chemRxiv, SSRN, TechRxiv and preprints.org all return 403 to an unauthenticated request.
+  Recorded in F8 as a decision by those organisations rather than a problem to solve.
+- bioRxiv is fetched by date range rather than by subject, because the API has no subject
+  filter. That is around 400 records to page through for two days, of which a reader typically
+  wants a fifth. Fine at these volumes and worth revisiting if it ever is not.
+
 - The daily worker fetches papers but does not compose a digest, so `shown` records only the
   days the app was opened. Catch-up works around this by ranking what was never shown, which
   is arguably better than a digest nobody read, but it does mean there is no record of what a

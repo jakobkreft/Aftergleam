@@ -26,6 +26,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -181,23 +187,61 @@ private fun TopicPicker(
         )
         Spacer(Modifier.height(12.dp))
 
+        // Collapsed by default, which is the opposite of what a short list wants and the
+        // only workable thing for a long one. With nine fields and eighty topics, an
+        // expanded list buries biology and medicine under twenty computer science chips, so
+        // the reader who most needed to know they were there had to scroll past everything
+        // they did not want to find out. Closed, the first screen is the map: nine lines
+        // saying what this app covers.
+        var open by rememberSaveable { mutableStateOf(setOf<String>()) }
+
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Topics.FIELDS.forEach { field ->
-                Text(
-                    field.label,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    field.topics.forEach { t ->
-                        FilterChip(
-                            selected = t.key in selected,
-                            onClick = { onToggle(t.key) },
-                            label = { Text(t.label) },
-                        )
-                    }
+                val expanded = field.label in open
+                val chosen = field.topics.count { it.key in selected }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            open = if (expanded) open - field.label else open + field.label
+                        }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        field.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    // The count is what makes a closed section safe: a reader can see at a
+                    // glance that they have chosen something in there without opening it.
+                    Text(
+                        if (chosen > 0) "$chosen chosen" else "${field.topics.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chosen > 0) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Icon(
+                        if (expanded) Icons.Filled.KeyboardArrowUp
+                        else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
+                if (expanded) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        field.topics.forEach { t ->
+                            FilterChip(
+                                selected = t.key in selected,
+                                onClick = { onToggle(t.key) },
+                                label = { Text(t.label) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -295,7 +339,7 @@ private fun Question(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(paper.categories.joinToString(" "),
+                Text(paper.displayCategories.joinToString(" "),
                     style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
                 Text(paper.displayAbstract, style = MaterialTheme.typography.bodySmall)
