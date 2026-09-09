@@ -57,6 +57,7 @@ fun TuneScreen(
     onReminder: (Boolean, Int) -> Unit,
     onTheme: (String) -> Unit,
     onTopics: (Set<String>) -> Unit,
+    versionName: String,
     onPickLibrary: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
@@ -306,6 +307,31 @@ fun TuneScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+            Text("About", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Aftergleam $versionName",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Papers come from arXiv, which asks for one request every three seconds; " +
+                    "the app stays well inside that. Popularity counts come from the " +
+                    "Hugging Face daily papers list, fetched whole so it says nothing " +
+                    "about you. Ranking, your ratings and everything you read stay on " +
+                    "this device.",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Thanks to arXiv for its open access interoperability.",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

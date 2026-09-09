@@ -90,7 +90,14 @@ fun FeedScreen(
             onRefresh,
         )
 
-        else -> LazyColumn(
+        // Pull to refresh, because every other feed on the phone has it and its absence
+        // reads as the screen being stuck.
+        else -> androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+        LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -134,6 +141,7 @@ fun FeedScreen(
             }
             item { EndCard(state, onRerank, onRefresh) }
             state.drift?.let { item { DriftCard(it) } }
+        }
         }
     }
 }

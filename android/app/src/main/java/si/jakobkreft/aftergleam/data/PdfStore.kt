@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
@@ -62,7 +64,48 @@ class PdfStore(private val context: Context) {
         }
     }
 
-    fun pageCount(file: File): Int = openRenderer(file)?.use { it.pageCount } ?: 0
+    // One open renderer per file, reused across pages.
+    //
+    // Opening and closing the document for every page made scrolling visibly slow: each
+    // render paid a file open, a parse and a close. PdfRenderer permits only one open *page*
+    // at a time, not one open document, so the document is cached and access serialised.
+    private var openFile: File? = null
+    private var renderer: PdfRenderer? = null
+    private val lock = Mutex()
+
+    private fun rendererFor(file: File): PdfRenderer? {
+        if (openFile == file && renderer != null) return renderer
+        runCatching { renderer?.close() }
+        renderer = try {
+            PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
+        } catch (e: Exception) {
+            null
+        }
+        openFile = if (renderer != null) file else null
+        return renderer
+    }
+
+    /** Releases the cached document. Call when the reader closes. */
+    suspend fun release() = lock.withLock {
+        runCatching { renderer?.close() }
+        renderer = null
+        openFile = null
+    }
+
+    suspend fun pageCount(file: File): Int = withContext(Dispatchers.IO) {
+        lock.withLock { rendererFor(file)?.pageCount ?: 0 }
+    }
+
+    /** Aspect ratio (height / width) of a page, for sizing a placeholder before it renders. */
+    suspend fun pageAspect(file: File, index: Int): Float = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val r = rendererFor(file) ?: return@withLock 1.414f
+            if (index !in 0 until r.pageCount) return@withLock 1.414f
+            runCatching {
+                r.openPage(index).use { it.height.toFloat() / it.width.toFloat() }
+            }.getOrDefault(1.414f)
+        }
+    }
 
     /**
      * Renders one page to a bitmap [width] pixels across.
@@ -73,23 +116,26 @@ class PdfStore(private val context: Context) {
      */
     suspend fun renderPage(file: File, index: Int, width: Int): Bitmap? =
         withContext(Dispatchers.IO) {
-            openRenderer(file)?.use { renderer ->
-                if (index !in 0 until renderer.pageCount) return@use null
-                renderer.openPage(index).use { page ->
-                    val height = (width.toFloat() / page.width * page.height).toInt().coerceAtLeast(1)
-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    // PdfRenderer draws only ink, so an unpainted bitmap shows whatever was
-                    // in the buffer. Papers are black on white regardless of app theme.
-                    bitmap.eraseColor(Color.WHITE)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    bitmap
-                }
+            lock.withLock {
+                val r = rendererFor(file) ?: return@withLock null
+                if (index !in 0 until r.pageCount) return@withLock null
+                runCatching {
+                    r.openPage(index).use { page ->
+                        val w = width.coerceIn(200, MAX_RENDER_WIDTH)
+                        val h = (w.toFloat() / page.width * page.height).toInt().coerceAtLeast(1)
+                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        // PdfRenderer draws ink only, so an unpainted bitmap shows whatever
+                        // was in the buffer. Papers are black on white whatever the theme.
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        bitmap
+                    }
+                }.getOrNull()
             }
         }
 
-    private fun openRenderer(file: File): PdfRenderer? = try {
-        PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
-    } catch (e: Exception) {
-        null
+    companion object {
+        /** Beyond this a full page bitmap costs more memory than the detail is worth. */
+        const val MAX_RENDER_WIDTH = 2600
     }
 }

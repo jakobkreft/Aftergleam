@@ -69,6 +69,26 @@ class Prefs(context: Context) {
         get() = sp.getString("theme", "system") ?: "system"
         set(v) = sp.edit().putString("theme", v).apply()
 
+    /**
+     * The page each paper was last read to.
+     *
+     * Kept for a bounded number of papers: a reading position is worth almost nothing once
+     * it is old, and an unbounded map would grow forever in a preferences file.
+     */
+    fun lastPage(paperId: String): Int = sp.getInt("page_$paperId", 0)
+
+    fun setLastPage(paperId: String, page: Int) {
+        val seen = (sp.getStringSet("page_keys", emptySet()) ?: emptySet()).toMutableSet()
+        seen += paperId
+        val e = sp.edit().putInt("page_$paperId", page)
+        if (seen.size > MAX_REMEMBERED_PAGES) {
+            val drop = seen.first { it != paperId }
+            seen -= drop
+            e.remove("page_$drop")
+        }
+        e.putStringSet("page_keys", seen).apply()
+    }
+
     var lastFetchMillis: Long
         get() = sp.getLong("last_fetch", 0L)
         set(v) = sp.edit().putLong("last_fetch", v).apply()
@@ -83,6 +103,7 @@ class Prefs(context: Context) {
         now - lastFetchMillis > FETCH_INTERVAL_MS
 
     companion object {
+        private const val MAX_REMEMBERED_PAGES = 100
         const val FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
 }

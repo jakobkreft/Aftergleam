@@ -68,7 +68,7 @@ class DailyDigestWorker(
             android.app.PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_agenda)
+            .setSmallIcon(si.jakobkreft.aftergleam.R.drawable.ic_notification)
             .setContentTitle("Today's papers are ready")
             .setContentText("$count new in your categories")
             .setContentIntent(intent)

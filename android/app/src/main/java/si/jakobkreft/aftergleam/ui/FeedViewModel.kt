@@ -62,6 +62,10 @@ data class FeedState(
     val theme: String = "system",
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
+    val reading: Paper? = null,
+    val readingFile: java.io.File? = null,
+    val readingError: String? = null,
+    val readingPage: Int = 0,
 )
 
 /**
@@ -691,6 +695,34 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun closeDetail() {
         _state.value = _state.value.copy(detail = null)
     }
+
+    /** Opens the reader, downloading first if the file is not already cached. */
+    fun openReader(paper: Paper) {
+        val store = PdfStore(getApplication())
+        _state.value = _state.value.copy(
+            reading = paper,
+            readingFile = null,
+            readingError = null,
+            readingPage = prefs.lastPage(paper.id),
+        )
+        viewModelScope.launch {
+            try {
+                val file = store.download(paper.id)
+                _state.value = _state.value.copy(readingFile = file)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    readingError = e.message ?: "Could not fetch the PDF",
+                )
+            }
+        }
+    }
+
+    fun closeReader() {
+        _state.value = _state.value.copy(reading = null, readingFile = null, readingError = null)
+    }
+
+    /** Where the reader stopped, so a long paper reopens where it was left. */
+    fun rememberPage(paperId: String, page: Int) = prefs.setLastPage(paperId, page)
 
     fun toggleSave(paperId: String) {
         val current = _state.value.reactions[paperId] ?: Reaction.NONE

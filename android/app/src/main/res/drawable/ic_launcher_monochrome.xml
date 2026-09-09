@@ -1,0 +1,27 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      An arc over two lines: the gleam that remains, above a short list.
+      One arc, not two. At launcher size a second concentric arc merged into the first and
+      the mark stopped reading as an arc at all. Everything sits inside the 72dp safe zone.
+    -->
+    <path
+        android:pathData="M30,58 A24,24 0 0 1 78,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M31,70 L77,70"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M31,81 L61,81"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+</vector>

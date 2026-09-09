@@ -17,7 +17,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material.icons.Icons
@@ -31,14 +34,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
+import si.jakobkreft.aftergleam.ui.PdfReaderScreen
 import si.jakobkreft.aftergleam.ui.LibraryScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
@@ -67,7 +73,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
         "dark" -> true
         else -> isSystemInDarkTheme()
     }
-    var tab by remember { mutableStateOf(Tab.TODAY) }
+    // rememberSaveable: a rotation recreates the activity, and plain remember would drop the
+    // reader back on Today from whichever tab they were using.
+    var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
 
     // Any text MIME type: exports are variously text/plain, text/x-bibtex or octet-stream,
     // and a narrow filter would hide the user's own file from them in the picker.
@@ -146,6 +154,40 @@ private fun App(vm: FeedViewModel = viewModel()) {
             )
         }
 
+        val reading = state.reading
+        if (reading != null) {
+            BackHandler { vm.closeReader() }
+            val file = state.readingFile
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    when {
+                        state.readingError != null -> Column(Modifier.padding(24.dp)) {
+                            Text(state.readingError!!)
+                            TextButton(onClick = vm::closeReader) { Text("Back") }
+                        }
+                        file == null -> Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                                Text("Fetching the PDF", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        else -> PdfReaderScreen(
+                            file = file,
+                            title = reading.displayTitle,
+                            store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) },
+                            initialPage = state.readingPage,
+                            onPageChanged = { vm.rememberPage(reading.id, it) },
+                            onBack = vm::closeReader,
+                        )
+                    }
+                }
+            }
+            return@MaterialTheme
+        }
+
         val detail = state.detail
         if (detail != null) {
             BackHandler { vm.closeDetail() }
@@ -165,6 +207,20 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onSave = { vm.toggleSave(detail.id) },
                         onOpenExternal = { url ->
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        },
+                        onRead = { vm.openReader(detail) },
+                        onShare = {
+                            // Title plus link: what a colleague actually needs, and it
+                            // pastes usefully into any chat or mail client.
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, detail.displayTitle)
+                                putExtra(
+                                    Intent.EXTRA_TEXT,
+                                    "${detail.displayTitle}\n${detail.absUrl}",
+                                )
+                            }
+                            context.startActivity(Intent.createChooser(share, null))
                         },
                         onBack = vm::closeDetail,
                     )
@@ -253,6 +309,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onNotifyEnabled = vm::setNotifyEnabled,
                         onTheme = vm::setTheme,
                         onTopics = vm::setTopics,
+                        versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
                         onReminder = { on, hour ->
                             vm.setReminderEnabled(on)
                             vm.setReminderHour(hour)
