@@ -273,6 +273,31 @@ refresh, not an app restart. That is less of a gap than it sounds, because reope
 restores the day's digest from the database and never trains at all. The nine seconds are paid
 once a day, and the unpersonalised first pass covers them.
 
+## Stage 6: four surfaces
+
+The app had four tabs, one of which was Search. That was the wrong shape: search is a verb,
+not a place, and nobody opens an app in order to be in search. It is now an action in the bar
+alongside settings, which frees the tabs for the four things a reader actually returns for.
+
+- **For you** — the digest. Finishable, and unchanged.
+- **Explore** — everything the digest passed over. High temperature, raised diversity, and it
+  does not claim to end. This is the answer to "three hundred fetched, sixty shown, where are
+  the rest": they were being discarded, and now they are a surface.
+- **Popular** — the model switched off entirely. Ordered by attention and venue only, so it
+  says the same thing to every reader. Mixed into a personalised feed this is noise; kept
+  apart it answers a question people genuinely ask.
+- **Library** — saved, offline, rated.
+
+Explore earns its place immediately. For a reader whose history is diffusion and computer
+vision it opened with robotics, hyperbolic geometry from a maths-and-art proceedings, drum
+gesture mappings and medical super-resolution: genuinely outside the model's comfortable
+region, which is the whole point, and nothing a purely score-ordered feed would ever surface.
+
+**One honest limitation.** Popular depends on the Hugging Face upvote list, which is fetched
+along with the digest and held in memory. After a restart with no fetch due, it falls back to
+ranking by venue alone. Persisting the counts would fix it and is a small change; the surface
+is useful either way, and its own subtitle says what it ranks by.
+
 ## Making it fast
 
 The digest took 73 seconds to build, and the fix was not the algorithm.
@@ -306,7 +331,7 @@ either way, and the label says plainly what is happening rather than showing a s
 3. ~~Sampling in place of argmax.~~ Done.
 4. ~~Topic bandit.~~ Done. See below.
 5. ~~Fetch and training skips.~~ Done. See below.
-6. **Surfaces**: For you, Explore, Popular, Library.
+6. ~~Surfaces.~~ Done. See below.
 
 Stages 1 to 3 are worth doing together, since they change the same code path. Stage 4 is
 separable. Stage 6 is a UI change resting on all of it.

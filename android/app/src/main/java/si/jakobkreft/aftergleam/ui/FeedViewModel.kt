@@ -64,6 +64,10 @@ data class FeedState(
     val drift: Drift.Report? = null,
     /** A first, unpersonalised digest is on screen while the model is still training. */
     val personalising: Boolean = false,
+    val explore: List<Scored> = emptyList(),
+    val exploreLoading: Boolean = false,
+    val popular: List<Paper> = emptyList(),
+    val searchOpen: Boolean = false,
     val theme: String = "system",
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
@@ -107,6 +111,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         /** Below the 0.9 an explicit "interested" carries, so real judgements dominate. */
         const val SEED_WEIGHT = 0.7f
+
+        /** How many more papers an "explore" page adds. */
+        const val EXPLORE_PAGE = 30
     }
 
 
@@ -793,6 +800,83 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             modelActive = ev.count { it.value.label() != null } >= Ranker.MIN_RATINGS,
         )
     }
+
+    /**
+     * A wider, deliberately less confident feed from everything the digest passed over.
+     *
+     * The digest is a fixed set of sixty from a pool of several hundred, and the rest simply
+     * vanished. This is where they go. Temperature is high and the diversity weight is
+     * raised, so it leans towards spread rather than towards the model's convictions, which
+     * is the point of an explore surface: the digest is for what the reader probably wants,
+     * this is for what they might not know they want.
+     */
+    fun loadExplore(more: Boolean = false) {
+        if (_state.value.exploreLoading) return
+        val cats = _state.value.categories.toList()
+        if (cats.isEmpty()) return
+        _state.value = _state.value.copy(exploreLoading = true)
+
+        viewModelScope.launch {
+            val cards = withContext(Dispatchers.Default) {
+                val today = LocalDate.now().toString()
+                val inDigest = db.digestFor(today).map { it.paperId }.toSet()
+                val alreadyShown = if (more) _state.value.explore.map { it.paper.id }.toSet()
+                    else emptySet()
+                val candidates = db.recentPapers(limit = 800)
+                    .filter { it.id !in inDigest && it.id !in alreadyShown }
+                val rated = ratedDocs()
+                Ranker(
+                    Weights(
+                        quality = prefs.qualityWeight,
+                        explorationRate = 0f,
+                        diversity = 0.6f,
+                        temperature = 1.2f,
+                    )
+                ).digest(
+                    candidates = candidates,
+                    rated = rated,
+                    seen = emptySet(),
+                    subscribed = cats.toSet(),
+                    size = EXPLORE_PAGE,
+                    attention = _state.value.attention,
+                    evidenceCount = evidenceCount(),
+                    topicHistory = db.topicHistory(),
+                    prebuilt = cachedModel,
+                )
+            }
+            _state.value = _state.value.copy(
+                exploreLoading = false,
+                explore = if (more) _state.value.explore + cards else cards,
+            )
+        }
+    }
+
+    /**
+     * What the field is reading, with the model switched off entirely.
+     *
+     * Personalisation is the wrong lens some days, and mixing this into a personalised feed
+     * would just make it noise. Ordered by attention and venue only, so it says the same
+     * thing to everyone.
+     */
+    fun loadPopular() {
+        viewModelScope.launch {
+            val papers = withContext(Dispatchers.IO) {
+                val attention = _state.value.attention
+                db.recentPapers(limit = 600)
+                    .map { p ->
+                        p to (Attention.score(attention[p.id] ?: 0) * 2f + Venue.score(p))
+                    }
+                    .filter { it.second > 0f }
+                    .sortedByDescending { it.second }
+                    .take(60)
+                    .map { it.first }
+            }
+            _state.value = _state.value.copy(popular = papers)
+        }
+    }
+
+    fun openSearch() { _state.value = _state.value.copy(searchOpen = true) }
+    fun closeSearch() { _state.value = _state.value.copy(searchOpen = false) }
 
     fun openDetail(paper: Paper) {
         val current = _state.value.reactions[paper.id] ?: Reaction.NONE

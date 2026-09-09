@@ -13,6 +13,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,7 +28,9 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +50,8 @@ import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
 import si.jakobkreft.aftergleam.ui.PdfReaderScreen
 import si.jakobkreft.aftergleam.ui.LibraryScreen
+import si.jakobkreft.aftergleam.ui.ExploreScreen
+import si.jakobkreft.aftergleam.ui.PopularScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
 import si.jakobkreft.aftergleam.work.DailyDigestWorker
@@ -60,10 +66,25 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Four surfaces, each answering a different question.
+ *
+ * Search used to be one of these, which was wrong: it is a verb, not a place. Nobody opens an
+ * app to be in search. It is now an action in the bar, leaving the tabs for the four things a
+ * reader actually comes back for.
+ */
 private enum class Tab(val label: String) {
-    TODAY("Today"), SEARCH("Search"), LIBRARY("Library"), TUNE("Tune")
+    /** What you probably want, finishable. */
+    TODAY("For you"),
+    /** What you might not know you want, wider and less sure of itself. */
+    EXPLORE("Explore"),
+    /** What everyone is reading, with the model switched off. */
+    POPULAR("Popular"),
+    /** What you kept. */
+    LIBRARY("Library"),
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun App(vm: FeedViewModel = viewModel()) {
     val context = LocalContext.current
@@ -236,7 +257,102 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return@MaterialTheme
         }
 
+        val searchOpen = state.searchOpen
+        if (searchOpen) {
+            BackHandler { vm.closeSearch() }
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    Column {
+                        TextButton(onClick = vm::closeSearch) { Text("Back") }
+                        SearchScreen(
+                            state = state,
+                            onQuery = vm::setSearchQuery,
+                            onSubmit = vm::runSearch,
+                            onPersonalisation = vm::setPersonalisation,
+                            onOpen = vm::openDetail,
+                        )
+                    }
+                }
+            }
+            return@MaterialTheme
+        }
+
+        var showTune by rememberSaveable { mutableStateOf(false) }
+        if (showTune) {
+            BackHandler { showTune = false }
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    Column {
+                        TextButton(onClick = { showTune = false }) { Text("Back") }
+                        TuneScreen(
+                            digestSize = vm.currentDigestSize(),
+                            quality = vm.currentQualityWeight(),
+                            exploration = vm.currentExplorationRate(),
+                            diversity = vm.currentDiversity(),
+                            digestHour = vm.currentDigestHour(),
+                            notifyEnabled = vm.currentNotifyEnabled(),
+                            reminderHour = vm.currentReminderHour(),
+                            reminderEnabled = vm.currentReminderEnabled(),
+                            theme = state.theme,
+                            topics = state.topics,
+                            ratedCount = state.ratedCount,
+                            importProgress = state.importProgress,
+                            importSummary = state.importSummary,
+                            onDigestSize = vm::setDigestSize,
+                            onQuality = vm::setQualityWeight,
+                            onExploration = vm::setExplorationRate,
+                            onDiversity = vm::setDiversity,
+                            onTheme = vm::setTheme,
+                            onTopics = vm::setTopics,
+                            versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
+                            onDigestHour = { h ->
+                                vm.setDigestHour(h)
+                                DailyDigestWorker.schedule(context, h)
+                            },
+                            onNotifyEnabled = vm::setNotifyEnabled,
+                            onReminder = { on, hour ->
+                                vm.setReminderEnabled(on)
+                                vm.setReminderHour(hour)
+                                if (on) ReminderWorker.schedule(context, hour)
+                                else ReminderWorker.cancel(context)
+                            },
+                            onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
+                            onExport = {
+                                exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())
+                            },
+                            onRestore = { restoreBackup.launch(arrayOf("*/*")) },
+                            backupSummary = state.backupSummary,
+                            onReset = vm::resetModel,
+                            onApply = { vm.rerank(); showTune = false },
+                        )
+                    }
+                }
+            }
+            return@MaterialTheme
+        }
+
+        LaunchedEffect(tab) {
+            when (tab) {
+                Tab.EXPLORE -> if (state.explore.isEmpty()) vm.loadExplore()
+                Tab.POPULAR -> vm.loadPopular()
+                else -> Unit
+            }
+        }
+
         Scaffold(
+            topBar = {
+                androidx.compose.material3.TopAppBar(
+                    title = { Text(tab.label) },
+                    actions = {
+                        IconButton(onClick = vm::openSearch) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search arXiv")
+                        }
+                        IconButton(onClick = { showTune = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        }
+                    },
+                )
+            },
             bottomBar = {
                 NavigationBar {
                     Tab.entries.forEach { t ->
@@ -247,9 +363,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 Icon(
                                     when (t) {
                                         Tab.TODAY -> Icons.Filled.List
-                                        Tab.SEARCH -> Icons.Filled.Search
+                                        Tab.EXPLORE -> Icons.Filled.Place
+                                        Tab.POPULAR -> Icons.Filled.ThumbUp
                                         Tab.LIBRARY -> Icons.Filled.Star
-                                        Tab.TUNE -> Icons.Filled.Settings
                                     },
                                     contentDescription = t.label,
                                 )
@@ -274,13 +390,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onRefresh = vm::refresh,
                         onDismissResurfaced = vm::dismissResurfaced,
                     )
-                    Tab.SEARCH -> SearchScreen(
+                    Tab.EXPLORE -> ExploreScreen(
                         state = state,
-                        onQuery = vm::setSearchQuery,
-                        onSubmit = vm::runSearch,
-                        onPersonalisation = vm::setPersonalisation,
+                        onSteer = vm::steer,
+                        onSave = vm::toggleSave,
                         onOpen = vm::openDetail,
+                        onMore = { vm.loadExplore(more = true) },
                     )
+                    Tab.POPULAR -> PopularScreen(state = state, onOpen = vm::openDetail)
                     Tab.LIBRARY -> LibraryScreen(
                         saved = state.saved,
                         downloaded = state.downloaded,
@@ -288,49 +405,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onOpen = vm::openDetail,
                         onUnsave = vm::toggleSave,
                         onRate = vm::rate,
-                    )
-                    Tab.TUNE -> TuneScreen(
-                        digestSize = vm.currentDigestSize(),
-                        quality = vm.currentQualityWeight(),
-                        exploration = vm.currentExplorationRate(),
-                        diversity = vm.currentDiversity(),
-                        digestHour = vm.currentDigestHour(),
-                        notifyEnabled = vm.currentNotifyEnabled(),
-                        reminderHour = vm.currentReminderHour(),
-                        reminderEnabled = vm.currentReminderEnabled(),
-                        theme = state.theme,
-                        topics = state.topics,
-                        ratedCount = state.ratedCount,
-                        importProgress = state.importProgress,
-                        importSummary = state.importSummary,
-                        onDigestSize = vm::setDigestSize,
-                        onQuality = vm::setQualityWeight,
-                        onExploration = vm::setExplorationRate,
-                        onDiversity = vm::setDiversity,
-                        onDigestHour = { h ->
-                            vm.setDigestHour(h)
-                            // Rescheduling is idempotent on a unique work name, so saving
-                            // simply moves the next run rather than stacking jobs.
-                            DailyDigestWorker.schedule(context, h)
-                        },
-                        onNotifyEnabled = vm::setNotifyEnabled,
-                        onTheme = vm::setTheme,
-                        onTopics = vm::setTopics,
-                        versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
-                        onReminder = { on, hour ->
-                            vm.setReminderEnabled(on)
-                            vm.setReminderHour(hour)
-                            if (on) ReminderWorker.schedule(context, hour)
-                            else ReminderWorker.cancel(context)
-                        },
-                        onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
-                        onExport = {
-                            exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())
-                        },
-                        onRestore = { restoreBackup.launch(arrayOf("*/*")) },
-                        backupSummary = state.backupSummary,
-                        onReset = vm::resetModel,
-                        onApply = { vm.rerank(); tab = Tab.TODAY },
                     )
                 }
             }
