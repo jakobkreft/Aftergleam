@@ -33,6 +33,20 @@ class SearchRankerTest {
     }
 
     @Test
+    fun `query match is not zero when every result mentions the query`() {
+        // Search results all match the query by definition, so a vectoriser that drops
+        // frequent terms throws the query away and scores everything zero. That made the
+        // slider inert, because one side of it was always nothing.
+        val onTopic = (1..20).map {
+            paper("p$it", "panoramic image outpainting with diffusion, variant $it")
+        }
+        val hits = SearchRanker.rank(onTopic, "panoramic outpainting", rated, 0f, negatives)
+        assertTrue("every result mentions the query, so matches must be positive: " +
+            hits.map { it.queryMatch }.distinct(),
+            hits.all { it.queryMatch > 0f })
+    }
+
+    @Test
     fun `at zero personalisation the query decides the order`() {
         val hits = SearchRanker.rank(results, "panoramic camera calibration geometry",
             rated, personalisation = 0f, negativePool = negatives)

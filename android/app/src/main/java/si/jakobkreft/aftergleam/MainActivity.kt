@@ -269,6 +269,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onQuery = vm::setSearchQuery,
                             onSubmit = vm::runSearch,
                             onPersonalisation = vm::setPersonalisation,
+                            onScope = vm::setSearchScope,
+                            onSteer = vm::steer,
+                            onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
                         )
                     }
@@ -344,7 +347,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 androidx.compose.material3.TopAppBar(
                     title = { Text(tab.label) },
                     actions = {
-                        IconButton(onClick = vm::openSearch) {
+                        IconButton(onClick = {
+                            vm.openSearch(
+                                if (tab == Tab.LIBRARY) si.jakobkreft.aftergleam.ui.SearchScope.KEPT
+                                else null
+                            )
+                        }) {
                             Icon(Icons.Filled.Search, contentDescription = "Search arXiv")
                         }
                         IconButton(onClick = { showTune = true }) {
@@ -397,14 +405,20 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onOpen = vm::openDetail,
                         onMore = { vm.loadExplore(more = true) },
                     )
-                    Tab.POPULAR -> PopularScreen(state = state, onOpen = vm::openDetail)
+                    Tab.POPULAR -> PopularScreen(
+                        state = state,
+                        onSteer = vm::steer,
+                        onSave = vm::toggleSave,
+                        onOpen = vm::openDetail,
+                    )
                     Tab.LIBRARY -> LibraryScreen(
                         saved = state.saved,
                         downloaded = state.downloaded,
                         rated = state.ratedPapers,
+                        likedFlag = state::likedFlag,
                         onOpen = vm::openDetail,
                         onUnsave = vm::toggleSave,
-                        onRate = vm::rate,
+                        onSteer = vm::steer,
                     )
                 }
             }

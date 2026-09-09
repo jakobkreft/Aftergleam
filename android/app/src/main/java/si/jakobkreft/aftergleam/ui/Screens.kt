@@ -67,15 +67,7 @@ fun FeedScreen(
     onDismissResurfaced: (Boolean) -> Unit = {},
 ) {
     when {
-        state.loading -> Column(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(12.dp))
-            Text(state.loadingLabel, style = MaterialTheme.typography.bodySmall)
-        }
+        state.loading -> DigestSkeleton(state.loadingLabel.ifBlank { "Working" })
 
         state.error != null ->
             Message("Could not reach arXiv", state.error, "Try again", onRefresh)
@@ -110,14 +102,12 @@ fun FeedScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        when {
-                            state.personalising -> "Newest first, still learning your taste"
-                            state.modelActive -> "Ranked from ${state.ratedCount} papers you have reacted to"
-                            else -> "React to ${3 - state.ratedCount} more to switch ranking on"
-                        },
+                        if (state.modelActive)
+                            "Ranked from ${state.ratedCount} papers you have reacted to"
+                        else
+                            "React to ${3 - state.ratedCount} more to switch ranking on",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (state.personalising) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -132,21 +122,18 @@ fun FeedScreen(
                 }
             }
             items(state.cards, key = { it.paper.id }) { card ->
+                val reaction = state.reactions[card.paper.id] ?: Reaction.NONE
                 PaperCard(
-                    card = card,
-                    reaction = state.reactions[card.paper.id] ?: Reaction.NONE,
-                    liked = state.evidence[card.paper.id]?.let {
-                        when {
-                            si.jakobkreft.aftergleam.data.Signal.LIKED in it.signals -> true
-                            si.jakobkreft.aftergleam.data.Signal.DISLIKED in it.signals -> false
-                            else -> null
-                        }
-                    },
-                    modelActive = state.modelActive,
+                    paper = card.paper,
+                    reason = card.why(),
+                    slot = card.slot,
+                    liked = state.likedFlag(card.paper.id),
+                    saved = reaction.saved,
+                    viewed = reaction.viewed,
                     upvotes = state.attention[card.paper.id] ?: 0,
-                    onSteer = onSteer,
-                    onSave = onSave,
-                    onOpen = onOpen,
+                    onSteer = { onSteer(card.paper.id, it) },
+                    onSave = { onSave(card.paper.id) },
+                    onOpen = { onOpen(card.paper) },
                 )
             }
             item { EndCard(state, onRerank, onRefresh) }
@@ -262,153 +249,6 @@ private fun CompactAction(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
     )
-}
-
-/**
- * A digest card.
- *
- * Deliberately light. The earlier version put the whole rating control, four text actions
- * and two metadata lines on every card, so a screen held one and a half papers and the list
- * read as a wall of controls. Triage needs a title, a hint of the content, why it is here
- * and one gesture; everything else belongs on the paper's own screen, one tap away.
- */
-@Composable
-private fun PaperCard(
-    card: Scored,
-    reaction: Reaction,
-    liked: Boolean?,
-    modelActive: Boolean,
-    upvotes: Int,
-    onSteer: (String, Boolean?) -> Unit,
-    onSave: (String) -> Unit,
-    onOpen: (Paper) -> Unit,
-) {
-    val p = card.paper
-    // Viewed cards recede rather than disappear. The digest is a fixed set and removing
-    // rows from under the reader would lose their place; dimming says "you have been here"
-    // without moving anything.
-    val seen = reaction.viewed
-    Card(
-        Modifier.fillMaxWidth().clickable { onOpen(p) },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (seen) 0.dp else 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (seen) MaterialTheme.colorScheme.surface
-            else MaterialTheme.colorScheme.surfaceContainer
-        ),
-    ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            // Why the card is here comes first: it is the thing that makes the list
-            // legible, and it is cheap to skim.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SlotDot(card.slot)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    card.why(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-
-            Text(
-                p.displayTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = if (seen) FontWeight.Normal else FontWeight.SemiBold,
-                color = if (seen) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                p.displayAbstract,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (seen) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = "Opened",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                    )
-                }
-                MetaChip(p.shortAuthors)
-                Venue.of(p)?.let { MetaChip(it, MaterialTheme.colorScheme.tertiary) }
-                if (upvotes > 0) MetaChip("$upvotes read", MaterialTheme.colorScheme.secondary)
-                if (modelActive) MetaChip("${(card.relevance * 100).roundToInt()}%")
-
-                Spacer(Modifier.weight(1f))
-
-                // Icons, because these three are universal and a word each would crowd out
-                // the paper. The full slider lives on the detail screen.
-                IconToggle(
-                    icon = Icons.Filled.Clear,
-                    active = liked == false,
-                    description = "Less like this",
-                ) { onSteer(p.id, if (liked == false) null else false) }
-                IconToggle(
-                    icon = Icons.Filled.Favorite,
-                    active = liked == true,
-                    description = "More like this",
-                ) { onSteer(p.id, if (liked == true) null else true) }
-                IconToggle(
-                    icon = Icons.Filled.Star,
-                    active = reaction.saved,
-                    description = "Save for later",
-                ) { onSave(p.id) }
-            }
-        }
-    }
-}
-
-/** A small colour cue for which slot a card came from, paired with the text reason. */
-@Composable
-private fun SlotDot(slot: Slot) {
-    val colour = when (slot) {
-        Slot.RELEVANCE -> MaterialTheme.colorScheme.primary
-        Slot.EXPLORATION -> MaterialTheme.colorScheme.secondary
-        Slot.BRIDGE -> MaterialTheme.colorScheme.tertiary
-    }
-    Box(Modifier.size(8.dp).clip(CircleShape).background(colour))
-}
-
-@Composable
-private fun MetaChip(text: String, colour: Color = Color.Unspecified) {
-    if (text.isBlank()) return
-    Text(
-        text,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (colour == Color.Unspecified) MaterialTheme.colorScheme.onSurfaceVariant else colour,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(end = 10.dp),
-    )
-}
-
-@Composable
-private fun IconToggle(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    active: Boolean,
-    description: String,
-    onClick: () -> Unit,
-) {
-    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
-        Icon(
-            icon,
-            contentDescription = description,
-            tint = if (active) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(20.dp),
-        )
-    }
 }
 
 @Composable

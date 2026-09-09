@@ -31,7 +31,12 @@ import si.jakobkreft.aftergleam.data.Venue
  * question people genuinely ask, and it is honest about where the numbers come from.
  */
 @Composable
-fun PopularScreen(state: FeedState, onOpen: (Paper) -> Unit) {
+fun PopularScreen(
+    state: FeedState,
+    onSteer: (String, Boolean?) -> Unit,
+    onSave: (String) -> Unit,
+    onOpen: (Paper) -> Unit,
+) {
     if (state.popular.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
             Text("Nothing to show yet", style = MaterialTheme.typography.titleMedium)
@@ -52,33 +57,28 @@ fun PopularScreen(state: FeedState, onOpen: (Paper) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Column {
-                // The bar already names the surface; repeating it here just costs a line.
-                Text(
-                    "What others are reading. Not personalised, and the same for everyone.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
+            Text(
+                "What others are reading. Not personalised, and the same for everyone.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         items(state.popular, key = { it.id }) { p ->
-            Card(Modifier.fillMaxWidth().clickable { onOpen(p) }) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(p.displayTitle, style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold, maxLines = 3,
-                        overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(4.dp))
-                    val upvotes = state.attention[p.id] ?: 0
-                    Text(
-                        listOfNotNull(
-                            if (upvotes > 0) Attention.label(upvotes) else null,
-                            Venue.of(p),
-                            p.primaryCategory,
-                        ).joinToString(" · "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                }
-            }
+            val reaction = state.reactions[p.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE
+            PaperCard(
+                paper = p,
+                // No reason line: this surface is explicitly not personalised, and inventing
+                // one would undercut the only thing it promises.
+                reason = null,
+                slot = null,
+                liked = state.likedFlag(p.id),
+                saved = reaction.saved,
+                viewed = reaction.viewed,
+                upvotes = state.attention[p.id] ?: 0,
+                onSteer = { onSteer(p.id, it) },
+                onSave = { onSave(p.id) },
+                onOpen = { onOpen(p) },
+            )
         }
     }
 }

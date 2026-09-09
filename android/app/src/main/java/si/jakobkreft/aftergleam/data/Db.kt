@@ -384,6 +384,30 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5)
             }
         }
 
+    /**
+     * Searches papers already on the device.
+     *
+     * Not every search is a search of arXiv. "Where was that paper I saved last week" is a
+     * different and more common question, it should not need the network, and going out to
+     * arXiv for it would usually fail to find the very paper the reader means.
+     */
+    fun searchLocal(query: String, savedOnly: Boolean, limit: Int = 100): List<Paper> {
+        val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.length > 1 }
+        if (terms.isEmpty()) return emptyList()
+        val where = terms.joinToString(" AND ") {
+            "(lower(p.title) LIKE ? OR lower(p.abstract) LIKE ? OR lower(p.authors) LIKE ?)"
+        }
+        val args = terms.flatMap { listOf("%$it%", "%$it%", "%$it%") }.toMutableList()
+        val join = if (savedOnly) {
+            "JOIN reactions r ON r.paper_id = p.id AND (r.saved = 1 OR r.interest IS NOT NULL)"
+        } else ""
+        args += limit.toString()
+        return readableDatabase.rawQuery(
+            "SELECT p.* FROM papers p $join WHERE $where ORDER BY p.published DESC LIMIT ?",
+            args.toTypedArray(),
+        ).use { it.toPapers() }
+    }
+
     fun clearSignals() { writableDatabase.delete("signals", null, null) }
 
     fun clearReactions() { writableDatabase.delete("reactions", null, null) }

@@ -298,6 +298,66 @@ along with the digest and held in memory. After a restart with no fetch due, it 
 ranking by venue alone. Persisting the counts would fix it and is a small change; the surface
 is useful either way, and its own subtitle says what it ranks by.
 
+## Interface corrections, from using it
+
+**The two-phase digest was a mistake and is gone.** Publishing an unranked digest and
+reordering it a few seconds later is worse than waiting: a list you have begun reading
+rearranging itself is disorienting in a way a short pause is not. Now that ranking takes about
+ten seconds rather than seventy, the wait is shown as pulsing skeleton cards in the shape of
+the real ones. If ranking ever grows past about thirty seconds the earlier trade would become
+right again, but not at ten.
+
+**The predicted percentage is off the cards.** "38%" looks precise and is not: a paper at 38
+can be exactly right and another at 38 useless, and printing it invites trust the model has
+not earned. It remains what it always was, an internal quantity for *ordering*, which it is
+good at. The reader gets the reason instead, in words they can check.
+
+**One card, used everywhere.** The digest, explore, popular and search had each grown their
+own, so a paper you could react to in one place was inert in another for no reason a reader
+could see. Popular passes no reason line, because that surface is explicitly not personalised
+and inventing one would undercut the only thing it promises.
+
+**Active actions now sit on a filled chip.** A tinted outline was too subtle: a saved paper
+looked much like an unsaved one, so the obvious next tap un-saved it by accident.
+
+**The library's rating sliders are gone.** They were left over from the rating concept that
+was removed, and a control that exists nowhere else is worse than no control.
+
+**Search has a scope.** "Which paper did I save last week" is a different and more common
+question than "what exists on arXiv": it needs no network, and sending it to arXiv would
+usually fail to find the very paper meant. Three scopes: all of arXiv, everything this device
+has seen, and only what was saved or reacted to.
+
+**Search matched nothing, and the cause was subtle.** Query similarity was computed with the
+standard vectoriser, which drops terms appearing in more than half the documents. That is
+right for a corpus and exactly wrong for a result set: these documents were returned *because*
+they match the query, so the query's own words were in most of them and were being filtered
+out. Every result scored a query match of zero, which also made the personalisation slider
+useless, since one side of it was always nothing.
+
+## Search was retraining the model on every query
+
+Searching a hundred cached papers took about as long as searching the whole of arXiv, which
+is the kind of symptom that says the network is not the bottleneck.
+
+It was not. Every query fitted a fresh TF-IDF vocabulary and trained a fresh logistic
+regression, which is the same work the digest does and the reason a rebuild costs seconds. It
+also loaded eight hundred papers with their abstracts out of SQLite purely to sample negatives
+for that training. All of it duplicated a model the app had already trained and cached.
+
+The interest model depends only on what the reader has reacted to, so there is no reason for
+search to have its own. It now takes the cached one and needs no negative pool at all.
+Measured on device, a second search in the same session went from **9.7 seconds to 3.3**, and
+most of what remains is the measurement harness rather than the app.
+
+The first search of a session can still pay for training if the digest has not been built yet.
+In practice the digest builds first and the model is already warm.
+
+**Two smaller things from the same pass.** "Saved and reacted to" was accurate and unreadable
+in a row of chips; the scopes are now arXiv, On device and My library. And reaching for search
+from the library is almost always "where did I put that paper" rather than "what else exists",
+so it opens with that scope already selected. A default, not a rule: the chips are right there.
+
 ## Making it fast
 
 The digest took 73 seconds to build, and the fix was not the algorithm.

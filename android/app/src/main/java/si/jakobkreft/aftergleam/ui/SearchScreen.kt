@@ -51,6 +51,9 @@ fun SearchScreen(
     onQuery: (String) -> Unit,
     onSubmit: () -> Unit,
     onPersonalisation: (Float) -> Unit,
+    onScope: (SearchScope) -> Unit,
+    onSteer: (String, Boolean?) -> Unit,
+    onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -97,9 +100,29 @@ fun SearchScreen(
                 Text("Search")
             }
         }
+        Spacer(Modifier.height(8.dp))
+        // Where to look. "Which paper did I save last week" is a different and more common
+        // question than "what exists on arXiv", it needs no network, and sending it to arXiv
+        // would usually fail to find the very paper the reader meant.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SearchScope.entries.forEach { scope ->
+                androidx.compose.material3.FilterChip(
+                    selected = state.searchScope == scope,
+                    onClick = { onScope(scope) },
+                    label = { Text(scope.label, style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         Text(
-            "Keyword search on arXiv, reordered on this device by what you read.",
+            when (state.searchScope) {
+                SearchScope.ARXIV ->
+                    "Keyword search on arXiv, reordered here by what you read."
+                SearchScope.CACHED -> "Everything this device has downloaded. No network."
+                SearchScope.KEPT -> "Only what you saved or reacted to. No network."
+            },
             style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (state.searchHits.isNotEmpty()) {
@@ -137,33 +160,20 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(state.searchHits, key = { it.paper.id }) { hit ->
-                    Card(Modifier.fillMaxWidth().clickable { onOpen(hit.paper) }) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(
-                                hit.paper.displayTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                hit.paper.authors.take(3).joinToString(", "),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(hit.why(), style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
-                            Text(
-                                "query ${(hit.queryMatch * 100).toInt()}%  ·  " +
-                                    "you ${(hit.interest * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Venue.of(hit.paper)?.let {
-                                Text(it, style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.tertiary)
-                            }
-                        }
-                    }
+                    val reaction = state.reactions[hit.paper.id]
+                        ?: si.jakobkreft.aftergleam.data.Reaction.NONE
+                    PaperCard(
+                        paper = hit.paper,
+                        reason = hit.why(),
+                        slot = null,
+                        liked = state.likedFlag(hit.paper.id),
+                        saved = reaction.saved,
+                        viewed = reaction.viewed,
+                        upvotes = state.attention[hit.paper.id] ?: 0,
+                        onSteer = { onSteer(hit.paper.id, it) },
+                        onSave = { onSave(hit.paper.id) },
+                        onOpen = { onOpen(hit.paper) },
+                    )
                 }
             }
         }

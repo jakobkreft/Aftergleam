@@ -37,40 +37,60 @@ object SearchRanker {
             (1f - personalisation) * it.queryMatch + personalisation * it.interest
         }
 
+    /**
+     * @param model the interest model, normally the one the digest already trained.
+     *
+     * Search used to fit its own vectoriser and train its own classifier on every query,
+     * which is the same expensive work the digest does and the reason searching a hundred
+     * cached papers took as long as searching the whole of arXiv. The network was never the
+     * bottleneck. The model depends only on what the reader has reacted to, so there is no
+     * reason for search to have a different one.
+     */
     fun rank(
         results: List<Paper>,
         query: String,
         rated: List<RatedDoc>,
         personalisation: Float = 0.5f,
         negativePool: List<String> = emptyList(),
+        model: Ranker.Model? = null,
     ): List<Hit> {
         if (results.isEmpty()) return emptyList()
 
-        // Query similarity uses a vocabulary fitted on the results themselves, so a rare
-        // query term is correctly treated as informative within this result set.
-        val queryVec = Tfidf(minDf = 1).apply { fit(results.map { it.rankText } + listOf(query)) }
+        // Fitted with no upper document-frequency cutoff, which matters here.
+        //
+        // The default vectoriser drops terms appearing in more than half the documents,
+        // which is right for a corpus and exactly wrong for a result set: these documents
+        // were returned *because* they match the query, so the query's own words are in most
+        // of them and were being filtered out. The query vector came out empty and every
+        // result scored a query match of zero, which made the personalisation slider useless
+        // since one side of it was always nothing.
+        val queryVec = Tfidf(minDf = 1, maxDfRatio = 1f)
+            .apply { fit(results.map { it.rankText } + listOf(query)) }
         val qv = queryVec.transform(query)
 
-        val model = trainInterest(rated, negativePool.ifEmpty { results.map { it.rankText } })
+        val interestModel = model
+            ?: trainInterest(rated, negativePool.ifEmpty { results.map { it.rankText } })
 
         return results.map { paper ->
             val match = cosine(qv, queryVec.transform(paper.rankText))
-            val interest = model?.let { (vec, clf) -> clf.predict(vec.transform(paper.rankText)) } ?: 0f
+            val interest = interestModel
+                ?.let { it.clf.predict(it.vec.transform(paper.rankText)) } ?: 0f
             Hit(paper, match, interest)
         }.let { reorder(it, personalisation) }
     }
 
+    /** Fallback for the rare case where no model has been trained yet this session. */
     private fun trainInterest(
         rated: List<RatedDoc>,
         negatives: List<String>,
-    ): Pair<Tfidf, LogReg>? {
+    ): Ranker.Model? {
         if (rated.size < Ranker.MIN_RATINGS) return null
         val docs = rated.map { it.text } + negatives.shuffled().take(rated.size * 10)
         val vec = Tfidf().apply { fit(docs) }
         if (vec.size == 0) return null
         val y = FloatArray(docs.size) { i -> if (i < rated.size) rated[i].interest else 0f }
         val clf = LogReg(vec.size).apply { fit(docs.map { vec.transform(it) }, y) }
-        return vec to clf
+        return Ranker.Model(vec, clf)
     }
 
     // Both vectors are L2 normalised by Tfidf.transform, so the dot product is the cosine.

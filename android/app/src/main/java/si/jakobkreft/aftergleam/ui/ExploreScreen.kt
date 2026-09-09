@@ -60,16 +60,26 @@ fun ExploreScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column {
-                // The bar already names the surface; repeating it here just costs a line.
-                Text(
-                    "Wider than your digest and deliberately less sure of itself.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
+            Text(
+                "Wider than your digest and deliberately less sure of itself.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         items(state.explore, key = { it.paper.id }) { card ->
-            ExploreCard(card.paper, card.why(), state.attention[card.paper.id] ?: 0, onOpen)
+            val reaction = state.reactions[card.paper.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE
+            PaperCard(
+                paper = card.paper,
+                reason = card.why(),
+                slot = card.slot,
+                liked = state.likedFlag(card.paper.id),
+                saved = reaction.saved,
+                viewed = reaction.viewed,
+                upvotes = state.attention[card.paper.id] ?: 0,
+                onSteer = { onSteer(card.paper.id, it) },
+                onSave = { onSave(card.paper.id) },
+                onOpen = { onOpen(card.paper) },
+            )
         }
         item {
             Spacer(Modifier.height(8.dp))
@@ -83,42 +93,6 @@ fun ExploreScreen(
                 }
             }
             Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-private fun ExploreCard(paper: Paper, why: String, upvotes: Int, onOpen: (Paper) -> Unit) {
-    Card(
-        Modifier.fillMaxWidth().clickable { onOpen(paper) },
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(why, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary, maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Text(paper.displayTitle, style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold, maxLines = 3,
-                overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Text(paper.displayAbstract, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
-            Row {
-                Text(
-                    listOfNotNull(
-                        paper.shortAuthors.ifBlank { null },
-                        paper.primaryCategory,
-                        Venue.of(paper),
-                        if (upvotes > 0) Attention.label(upvotes) else null,
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }

@@ -35,6 +35,18 @@ import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
 import java.time.LocalDate
 
+/**
+ * Where a search looks.
+ *
+ * Labels sit in a row of chips, so they have to be short enough to read at a glance. "Saved
+ * and reacted to" described the scope accurately and was unreadable at that size.
+ */
+enum class SearchScope(val label: String) {
+    ARXIV("arXiv"),
+    CACHED("On device"),
+    KEPT("My library"),
+}
+
 data class FeedState(
     val loading: Boolean = false,
     val loadingLabel: String = "",
@@ -61,6 +73,7 @@ data class FeedState(
     val searchHits: List<SearchRanker.Hit> = emptyList(),
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
+    val searchScope: SearchScope = SearchScope.ARXIV,
     val drift: Drift.Report? = null,
     /** A first, unpersonalised digest is on screen while the model is still training. */
     val personalising: Boolean = false,
@@ -75,7 +88,21 @@ data class FeedState(
     val readingFile: java.io.File? = null,
     val readingError: String? = null,
     val readingPage: Int = 0,
-)
+) {
+    /**
+     * What the reader has explicitly said about a paper: true, false, or nothing yet.
+     *
+     * Every surface needs this and each was unpacking the ledger itself, which is how they
+     * drifted apart in the first place.
+     */
+    fun likedFlag(paperId: String): Boolean? = evidence[paperId]?.let {
+        when {
+            Signal.LIKED in it.signals -> true
+            Signal.DISLIKED in it.signals -> false
+            else -> null
+        }
+    }
+}
 
 /**
  * The onboarding survey.
@@ -129,6 +156,25 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var cachedModel: Ranker.Model? = null
     private var cachedSignature: String? = null
+
+    /**
+     * The interest model, trained once and reused until the reader reacts to something.
+     *
+     * Both the digest and search want the same thing, and it depends only on the ledger.
+     */
+    private fun ensureModel(rated: List<RatedDoc>): Ranker.Model? {
+        val signature = modelSignature(rated)
+        if (signature == cachedSignature && cachedModel != null) return cachedModel
+        val candidates = db.recentPapers(limit = 400)
+        val ids = candidates.map { it.id }.toSet()
+        val negatives = db.recentPapers(limit = 900)
+            .filter { it.id !in ids }
+            .map { it.rankText }
+        val model = Ranker().train(candidates, rated, negatives)
+        cachedModel = model
+        cachedSignature = signature
+        return model
+    }
 
     private fun modelSignature(rated: List<RatedDoc>): String =
         rated.joinToString("|") { "${it.paperId ?: it.text.hashCode()}:${it.interest}" }
@@ -389,15 +435,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Builds the digest in two passes.
+     * Builds the digest.
      *
-     * Training is the expensive part, and it used to happen behind a spinner. The ranking
-     * that needs no model at all, newest first with accepted venues promoted, is essentially
-     * free and is a perfectly reasonable digest in its own right. So that goes on screen
-     * immediately and the personalised one replaces it a few seconds later.
-     *
-     * The reader is still on the first card when the swap happens, and the chip says plainly
-     * that it is still working, so nothing moves under them without explanation.
+     * This used to publish an unranked digest first and reorder it underneath the reader a
+     * few seconds later. That was worse than waiting: a list you have started reading
+     * rearranging itself is disorienting in a way a short wait is not. Now that ranking takes
+     * about ten seconds rather than seventy, the wait is shown as skeleton cards instead.
      */
     private fun rebuild(cats: List<String>) {
         val today = LocalDate.now().toString()
@@ -422,27 +465,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             explorationRate = prefs.explorationRate,
             diversity = prefs.diversity,
         )
-
-        // Pass one: no model, so no training. Venue and freshness only, on screen at once.
-        if (rated.isNotEmpty()) {
-            val quick = Ranker(weights).digest(
-                candidates = candidates,
-                rated = emptyList(),
-                seen = seen,
-                subscribed = cats.toSet(),
-                size = prefs.digestSize,
-                attention = _state.value.attention,
-            )
-            if (quick.isNotEmpty()) {
-                _state.value = _state.value.copy(
-                    loading = false,
-                    personalising = true,
-                    cards = quick,
-                    reactions = db.allReactions(),
-                    evidence = db.evidence(),
-                )
-            }
-        }
 
         // Reuse the model whenever the ledger is unchanged, which is every re-rank that is
         // not preceded by a reaction.
@@ -694,6 +716,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * version called the full ranker here, which refit the vectoriser and retrained the
      * classifier for every pixel of the drag.
      */
+    fun setSearchScope(scope: SearchScope) {
+        _state.value = _state.value.copy(searchScope = scope)
+        if (_state.value.searchQuery.trim().length >= 2) runSearch()
+    }
+
     fun setPersonalisation(v: Float) {
         val st = _state.value
         _state.value = st.copy(
@@ -708,26 +735,43 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(searching = true, searchError = null)
         viewModelScope.launch {
             try {
-                val results = ArxivApi.search(q, max = 100)
+                val scope = _state.value.searchScope
+                val results = when (scope) {
+                    SearchScope.ARXIV -> ArxivApi.search(q, max = 100)
+                    SearchScope.CACHED -> withContext(Dispatchers.IO) {
+                        db.searchLocal(q, savedOnly = false)
+                    }
+                    SearchScope.KEPT -> withContext(Dispatchers.IO) {
+                        db.searchLocal(q, savedOnly = true)
+                    }
+                }
                 val hits = withContext(Dispatchers.Default) {
                     val rated = ratedDocs()
-                    // Papers the user has already judged make poor search results and good
-                    // training data, so they inform the ranking without appearing in it.
                     val ratedIds = rated.mapNotNull { it.paperId }.toSet()
+                    // The digest's model, not a fresh one. Training here was the whole cost
+                    // of a search, and it is the same model either way.
+                    val model = ensureModel(rated)
+                    // Papers already judged are poor results when searching arXiv, but they
+                    // are the entire point when searching your own library.
+                    val visible =
+                        if (scope == SearchScope.ARXIV) results.filter { it.id !in ratedIds }
+                        else results
                     SearchRanker.rank(
-                        results = results.filter { it.id !in ratedIds },
+                        results = visible,
                         query = q,
                         rated = rated,
                         personalisation = _state.value.personalisation,
-                        // Rated papers are cached like any other, so an unfiltered pool
-                        // hands the model its own positives labelled as negatives and
-                        // flattens every interest score towards zero.
-                        negativePool = db.recentPapers(limit = 800)
-                            .filter { it.id !in ratedIds }
-                            .map { it.rankText },
+                        // No negative pool is needed when a model already exists; loading
+                        // eight hundred abstracts to train a duplicate of it was most of the
+                        // time a search took.
+                        negativePool = emptyList(),
+                        model = model,
                     )
                 }
-                withContext(Dispatchers.IO) { db.upsertPapers(results) }
+                // Only arXiv results are new; the local scopes already came from the table.
+                if (scope == SearchScope.ARXIV) {
+                    withContext(Dispatchers.IO) { db.upsertPapers(results) }
+                }
                 _state.value = _state.value.copy(searching = false, searchHits = hits)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -875,7 +919,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun openSearch() { _state.value = _state.value.copy(searchOpen = true) }
+    /**
+     * Opens search, defaulting the scope to the one the reader is standing in.
+     *
+     * Reaching for search from the library is almost always "where did I put that paper",
+     * not "what else exists on arXiv", and making them change the scope every time to ask
+     * the obvious question is friction for nothing. Still a default, not a rule: the chips
+     * are right there.
+     */
+    fun openSearch(scope: SearchScope? = null) {
+        _state.value = _state.value.copy(
+            searchOpen = true,
+            searchScope = scope ?: _state.value.searchScope,
+        )
+    }
     fun closeSearch() { _state.value = _state.value.copy(searchOpen = false) }
 
     fun openDetail(paper: Paper) {

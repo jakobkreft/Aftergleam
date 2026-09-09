@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,7 +37,7 @@ import si.jakobkreft.aftergleam.data.Venue
 import kotlin.math.roundToInt
 
 private enum class Shelf(val label: String) {
-    SAVED("Saved"), DOWNLOADED("Offline"), RATED("Rated")
+    SAVED("Saved"), DOWNLOADED("Offline"), RATED("Reacted to")
 }
 
 /**
@@ -51,9 +52,10 @@ fun LibraryScreen(
     saved: List<Paper>,
     downloaded: List<Paper>,
     rated: List<Pair<Paper, Float>>,
+    likedFlag: (String) -> Boolean?,
     onOpen: (Paper) -> Unit,
     onUnsave: (String) -> Unit,
-    onRate: (String, Float?) -> Unit,
+    onSteer: (String, Boolean?) -> Unit,
 ) {
     var shelf by rememberSaveable { mutableStateOf(Shelf.SAVED) }
 
@@ -94,7 +96,29 @@ fun LibraryScreen(
                 onOpen = onOpen,
             )
 
-            Shelf.RATED -> RatedShelf(rated, onOpen, onRate)
+            // The same two chips as everywhere else. This shelf used to carry a slider per
+            // paper, left over from the rating concept that was removed; a control that
+            // exists nowhere else is worse than no control.
+            Shelf.RATED -> Shelf(
+                papers = rated.map { it.first },
+                empty = "Nothing yet. React to papers in the digest, or import a library, " +
+                    "and they all show up here where you can change your mind.",
+                onOpen = onOpen,
+            ) { p ->
+                Row {
+                    androidx.compose.material3.FilterChip(
+                        selected = likedFlag(p.id) == false,
+                        onClick = { onSteer(p.id, if (likedFlag(p.id) == false) null else false) },
+                        label = { Text("Less") },
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    androidx.compose.material3.FilterChip(
+                        selected = likedFlag(p.id) == true,
+                        onClick = { onSteer(p.id, if (likedFlag(p.id) == true) null else true) },
+                        label = { Text("More") },
+                    )
+                }
+            }
         }
     }
 }
@@ -131,61 +155,6 @@ private fun Shelf(
                         )
                     }
                     trailing?.invoke(p)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RatedShelf(
-    rated: List<Pair<Paper, Float>>,
-    onOpen: (Paper) -> Unit,
-    onRate: (String, Float?) -> Unit,
-) {
-    if (rated.isEmpty()) {
-        Text(
-            "Nothing rated yet. Rate papers in the digest, or import a library, and they " +
-                "all show up here where you can change your mind.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        return
-    }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(rated, key = { it.first.id }) { (p, interest) ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            p.displayTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).clickable { onOpen(p) },
-                        )
-                        IconButton(onClick = { onRate(p.id, null) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove this rating")
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.Star,
-                            contentDescription = null,
-                            modifier = Modifier.height(16.dp),
-                        )
-                        Text(
-                            " ${(interest * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    // Adjusting here is the point of the shelf: a model built from ratings
-                    // the user cannot revisit is one they can only obey.
-                    Slider(
-                        value = interest,
-                        onValueChange = { onRate(p.id, it) },
-                        modifier = Modifier.height(24.dp),
-                    )
                 }
             }
         }
