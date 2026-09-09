@@ -59,7 +59,7 @@ val COMMON_CATEGORIES = listOf(
 @Composable
 fun FeedScreen(
     state: FeedState,
-    onRate: (String, Float?) -> Unit,
+    onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
     onRerank: () -> Unit,
@@ -110,11 +110,14 @@ fun FeedScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        if (state.modelActive)
-                            "Ranking from ${state.ratedCount} rated papers"
-                        else
-                            "Rate ${3 - state.ratedCount} more to switch ranking on",
+                        when {
+                            state.personalising -> "Newest first, still learning your taste"
+                            state.modelActive -> "Ranked from ${state.ratedCount} papers you have reacted to"
+                            else -> "React to ${3 - state.ratedCount} more to switch ranking on"
+                        },
                         style = MaterialTheme.typography.labelSmall,
+                        color = if (state.personalising) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -123,7 +126,7 @@ fun FeedScreen(
                     ResurfacedCard(
                         resurfaced = r,
                         onOpen = { onOpen(r.paper) },
-                        onInterested = { onRate(r.paper.id, Reaction.LIKED); onDismissResurfaced(false) },
+                        onInterested = { onSteer(r.paper.id, true); onDismissResurfaced(false) },
                         onDismiss = { onDismissResurfaced(true) },
                     )
                 }
@@ -132,9 +135,16 @@ fun FeedScreen(
                 PaperCard(
                     card = card,
                     reaction = state.reactions[card.paper.id] ?: Reaction.NONE,
+                    liked = state.evidence[card.paper.id]?.let {
+                        when {
+                            si.jakobkreft.aftergleam.data.Signal.LIKED in it.signals -> true
+                            si.jakobkreft.aftergleam.data.Signal.DISLIKED in it.signals -> false
+                            else -> null
+                        }
+                    },
                     modelActive = state.modelActive,
                     upvotes = state.attention[card.paper.id] ?: 0,
-                    onRate = onRate,
+                    onSteer = onSteer,
                     onSave = onSave,
                     onOpen = onOpen,
                 )
@@ -155,50 +165,54 @@ fun FeedScreen(
  * overrule it in one motion. The two buttons are shortcuts to 0.9 and 0.1, because most
  * reactions really are binary and dragging every time would be tiresome.
  */
+/**
+ * Two buttons instead of a slider.
+ *
+ * The slider asked for a calibrated number in exchange for a vague feeling. One reader's
+ * "quite interested" was 95 and another's 55, the model's own prediction sat beside it and
+ * anchored the answer, and reading a paper properly gives you more reasons to fault it, so
+ * the more attention a paper got the worse it scored. A steering instruction has none of
+ * those problems: it means the same thing coming from anyone.
+ *
+ * Everything between the two buttons is inferred from what the reader does, which costs them
+ * nothing and is harder to misreport.
+ */
 @Composable
 fun InterestControl(
     confidence: Float,
-    reaction: Reaction,
+    liked: Boolean?,
     modelActive: Boolean,
-    onRate: (Float?) -> Unit,
+    onSteer: (Boolean?) -> Unit,
 ) {
-    val shown = reaction.interest ?: confidence
-    val userSet = reaction.rated
-
     Column {
-        Text(
-            if (userSet) "your interest ${(shown * 100).roundToInt()}%"
-            else if (modelActive) "model predicts ${(confidence * 100).roundToInt()}%"
-            else "not ranked yet, rate to teach it",
-            style = MaterialTheme.typography.labelSmall,
-            color = if (userSet) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // The track must stay visible when the value is only a prediction, otherwise the
-        // slider renders as a bare thumb floating on the left and reads as a glitch.
-        Slider(
-            value = shown.coerceIn(0f, 1f),
-            onValueChange = { onRate(it) },
-            modifier = Modifier.height(24.dp),
-            colors = if (userSet) {
-                SliderDefaults.colors()
-            } else {
-                SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.outline,
-                    activeTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-            },
-        )
+        if (modelActive) {
+            Text(
+                when (liked) {
+                    true -> "You asked for more like this"
+                    false -> "You asked for less like this"
+                    null -> "Predicted for you: ${(confidence * 100).roundToInt()}%"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (liked != null) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.FilterChip(
+                selected = liked == false,
+                onClick = { onSteer(if (liked == false) null else false) },
+                label = { Text("Less like this") },
+            )
+            androidx.compose.material3.FilterChip(
+                selected = liked == true,
+                onClick = { onSteer(if (liked == true) null else true) },
+                label = { Text("More like this") },
+            )
+        }
     }
 }
 
-/**
- * The Resurfacer. At most one per digest, framed as discovery rather than failure, and
- * always dismissible. "Still not interested" is itself a strong training signal, so
- * dismissing it teaches the model rather than just hiding the card.
- */
 @Composable
 private fun ResurfacedCard(
     resurfaced: si.jakobkreft.aftergleam.data.Resurfaced,
@@ -262,14 +276,14 @@ private fun CompactAction(label: String, onClick: () -> Unit) {
 private fun PaperCard(
     card: Scored,
     reaction: Reaction,
+    liked: Boolean?,
     modelActive: Boolean,
     upvotes: Int,
-    onRate: (String, Float?) -> Unit,
+    onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
 ) {
     val p = card.paper
-    val rated = reaction.rated
     // Viewed cards recede rather than disappear. The digest is a fixed set and removing
     // rows from under the reader would lose their place; dimming says "you have been here"
     // without moving anything.
@@ -337,14 +351,14 @@ private fun PaperCard(
                 // the paper. The full slider lives on the detail screen.
                 IconToggle(
                     icon = Icons.Filled.Clear,
-                    active = rated && reaction.interest!! < 0.5f,
-                    description = "Not for me",
-                ) { onRate(p.id, if (rated && reaction.interest!! < 0.5f) null else Reaction.DISLIKED) }
+                    active = liked == false,
+                    description = "Less like this",
+                ) { onSteer(p.id, if (liked == false) null else false) }
                 IconToggle(
                     icon = Icons.Filled.Favorite,
-                    active = rated && reaction.interest!! >= 0.5f,
-                    description = "Interested",
-                ) { onRate(p.id, if (rated && reaction.interest!! >= 0.5f) null else Reaction.LIKED) }
+                    active = liked == true,
+                    description = "More like this",
+                ) { onSteer(p.id, if (liked == true) null else true) }
                 IconToggle(
                     icon = Icons.Filled.Star,
                     active = reaction.saved,

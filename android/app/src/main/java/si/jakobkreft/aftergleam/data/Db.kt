@@ -13,7 +13,12 @@ import android.database.sqlite.SQLiteOpenHelper
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5) {
+
+    // Never call `use` on the database this helper returns. It is a single shared instance,
+    // and closing it leaves the helper handing a closed connection pool to the next caller.
+    // The symptom is a crash on whichever read happens to follow a write, which made it look
+    // like a bug in one screen rather than in every path that writes then reads.
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -58,9 +63,59 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4)
         )
         db.execSQL("CREATE INDEX idx_shown_day ON shown(day)")
         db.execSQL("CREATE INDEX idx_papers_published ON papers(published)")
+        db.execSQL(
+            """
+            CREATE TABLE signals (
+              paper_id TEXT NOT NULL,
+              signal TEXT NOT NULL,
+              ts INTEGER NOT NULL,
+              PRIMARY KEY (paper_id, signal)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_signals_paper ON signals(paper_id)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 5) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS signals (
+                  paper_id TEXT NOT NULL,
+                  signal TEXT NOT NULL,
+                  ts INTEGER NOT NULL,
+                  PRIMARY KEY (paper_id, signal)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_signals_paper ON signals(paper_id)")
+            // Carry the old numeric ratings across as explicit judgements. A slider value
+            // above the midpoint was the reader saying yes; the exact number was never
+            // comparable between people and is not worth preserving.
+            runCatching {
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO signals (paper_id, signal, ts)
+                    SELECT paper_id,
+                           CASE WHEN interest >= 0.5 THEN 'LIKED' ELSE 'DISLIKED' END,
+                           ts
+                    FROM reactions WHERE interest IS NOT NULL
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO signals (paper_id, signal, ts)
+                    SELECT paper_id, 'SAVED', ts FROM reactions WHERE saved = 1
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO signals (paper_id, signal, ts)
+                    SELECT paper_id, 'OPENED', ts FROM reactions WHERE viewed = 1
+                    """.trimIndent()
+                )
+            }
+        }
         if (old in 1..3) {
             runCatching { db.execSQL("ALTER TABLE reactions ADD COLUMN viewed INTEGER NOT NULL DEFAULT 0") }
         }
@@ -112,7 +167,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4)
         }
     }
 
-    fun upsertPapers(papers: List<Paper>) = writableDatabase.use { db ->
+    fun upsertPapers(papers: List<Paper>) = writableDatabase.let { db ->
         db.beginTransaction()
         try {
             for (p in papers) {
@@ -146,7 +201,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4)
         ).use { it.toPapers() }
     }
 
-    fun setReaction(paperId: String, r: Reaction) = writableDatabase.use { db ->
+    fun setReaction(paperId: String, r: Reaction) = writableDatabase.let { db ->
         if (r.empty) {
             db.delete("reactions", "paper_id = ?", arrayOf(paperId))
         } else {
@@ -268,7 +323,35 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4)
             else 0 to 0
         }
 
-    fun clearReactions() = writableDatabase.use { it.delete("reactions", null, null) }
+    /** Records one signal. Repeats are harmless; the first timestamp is kept. */
+    fun addSignal(paperId: String, signal: Signal) {
+        writableDatabase.insertWithOnConflict("signals", null, ContentValues().apply {
+            put("paper_id", paperId)
+            put("signal", signal.name)
+            put("ts", System.currentTimeMillis())
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    /** Removes one signal, for undoing an explicit judgement. */
+    fun removeSignal(paperId: String, signal: Signal) {
+        writableDatabase.delete(
+            "signals", "paper_id = ? AND signal = ?", arrayOf(paperId, signal.name)
+        )
+    }
+
+    fun evidence(): Map<String, Evidence> =
+        readableDatabase.rawQuery("SELECT paper_id, signal FROM signals", null).use { c ->
+            val acc = HashMap<String, MutableSet<Signal>>()
+            while (c.moveToNext()) {
+                val sig = runCatching { Signal.valueOf(c.getString(1)) }.getOrNull() ?: continue
+                acc.getOrPut(c.getString(0)) { mutableSetOf() } += sig
+            }
+            acc.mapValues { (id, set) -> Evidence(id, set) }
+        }
+
+    fun clearSignals() { writableDatabase.delete("signals", null, null) }
+
+    fun clearReactions() { writableDatabase.delete("reactions", null, null) }
 
     fun allReactions(): Map<String, Reaction> =
         readableDatabase.rawQuery(
@@ -296,7 +379,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4)
             buildMap { while (c.moveToNext()) put(c.getString(0), c.getFloat(1)) }
         }
 
-    fun markShown(items: List<ShownItem>, day: String) = writableDatabase.use { db ->
+    fun markShown(items: List<ShownItem>, day: String) = writableDatabase.let { db ->
         db.beginTransaction()
         try {
             // Replace, not ignore: rebuilding today's digest must overwrite the previous

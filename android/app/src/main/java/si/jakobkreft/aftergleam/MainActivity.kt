@@ -196,6 +196,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     DetailScreen(
                         paper = detail,
                         reaction = state.reactions[detail.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE,
+                        liked = state.evidence[detail.id]?.let {
+                            when {
+                                si.jakobkreft.aftergleam.data.Signal.LIKED in it.signals -> true
+                                si.jakobkreft.aftergleam.data.Signal.DISLIKED in it.signals -> false
+                                else -> null
+                            }
+                        },
                         // A paper opened from search is not in today's digest, so looking
                         // only at `cards` reported every search result as 0% interest.
                         confidence = state.cards.firstOrNull { it.paper.id == detail.id }?.relevance
@@ -203,7 +210,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             ?: 0f,
                         modelActive = state.modelActive,
                         upvotes = state.attention[detail.id] ?: 0,
-                        onRate = { vm.rate(detail.id, it) },
+                        onSteer = { vm.steer(detail.id, it) },
                         onSave = { vm.toggleSave(detail.id) },
                         onOpenExternal = { url ->
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -260,7 +267,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 when (tab) {
                     Tab.TODAY -> FeedScreen(
                         state = state,
-                        onRate = vm::rate,
+                        onSteer = vm::steer,
                         onSave = vm::toggleSave,
                         onOpen = vm::openDetail,
                         onRerank = vm::rerank,

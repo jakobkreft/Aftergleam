@@ -48,15 +48,19 @@ class DiversityTest {
         "study $it of convex optimisation convergence for sparse linear estimation"
     }
 
-    private fun run(diversity: Float): List<String> =
-        Ranker(Weights(diversity = diversity, explorationRate = 0f))
+    // Temperature near zero and a fixed seed, because the digest is now sampled rather than
+    // taken off the top. This isolates the diversity pass from the draw.
+    private fun run(diversity: Float, seed: Int = 7, temperature: Float = 0.01f): List<String> =
+        Ranker(Weights(diversity = diversity, explorationRate = 0f, temperature = temperature))
             .digest(
                 candidates = candidates(),
                 rated = rated,
                 seen = emptySet(),
                 subscribed = setOf("cs.CV"),
                 size = 6,
+                random = kotlin.random.Random(seed),
                 negativePool = negatives,
+                evidenceCount = 40,
             )
             .map { it.paper.id }
 
@@ -71,10 +75,21 @@ class DiversityTest {
     }
 
     @Test
-    fun `turning diversity off leaves ranking untouched`() {
-        val a = run(0f)
-        val b = run(0f)
-        assertTrue("selection must be deterministic with diversity off", a == b)
-        assertTrue("a full digest is still returned", a.size == 6)
+    fun `the same seed gives the same digest`() {
+        // The digest is a sample, so it is deliberately not deterministic across runs. It
+        // must still be reproducible given a seed, or nothing about it can be tested.
+        assertTrue("same seed, same draw", run(0f, seed = 3) == run(0f, seed = 3))
+        assertTrue("a full digest is still returned", run(0f).size == 6)
+    }
+
+    @Test
+    fun `different seeds give different digests`() {
+        // This is the point of sampling: re-ranking with no new data returns something new,
+        // which is what makes "show me more" mean anything.
+        // At a realistic temperature, not the near-zero one the other tests pin for
+        // reproducibility.
+        val seeds = (1..12).map { run(0.3f, seed = it, temperature = 0.4f) }
+        assertTrue("sampling must not always return the same set: $seeds",
+            seeds.distinct().size > 1)
     }
 }

@@ -74,6 +74,14 @@ data class Weights(
      * other things.
      */
     val diversity: Float = 0.3f,
+    /**
+     * How often to show something the model is unsure about.
+     *
+     * This is the temperature of the sampler, and it is the one exploration control worth
+     * exposing. Near zero the digest is the deterministic top of the list, which is what
+     * made the feed collapse into one topic.
+     */
+    val temperature: Float = 0.35f,
     /** Weight on "lots of people are reading this today". Enrichment, so modest. */
     val attention: Float = 0.25f,
 )
@@ -101,6 +109,8 @@ class Ranker(private val weights: Weights = Weights()) {
         random: Random = Random.Default,
         negativePool: List<String> = emptyList(),
         attention: Map<String, Int> = emptyMap(),
+        /** Papers the reader has given any signal for; drives how much the model is trusted. */
+        evidenceCount: Int = rated.size,
     ): List<Scored> {
         // A paper the user has already judged is finished business. Leaving rated papers
         // in the pool made them dominate the top of the list, because the model scores its
@@ -115,7 +125,11 @@ class Ranker(private val weights: Weights = Weights()) {
         val hasModel = model != null
         val scored = fresh.map { paper ->
             val vec = model?.vec?.transform(paper.rankText)
-            val rel = if (model != null && vec != null) model.clf.predict(vec) else 0f
+            // Shrunk toward the prior: a model fitted on a handful of papers is as sharp as
+            // one fitted on hundreds, and acting on that is how the feed narrowed in a day.
+            val rel = if (model != null && vec != null) {
+                Sampling.shrink(model.clf.predict(vec), evidenceCount)
+            } else 0f
             val terms = if (model != null && vec != null) {
                 model.clf.topContributors(vec).mapNotNull { model.vec.termAt(it) }
             } else emptyList()
@@ -165,28 +179,58 @@ class Ranker(private val weights: Weights = Weights()) {
      * this costs one dot product per candidate per slot and needs no extra model. With no
      * vectoriser available (cold start) it degrades to plain ranking.
      */
-    private fun selectDiverse(scored: List<Scored>, n: Int, model: Model?): List<Scored> {
+    private fun selectDiverse(
+        scored: List<Scored>,
+        n: Int,
+        model: Model?,
+        random: Random,
+    ): List<Scored> {
         if (n <= 0) return emptyList()
-        if (model == null || weights.diversity <= 0f) return scored.take(n)
+        if (model == null) {
+            return Sampling.topK(scored, n, weights.temperature, random) {
+                it.score.coerceIn(0f, 1f)
+            }
+        }
 
-        val vectors = HashMap<String, Map<Int, Float>>()
+        val vectors = HashMap<String, SparseVec>()
         fun vec(s: Scored) = vectors.getOrPut(s.paper.id) {
             model.vec.transform(s.paper.rankText)
         }
 
-        val pool = scored.take((n * 6).coerceAtMost(scored.size)).toMutableList()
+        // Two caps, both needed. The loop is slots x pool x already-chosen, so at a digest
+        // of sixty it was doing roughly three hundred thousand sparse cosines and burning
+        // minutes of CPU before showing anything; at twenty-five the same code was fine,
+        // which is why it went unnoticed.
+        //
+        // A fixed pool keeps the cost flat as the digest grows, and comparing only against
+        // the most recent picks is enough: near-duplicates cluster, so a paper that echoes
+        // something chosen forty slots ago is not what this pass is for.
+        val pool = scored.take(MMR_POOL.coerceAtMost(scored.size)).toMutableList()
         val chosen = mutableListOf<Scored>()
         val lambda = 1f - weights.diversity
 
+        // Stochastic maximal marginal relevance: each pick is *drawn* from the
+        // diversity-adjusted scores rather than taken as the maximum.
+        //
+        // Doing these separately did not work. Sampling a pool and then running a greedy
+        // MMR over it means the greedy pass decides everything whenever the pool covers the
+        // candidates, so the digest was identical on every re-rank; and shrinking the pool
+        // far enough to matter starved the diversity pass of the minority topics it exists
+        // to rescue. One loop does both jobs: variety between runs, and no near-duplicates
+        // within a run.
         while (chosen.size < n && pool.isNotEmpty()) {
             var bestIdx = 0
-            var bestValue = Float.NEGATIVE_INFINITY
+            var bestKey = Float.NEGATIVE_INFINITY
             for (i in pool.indices) {
                 val cand = pool[i]
-                val maxSim = chosen.maxOfOrNull { cosine(vec(cand), vec(it)) } ?: 0f
-                val value = lambda * cand.score - weights.diversity * maxSim
-                if (value > bestValue) {
-                    bestValue = value
+                val maxSim = chosen.takeLast(MMR_LOOKBACK)
+                    .maxOfOrNull { cosine(vec(cand), vec(it)) } ?: 0f
+                val value = (lambda * cand.score - weights.diversity * maxSim)
+                    .coerceIn(1e-6f, 1f)
+                val key = kotlin.math.ln(value) / weights.temperature.coerceAtLeast(1e-3f) +
+                    gumbel(random)
+                if (key > bestKey) {
+                    bestKey = key
                     bestIdx = i
                 }
             }
@@ -195,15 +239,14 @@ class Ranker(private val weights: Weights = Weights()) {
         return chosen
     }
 
-    private fun cosine(a: Map<Int, Float>, b: Map<Int, Float>): Float {
-        if (a.isEmpty() || b.isEmpty()) return 0f
-        // Both vectors are already L2 normalised by Tfidf.transform, so the dot product is
-        // the cosine directly.
-        val (small, large) = if (a.size < b.size) a to b else b to a
-        var dot = 0f
-        for ((i, v) in small) large[i]?.let { dot += v * it }
-        return dot
+    private fun gumbel(random: Random): Float {
+        val u = random.nextFloat().coerceIn(1e-6f, 1f - 1e-6f)
+        return -kotlin.math.ln(-kotlin.math.ln(u))
     }
+
+    // Both vectors are L2 normalised by Tfidf.transform, so the dot product is the cosine.
+    private fun cosine(a: SparseVec, b: SparseVec): Float =
+        if (a.isEmpty() || b.isEmpty()) 0f else a.dot(b)
 
     private fun compose(
         scored: List<Scored>,
@@ -223,7 +266,21 @@ class Ranker(private val weights: Weights = Weights()) {
         val nBridge = if (subscribed.isEmpty()) 0 else 1
         val nRelevance = size - nExplore - nBridge
 
-        selectDiverse(scored, nRelevance, model).forEach { picked[it.paper.id] = it }
+        // Sample a pool several times the size needed, then pick a diverse subset of it.
+        // Sampling supplies exploration and makes a re-rank return something new; the
+        // diversity pass then stops that pool being ten papers on one topic.
+        // The bridge is chosen first, and deliberately.
+        //
+        // Relevance selection is now a sample, so it can happily draw the one out-of-field
+        // paper into an ordinary slot and leave the bridge step with nothing to offer. A
+        // reserved slot is the only way to guarantee the feature actually appears.
+        if (nBridge > 0) {
+            scored.firstOrNull { it.paper.categories.none { c -> c in subscribed } }
+                ?.let { picked[it.paper.id] = it.copy(slot = Slot.BRIDGE) }
+        }
+
+        selectDiverse(scored.filter { it.paper.id !in picked }, nRelevance, model, random)
+            .forEach { picked[it.paper.id] = it }
 
         // Uncertainty sampling: relevance nearest 0.5 is where a label teaches the most.
         scored.asSequence()
@@ -233,12 +290,6 @@ class Ranker(private val weights: Weights = Weights()) {
             .shuffled(random)
             .take(nExplore)
             .forEach { picked[it.paper.id] = it.copy(slot = Slot.EXPLORATION) }
-
-        if (nBridge > 0) {
-            scored.firstOrNull {
-                it.paper.id !in picked && it.paper.categories.none { c -> c in subscribed }
-            }?.let { picked[it.paper.id] = it.copy(slot = Slot.BRIDGE) }
-        }
 
         // Backfill if a slot found no candidate, so the digest is always `size` long.
         for (s in scored) {
@@ -288,6 +339,12 @@ class Ranker(private val weights: Weights = Weights()) {
     companion object {
         /** Below this many ratings the model is noise, so we do not pretend to have one. */
         const val MIN_RATINGS = 3
+
+        /** Candidates the diversity pass considers. Flat cost regardless of digest size. */
+        private const val MMR_POOL = 150
+
+        /** How many recent picks a candidate is compared against for similarity. */
+        private const val MMR_LOOKBACK = 12
     }
 
     /** Exponential decay with a one-week half-life. */

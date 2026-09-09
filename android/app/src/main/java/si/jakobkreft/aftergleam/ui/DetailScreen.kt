@@ -62,10 +62,11 @@ import kotlin.math.roundToInt
 fun DetailScreen(
     paper: Paper,
     reaction: Reaction,
+    liked: Boolean?,
     confidence: Float,
     modelActive: Boolean,
     upvotes: Int,
-    onRate: (Float?) -> Unit,
+    onSteer: (Boolean?) -> Unit,
     onSave: () -> Unit,
     onOpenExternal: (String) -> Unit,
     onRead: () -> Unit,
@@ -123,7 +124,7 @@ fun DetailScreen(
             Text(paper.displayAbstract, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(16.dp))
 
-            InterestControl(confidence, reaction, modelActive, onRate)
+            InterestControl(confidence, liked, modelActive, onSteer)
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = onSave) {

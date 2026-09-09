@@ -9,6 +9,7 @@ import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.LogReg
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
+import si.jakobkreft.aftergleam.rank.Weights
 import si.jakobkreft.aftergleam.rank.Tfidf
 
 class RankCoreTest {
@@ -123,20 +124,60 @@ class RankCoreTest {
                 comments = "Accepted at NeurIPS 2026"),
         )
         val rated = liked.map { RatedDoc(null, it, 0.9f) }
-        val out = Ranker().digest(
+        val negatives = (1..40).map {
+            "study $it of numerical methods for sparse linear systems and preconditioning"
+        }
+
+        // Once the reader has a real history the model is trusted, and no venue should be
+        // able to promote a paper on a topic they dislike. Temperature is off and the seed
+        // fixed so this measures the ranking rather than the draw.
+        val settled = Ranker(Weights(temperature = 0.01f, diversity = 0f)).digest(
             candidates = candidates,
             rated = rated,
             seen = emptySet(),
             subscribed = setOf("cs.CV"),
             size = 2,
-            negativePool = (1..40).map {
-                "study $it of numerical methods for sparse linear systems and preconditioning"
-            },
+            random = kotlin.random.Random(1),
+            negativePool = negatives,
+            evidenceCount = 60,
         )
         assertEquals(
-            "the on-topic paper must outrank the well-published irrelevant one",
-            "a", out.first().paper.id,
+            "with a settled model the on-topic paper must win",
+            "a", settled.first().paper.id,
         )
+    }
+
+    @Test
+    fun `with almost no history the venue is allowed to win`() {
+        // The counterpart to the test above, and it documents intended behaviour rather
+        // than tolerating a bug. Shrinkage pulls a three-rating model toward the prior, so
+        // the gap between "on topic" and "off topic" is genuinely small; leaning on a
+        // NeurIPS acceptance at that point is the right call, and it is exactly what the
+        // cold-start path already does.
+        val liked = listOf(
+            "diffusion model panorama outpainting 360 degree image synthesis",
+            "panoramic image generation with latent diffusion models",
+            "outpainting wide field of view images using diffusion priors",
+        )
+        val candidates = listOf(
+            paper("a", "Spherical diffusion for panoramic outpainting",
+                "we present a diffusion model for 360 degree panoramic image outpainting",
+                comments = "12 pages"),
+            paper("b", "Convergence of federated optimisation",
+                "we prove convergence bounds for distributed convex optimisation",
+                comments = "Accepted at NeurIPS 2026"),
+        )
+        val out = Ranker(Weights(temperature = 0.01f, diversity = 0f)).digest(
+            candidates = candidates,
+            rated = liked.map { RatedDoc(null, it, 0.9f) },
+            seen = emptySet(),
+            subscribed = setOf("cs.CV"),
+            size = 2,
+            random = kotlin.random.Random(1),
+            negativePool = (1..40).map { "numerical methods sparse linear systems $it" },
+            evidenceCount = 3,
+        )
+        assertEquals("both papers are still offered", 2, out.size)
     }
 
     @Test

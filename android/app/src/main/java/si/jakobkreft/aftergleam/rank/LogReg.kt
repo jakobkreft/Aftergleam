@@ -29,7 +29,7 @@ class LogReg(
      * emphatic 0.95s. Without any weighting the sampled negatives swamp the ratings and
      * the model simply learns to predict "no".
      */
-    fun fit(x: List<Map<Int, Float>>, labels: FloatArray) {
+    fun fit(x: List<SparseVec>, labels: FloatArray) {
         require(x.size == labels.size) { "x and labels differ in length" }
         if (x.isEmpty()) return
 
@@ -41,40 +41,56 @@ class LogReg(
         weights = FloatArray(dim)
         bias = 0f
 
+        // One dense gradient buffer, reused across epochs.
+        //
+        // The previous version allocated a HashMap<Int, Float> per epoch and boxed every
+        // index and value it touched. Training walks every feature of every document once
+        // per epoch, so at two hundred epochs over eight hundred documents that was tens of
+        // millions of boxed operations, and it was where the ranking pass spent most of its
+        // time. The stamp array avoids clearing the whole vocabulary each epoch when only a
+        // fraction of it appears in the batch.
+        val grad = FloatArray(dim)
+        val touched = IntArray(dim)
+        var stamp = 0
+
         repeat(epochs) {
-            val grad = HashMap<Int, Float>()
+            stamp++
             var gBias = 0f
             for (i in x.indices) {
-                val p = predict(x[i])
-                // Blend the two weights by the label itself, so a 0.5 rating is
-                // weighted halfway rather than being forced into one class.
+                val v = x[i]
+                val p = predict(v)
+                // Blend the two class weights by the label itself, so a 0.5 counts halfway
+                // rather than being forced into one class.
                 val w = labels[i] * wPos + (1f - labels[i]) * wNeg
                 val err = (p - labels[i]) * w
-                for ((idx, v) in x[i]) grad[idx] = (grad[idx] ?: 0f) + err * v
+                for (k in v.indices.indices) {
+                    val idx = v.indices[k]
+                    if (touched[idx] != stamp) {
+                        touched[idx] = stamp
+                        grad[idx] = 0f
+                    }
+                    grad[idx] += err * v.values[k]
+                }
                 gBias += err
             }
             val scale = lr / x.size
-            for ((idx, g) in grad) {
-                weights[idx] -= scale * g + lr * l2 * weights[idx]
+            for (i in 0 until dim) {
+                if (touched[i] == stamp) weights[i] -= scale * grad[i] + lr * l2 * weights[i]
             }
             bias -= scale * gBias
         }
     }
 
-    fun predict(v: Map<Int, Float>): Float {
-        var z = bias
-        for ((i, x) in v) z += weights[i] * x
-        return 1f / (1f + exp(-z))
-    }
+    fun predict(v: SparseVec): Float = 1f / (1f + exp(-(bias + v.dot(weights))))
 
     /**
      * The features that pushed this document's score up the most, for the "why" chip.
      * P3 says the model must be legible, and with TF-IDF that is literally free: the
      * explanation is a list of words the user can read.
      */
-    fun topContributors(v: Map<Int, Float>, n: Int = 3): List<Int> =
-        v.entries
-            .map { it.key to weights[it.key] * it.value }
+    fun topContributors(v: SparseVec, n: Int = 3): List<Int> =
+        (0 until v.size)
+            .map { v.indices[it] to weights[v.indices[it]] * v.values[it] }
             .filter { it.second > 0f }
             .sortedByDescending { abs(it.second) }
             .take(n)

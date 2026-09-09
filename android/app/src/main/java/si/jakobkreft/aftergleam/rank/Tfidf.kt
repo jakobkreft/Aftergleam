@@ -19,6 +19,16 @@ class Tfidf(
 ) {
     /** term -> feature index */
     private val vocab = HashMap<String, Int>()
+
+    /**
+     * feature index -> term, built once at fit time.
+     *
+     * This used to be a linear scan of the vocabulary. It is called three times per candidate
+     * to build the "why" chip, so on a four hundred paper digest with a forty thousand word
+     * vocabulary that was tens of millions of comparisons, and it dominated the whole ranking
+     * pass.
+     */
+    private var terms = emptyArray<String>()
     private var idf = FloatArray(0)
 
     val size: Int get() = vocab.size
@@ -36,36 +46,40 @@ class Tfidf(
 
         vocab.clear()
         idf = FloatArray(kept.size)
+        terms = Array(kept.size) { "" }
         kept.forEachIndexed { i, e ->
             vocab[e.key] = i
+            terms[i] = e.key
             // Smoothed idf, matching scikit-learn's default so prototype and app agree.
             idf[i] = (ln((1f + docs.size) / (1f + e.value)) + 1f)
         }
     }
 
-    /** L2-normalised sparse vector: feature index -> weight. */
-    fun transform(doc: String): Map<Int, Float> {
+    /** L2-normalised sparse vector over the fitted vocabulary. */
+    fun transform(doc: String): SparseVec {
         val counts = HashMap<Int, Float>()
         for (t in terms(doc)) {
             val i = vocab[t] ?: continue
             counts[i] = (counts[i] ?: 0f) + 1f
         }
-        if (counts.isEmpty()) return emptyMap()
+        if (counts.isEmpty()) return SparseVec.EMPTY
 
+        val idx = counts.keys.toIntArray()
+        idx.sort()
+        val vals = FloatArray(idx.size)
         var norm = 0f
-        val out = HashMap<Int, Float>(counts.size)
-        for ((i, c) in counts) {
-            val v = (1f + ln(c)) * idf[i]   // sublinear tf
-            out[i] = v
+        for (k in idx.indices) {
+            val v = (1f + ln(counts[idx[k]]!!)) * idf[idx[k]]   // sublinear tf
+            vals[k] = v
             norm += v * v
         }
         norm = sqrt(norm)
-        if (norm > 0f) for (k in out.keys.toList()) out[k] = out[k]!! / norm
-        return out
+        if (norm > 0f) for (k in vals.indices) vals[k] = vals[k] / norm
+        return SparseVec(idx, vals)
     }
 
     /** Maps a feature index back to its term, for the "why" chip. */
-    fun termAt(index: Int): String? = vocab.entries.firstOrNull { it.value == index }?.key
+    fun termAt(index: Int): String? = terms.getOrNull(index)
 
     companion object {
         // Small, deliberately conservative list. Aggressive stopword removal hurts here

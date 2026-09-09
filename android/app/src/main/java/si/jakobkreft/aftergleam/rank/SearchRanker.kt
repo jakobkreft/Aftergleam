@@ -73,11 +73,7 @@ object SearchRanker {
         return vec to clf
     }
 
-    private fun cosine(a: Map<Int, Float>, b: Map<Int, Float>): Float {
-        if (a.isEmpty() || b.isEmpty()) return 0f
-        val (small, large) = if (a.size < b.size) a to b else b to a
-        var dot = 0f
-        for ((i, v) in small) large[i]?.let { dot += v * it }
-        return dot
-    }
+    // Both vectors are L2 normalised by Tfidf.transform, so the dot product is the cosine.
+    private fun cosine(a: SparseVec, b: SparseVec): Float =
+        if (a.isEmpty() || b.isEmpty()) 0f else a.dot(b)
 }

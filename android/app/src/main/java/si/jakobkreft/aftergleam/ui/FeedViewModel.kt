@@ -17,6 +17,8 @@ import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.data.Db
+import si.jakobkreft.aftergleam.data.Evidence
+import si.jakobkreft.aftergleam.data.Signal
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.PdfStore
@@ -49,6 +51,7 @@ data class FeedState(
     val saved: List<Paper> = emptyList(),
     val downloaded: List<Paper> = emptyList(),
     val ratedPapers: List<Pair<Paper, Float>> = emptyList(),
+    val evidence: Map<String, Evidence> = emptyMap(),
     val attention: Map<String, Int> = emptyMap(),
     val resurfaced: Resurfaced? = null,
     val backupSummary: String? = null,
@@ -59,6 +62,8 @@ data class FeedState(
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
     val drift: Drift.Report? = null,
+    /** A first, unpersonalised digest is on screen while the model is still training. */
+    val personalising: Boolean = false,
     val theme: String = "system",
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
@@ -362,13 +367,26 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Builds the digest in two passes.
+     *
+     * Training is the expensive part, and it used to happen behind a spinner. The ranking
+     * that needs no model at all, newest first with accepted venues promoted, is essentially
+     * free and is a perfectly reasonable digest in its own right. So that goes on screen
+     * immediately and the personalised one replaces it a few seconds later.
+     *
+     * The reader is still on the first card when the swap happens, and the chip says plainly
+     * that it is still working, so nothing moves under them without explanation.
+     */
     private fun rebuild(cats: List<String>) {
         val today = LocalDate.now().toString()
         val candidates = db.recentPapers(limit = 400)
         // Easy negatives come from older papers, deliberately disjoint from the candidates
         // being scored so that training cannot mark a good candidate as a negative.
         val candidateIds = candidates.map { it.id }.toSet()
-        val negativePool = db.recentPapers(limit = 3000)
+        // Only as many negatives as the trainer will actually sample, rather than loading
+        // three thousand abstracts out of SQLite on every rebuild to discard most of them.
+        val negativePool = db.recentPapers(limit = 900)
             .filter { it.id !in candidateIds }
             .map { it.rankText }
 
@@ -378,13 +396,34 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // as seen, otherwise re-ranking would empty the screen.
         val seen = db.shownIds() - db.digestFor(today).map { it.paperId }.toSet()
 
-        val cards = Ranker(
-            Weights(
-                quality = prefs.qualityWeight,
-                explorationRate = prefs.explorationRate,
-                diversity = prefs.diversity,
+        val weights = Weights(
+            quality = prefs.qualityWeight,
+            explorationRate = prefs.explorationRate,
+            diversity = prefs.diversity,
+        )
+
+        // Pass one: no model, so no training. Venue and freshness only, on screen at once.
+        if (rated.isNotEmpty()) {
+            val quick = Ranker(weights).digest(
+                candidates = candidates,
+                rated = emptyList(),
+                seen = seen,
+                subscribed = cats.toSet(),
+                size = prefs.digestSize,
+                attention = _state.value.attention,
             )
-        ).digest(
+            if (quick.isNotEmpty()) {
+                _state.value = _state.value.copy(
+                    loading = false,
+                    personalising = true,
+                    cards = quick,
+                    reactions = db.allReactions(),
+                    evidence = db.evidence(),
+                )
+            }
+        }
+
+        val cards = Ranker(weights).digest(
             candidates = candidates,
             rated = rated,
             seen = seen,
@@ -392,6 +431,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             size = prefs.digestSize,
             negativePool = negativePool,
             attention = _state.value.attention,
+            evidenceCount = evidenceCount(),
         )
         db.markShown(
             cards.map { ShownItem(it.paper.id, it.slot.name, it.why(), it.relevance) },
@@ -400,6 +440,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val reactions = db.allReactions()
         _state.value = _state.value.copy(
             loading = false,
+            personalising = false,
             cards = cards,
             reactions = reactions,
             emptyDay = cards.isEmpty(),
@@ -675,20 +716,60 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * handful of ratings is a thinner picture of someone than the fields they told us about.
      */
     private fun ratedDocs(): List<RatedDoc> {
-        val ratings = db.ratings()
-        val judged = db.papersById(ratings.keys).mapNotNull { p ->
-            ratings[p.id]?.let { RatedDoc(p.id, p.rankText, it) }
+        val evidence = db.evidence()
+        val judged = db.papersById(evidence.keys).mapNotNull { p ->
+            evidence[p.id]?.label()?.let { RatedDoc(p.id, p.rankText, it) }
         }
         val seeds = Topics.seedsFor(prefs.seedTopics).map { RatedDoc(null, it, SEED_WEIGHT) }
         return judged + seeds
     }
 
+    /**
+     * Papers carrying any signal at all. This is what decides how far the model's confidence
+     * is pulled toward the prior, so it counts evidence rather than explicit judgements: a
+     * reader who never presses a button still accumulates it.
+     */
+    private fun evidenceCount(): Int = db.evidence().count { it.value.label() != null }
+
+    /** Records a behavioural signal. Free for the reader, and far more honest than a rating. */
+    fun signal(paperId: String, signal: Signal) {
+        db.addSignal(paperId, signal)
+        _state.value = _state.value.copy(
+            evidence = db.evidence(),
+            ratedCount = evidenceCount(),
+        )
+    }
+
+    /**
+     * An explicit steering instruction, or clearing one.
+     *
+     * "More like this" and "less like this" rather than a number: a steering instruction has
+     * no scale to calibrate, so it means the same thing coming from any two readers.
+     */
+    fun steer(paperId: String, liked: Boolean?) {
+        db.removeSignal(paperId, Signal.LIKED)
+        db.removeSignal(paperId, Signal.DISLIKED)
+        when (liked) {
+            true -> db.addSignal(paperId, Signal.LIKED)
+            false -> db.addSignal(paperId, Signal.DISLIKED)
+            null -> Unit
+        }
+        val ev = db.evidence()
+        _state.value = _state.value.copy(
+            evidence = ev,
+            ratedCount = ev.count { it.value.label() != null },
+            modelActive = ev.count { it.value.label() != null } >= Ranker.MIN_RATINGS,
+        )
+    }
+
     fun openDetail(paper: Paper) {
         val current = _state.value.reactions[paper.id] ?: Reaction.NONE
         if (!current.viewed) db.setReaction(paper.id, current.copy(viewed = true))
+        db.addSignal(paper.id, Signal.OPENED)
         _state.value = _state.value.copy(
             detail = paper,
             reactions = db.allReactions(),
+            evidence = db.evidence(),
         )
     }
 
@@ -708,7 +789,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val file = store.download(paper.id)
-                _state.value = _state.value.copy(readingFile = file)
+                // Downloading is a real commitment, and unambiguous in anyone's private
+                // scale, which is exactly what a rating is not.
+                db.addSignal(paper.id, Signal.DOWNLOADED)
+                _state.value = _state.value.copy(
+                    readingFile = file,
+                    evidence = db.evidence(),
+                )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     readingError = e.message ?: "Could not fetch the PDF",
@@ -722,12 +809,21 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Where the reader stopped, so a long paper reopens where it was left. */
-    fun rememberPage(paperId: String, page: Int) = prefs.setLastPage(paperId, page)
+    fun rememberPage(paperId: String, page: Int) {
+        prefs.setLastPage(paperId, page)
+        // Getting past the third page is about the strongest thing a reader does silently.
+        if (page >= 2) db.addSignal(paperId, Signal.READ_PAGES)
+    }
 
     fun toggleSave(paperId: String) {
         val current = _state.value.reactions[paperId] ?: Reaction.NONE
         val next = current.copy(saved = !current.saved)
         db.setReaction(paperId, next)
-        _state.value = _state.value.copy(reactions = db.allReactions())
+        if (next.saved) db.addSignal(paperId, Signal.SAVED)
+        else db.removeSignal(paperId, Signal.SAVED)
+        _state.value = _state.value.copy(
+            reactions = db.allReactions(),
+            evidence = db.evidence(),
+        )
     }
 }

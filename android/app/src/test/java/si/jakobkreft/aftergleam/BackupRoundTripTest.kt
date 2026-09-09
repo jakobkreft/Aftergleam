@@ -69,6 +69,26 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun `writing then reading does not close the database`() {
+        // SQLiteOpenHelper returns one shared database. Closing it after a write left the
+        // helper serving a closed connection pool, and the next read crashed with
+        // "connection pool has been closed". It looked like a bug in one screen; it was in
+        // every path that wrote and then read.
+        val db = Db(ctx)
+        db.clearReactions()
+        db.upsertPapers(listOf(paper("w1")))
+        repeat(5) { i ->
+            db.setReaction("w1", Reaction(interest = 0.1f * i))
+            val back = db.allReactions()
+            assertTrue("read after write number $i must succeed", back.containsKey("w1"))
+        }
+        db.markShown(listOf(si.jakobkreft.aftergleam.data.ShownItem("w1", "RELEVANCE", "why", 0.5f)), "2026-09-09")
+        assertTrue("reads after markShown must work too", db.digestFor("2026-09-09").isNotEmpty())
+        db.clearReactions()
+        assertTrue("and after clearReactions", db.allReactions().isEmpty())
+    }
+
+    @Test
     fun `viewing a paper is remembered but not exported`() {
         val db = Db(ctx)
         val prefs = Prefs(ctx)
