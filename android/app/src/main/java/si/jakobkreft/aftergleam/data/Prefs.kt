@@ -60,6 +60,17 @@ class Prefs(context: Context) {
         get() = sp.getInt("reminder_hour", 19)
         set(v) = sp.edit().putInt("reminder_hour", v.coerceIn(0, 23)).apply()
 
+    /**
+     * Whether the reader has been through the notification permission prompt once.
+     *
+     * Android shows the system dialog at most twice and then denies silently, so "have we
+     * asked" cannot be recovered from the permission state. It is also what stops the first
+     * grant from re-enabling a reminder the reader has since switched off.
+     */
+    var notificationsAsked: Boolean
+        get() = sp.getBoolean("notifications_asked", false)
+        set(v) = sp.edit().putBoolean("notifications_asked", v).apply()
+
     var reminderEnabled: Boolean
         get() = sp.getBoolean("reminder_enabled", false)
         set(v) = sp.edit().putBoolean("reminder_enabled", v).apply()

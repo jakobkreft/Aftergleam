@@ -627,3 +627,44 @@ card reading "Grzes et al. · bioRxiv · cancer biology"; and a 21-page bioRxiv 
 and rendering in the built-in reader. The v6 to v7 migration was then run against a real
 database of 1974 papers and 125 signals with nothing lost.
 
+## Three from using it on a phone
+
+**Scroll position was lost on every list.** Opening a paper replaces the screen rather than
+pushing onto a back stack, so the list underneath is disposed and its `rememberLazyListState`
+goes with it: scroll halfway down the digest, open the fortieth card, come back, and you are
+at the top with no way to find where you were. Every screen is now wrapped in a
+`SaveableStateHolder`, which is what a navigation library installs for the same reason. It
+fixed For You, Explore, Popular, Library and Search at once, and switching tabs and back now
+keeps position too.
+
+Library still drifted by one card after that, and the cause was not the scroll at all:
+
+- The reacted shelf was sorted by label, so sixty "more like this" judgements shared a score
+  of 0.95 and their order came down to whatever SQLite returned. It is now ordered by when
+  each was judged, most recent first, which is stable and is also what somebody looking for
+  what they reacted to last week actually wants. The paper id breaks ties, because an import
+  or a migration writes a whole batch with the same timestamp.
+- The shelves were rebuilt on any change to any reaction, including the `viewed` flag that
+  opening a paper sets and that no shelf displays. Keyed on the saved count and the judged
+  count instead. With both fixed, the screen before and after opening a paper is
+  pixel-identical.
+
+**A notification switch could be turned on when notifications were impossible.** It wrote the
+preference whatever Android thought, so a reader who had declined the permission got a switch
+that stayed on and a notification that never came. Enabling either switch now asks for the
+permission, which is the right moment to ask: they have just said what they want. If the
+answer is no, the setting is not written and the switch does not move. Android stops showing
+its own dialog after two refusals, so when the permission is gone for good the section says so
+and offers a way through to the system screen, which is otherwise unreachable.
+
+Granting on first run now switches the evening reminder on at 19:00. Somebody who has just
+said yes to notifications wants one, and the evening is the useful hour: the digest is built
+in the morning and read when there is time. Only on the first grant, so it can never switch
+itself back on after being turned off. That took two attempts: the first put a "have we asked"
+guard inside the function, and the permission callback marks the prompt as asked before
+invoking its continuation, so the guard saw its own flag and the feature did nothing.
+
+**The share line had become false.** It said "an offline arXiv reader", which stopped being
+true when bioRxiv and medRxiv arrived. It now names all three and carries the repository, so a
+colleague who wants the app can act on it and one who does not has lost a line.
+

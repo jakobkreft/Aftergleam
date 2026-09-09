@@ -54,6 +54,8 @@ fun TuneScreen(
     onExploration: (Float) -> Unit,
     onDiversity: (Float) -> Unit,
     onDigestHour: (Int) -> Unit,
+    notificationsAllowed: Boolean,
+    onOpenSystemSettings: () -> Unit,
     onNotifyEnabled: (Boolean) -> Unit,
     onReminder: (Boolean, Int) -> Unit,
     onTheme: (String) -> Unit,
@@ -71,8 +73,12 @@ fun TuneScreen(
     var expl by remember { mutableFloatStateOf(exploration) }
     var divr by remember { mutableFloatStateOf(diversity) }
     var hour by remember { mutableFloatStateOf(digestHour.toFloat()) }
-    var notify by remember { mutableStateOf(notifyEnabled) }
-    var remindOn by remember { mutableStateOf(reminderEnabled) }
+    // Not mirrored locally. These two are the one pair of settings the app is not free to
+    // grant itself, so the switch has to show what was actually stored rather than what was
+    // tapped: a switch that slides on and then silently does nothing is worse than one that
+    // refuses to move.
+    val notify = notifyEnabled
+    val remindOn = reminderEnabled
     var remindHour by remember { mutableFloatStateOf(reminderHour.toFloat()) }
     var confirmReset by remember { mutableStateOf(false) }
 
@@ -232,12 +238,28 @@ fun TuneScreen(
                 valueRange = 0f..23f,
                 steps = 22,
             )
+            if (!notificationsAllowed) {
+                // Said once, above both switches, because it is one fact about the app and
+                // not a property of either setting. Android stops showing its own dialog
+                // after two refusals, so without a way through to the system screen a
+                // reader who changed their mind would have no route back.
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Notifications are switched off for Aftergleam in Android settings, so " +
+                        "these cannot be turned on here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(onClick = onOpenSystemSettings) {
+                    Text("Open Android notification settings")
+                }
+            }
             androidx.compose.foundation.layout.Row(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
                 androidx.compose.material3.Switch(
                     checked = notify,
-                    onCheckedChange = { notify = it; onNotifyEnabled(it) },
+                    onCheckedChange = { onNotifyEnabled(it) },
                 )
                 Text("  Notify me once when it is ready",
                     style = MaterialTheme.typography.bodyMedium)
@@ -258,7 +280,7 @@ fun TuneScreen(
             ) {
                 androidx.compose.material3.Switch(
                     checked = remindOn,
-                    onCheckedChange = { remindOn = it; onReminder(it, remindHour.roundToInt()) },
+                    onCheckedChange = { onReminder(it, remindHour.roundToInt()) },
                 )
                 Text("  Remind me at %02d:00".format(remindHour.roundToInt()),
                     style = MaterialTheme.typography.bodyMedium)

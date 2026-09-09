@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -99,11 +100,58 @@ private fun App(vm: FeedViewModel = viewModel()) {
     // reader back on Today from whichever tab they were using.
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
 
+    /**
+     * Keeps each screen's scroll position while it is off the composition.
+     *
+     * Opening a paper replaces the whole screen rather than pushing onto a back stack, so
+     * the list underneath is disposed and its `rememberLazyListState` goes with it: scroll
+     * halfway down the digest, open the fortieth card, come back, and you are at the top
+     * with no way to find where you were. This is what a navigation library would install
+     * for the same reason. Every screen wrapped in it keeps its position, and switching
+     * tabs and back now keeps it too.
+     */
+    val screenState = rememberSaveableStateHolder()
+
     // Any text MIME type: exports are variously text/plain, text/x-bibtex or octet-stream,
     // and a narrow filter would hide the user's own file from them in the picker.
+    // Below 33 there is no runtime permission and notifications are simply allowed.
+    fun notificationsAllowed(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 33 ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    // What to do once the reader has answered. Set before launching, because the result
+    // arrives on a later frame and the switch that asked is long gone by then.
+    var onPermissionResult by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* declining is fine: the digest still builds, it just does not announce itself */ }
+    ) { granted ->
+        // Declining is fine: the digest still builds, it just does not announce itself.
+        vm.markNotificationsAsked()
+        onPermissionResult?.invoke(granted)
+        onPermissionResult = null
+    }
+
+    /**
+     * Turns a notification setting on only if it can actually work.
+     *
+     * Switching a notification on used to write the preference whatever Android thought,
+     * so a reader who had declined the permission got a switch that stayed on and a
+     * notification that never came. Asking again here is the right moment: they have just
+     * said what they want, which is exactly when the system dialog makes sense. If the
+     * permission is refused, or was refused twice before and Android no longer asks, the
+     * setting is not written and the switch does not move.
+     */
+    fun withNotificationPermission(enable: Boolean, apply: (Boolean) -> Unit) {
+        if (!enable || notificationsAllowed()) {
+            apply(enable)
+            return
+        }
+        onPermissionResult = { granted -> apply(granted) }
+        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     // CreateDocument needs the MIME type up front; the suggested name is passed at launch.
     val exportBackup = rememberLauncherForActivityResult(
@@ -161,7 +209,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return@MaterialTheme
         }
 
-        LaunchedEffect(tab, state.reactions) { if (tab == Tab.LIBRARY) vm.loadLibrary() }
+        // Keyed on what the shelves are actually made of, not on every reaction. Opening a
+        // paper sets its `viewed` flag, which no shelf shows, and that was enough to rebuild
+        // all three lists and nudge the reader's scroll position on the way back out.
+        LaunchedEffect(
+            tab,
+            state.reactions.count { it.value.saved },
+            state.judgedCount,
+        ) { if (tab == Tab.LIBRARY) vm.loadLibrary() }
 
         // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
         // also repairs the schedule if the user cleared app data or rebooted.
@@ -171,9 +226,25 @@ private fun App(vm: FeedViewModel = viewModel()) {
             if (vm.currentReminderEnabled()) {
                 ReminderWorker.schedule(context, vm.currentReminderHour())
             }
-            if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(
-                android.Manifest.permission.POST_NOTIFICATIONS
-            )
+            // Ask once, on the first run. Android shows this at most twice before denying
+            // silently, so firing it on every launch afterwards is a no-op that only makes
+            // the code look like it is trying.
+            if (!vm.notificationsAsked()) {
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    onPermissionResult = { granted ->
+                        if (granted) {
+                            vm.enableEveningReminder()
+                            ReminderWorker.schedule(context, vm.currentReminderHour())
+                        }
+                    }
+                    notificationPermission.launch(
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    )
+                } else {
+                    vm.enableEveningReminder()
+                    ReminderWorker.schedule(context, vm.currentReminderHour())
+                }
+            }
         }
 
         val reading = state.reading
@@ -247,11 +318,17 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 putExtra(Intent.EXTRA_SUBJECT, detail.displayTitle)
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    // Title, link, then a single quiet line of provenance.
-                                    // Anything longer turns a shared paper into an advert,
-                                    // and the person receiving it wanted the paper.
+                                    // The paper first, because that is what was asked for.
+                                    // Then one line saying what sent it and where to get
+                                    // it, which is the whole of the advertising: a colleague
+                                    // who wants the app can act on it, and one who does not
+                                    // has lost a line. It said "an offline arXiv reader",
+                                    // which stopped being true when bioRxiv and medRxiv
+                                    // arrived.
                                     "${detail.displayTitle}\n${detail.absUrl}" +
-                                        "\n\nFound with Aftergleam, an offline arXiv reader.",
+                                        "\n\nSent with Aftergleam, a private reader for " +
+                                        "arXiv, bioRxiv and medRxiv. " +
+                                        "github.com/jakobkreft/aftergleam",
                                 )
                             }
                             context.startActivity(Intent.createChooser(share, null))
@@ -270,6 +347,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
             BackHandler { if (state.pastDay != null) vm.closePastDay() else vm.closePast() }
             Scaffold { inner ->
                 Box(Modifier.padding(inner)) {
+                    screenState.SaveableStateProvider("past-" + (state.pastDay ?: "index")) {
                     PastScreen(
                         state = state,
                         onOpenDay = vm::openPastDay,
@@ -280,6 +358,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onBackToIndex = vm::closePastDay,
                         onBack = vm::closePast,
                     )
+                    }
                 }
             }
             return@MaterialTheme
@@ -292,6 +371,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 Box(Modifier.padding(inner)) {
                     Column {
                         TextButton(onClick = vm::closeSearch) { Text("Back") }
+                        screenState.SaveableStateProvider("search") {
                         SearchScreen(
                             state = state,
                             onQuery = vm::setSearchQuery,
@@ -302,6 +382,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
                         )
+                        }
                     }
                 }
             }
@@ -321,9 +402,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             exploration = vm.currentExplorationRate(),
                             diversity = vm.currentDiversity(),
                             digestHour = vm.currentDigestHour(),
-                            notifyEnabled = vm.currentNotifyEnabled(),
+                            notifyEnabled = state.notifyEnabled,
                             reminderHour = vm.currentReminderHour(),
-                            reminderEnabled = vm.currentReminderEnabled(),
+                            reminderEnabled = state.reminderEnabled,
                             theme = state.theme,
                             topics = state.topics,
                             ratedCount = state.ratedCount,
@@ -341,12 +422,28 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 vm.setDigestHour(h)
                                 DailyDigestWorker.schedule(context, h)
                             },
-                            onNotifyEnabled = vm::setNotifyEnabled,
+                            notificationsAllowed = notificationsAllowed(),
+                            onOpenSystemSettings = {
+                                context.startActivity(
+                                    Intent(
+                                        android.provider.Settings
+                                            .ACTION_APP_NOTIFICATION_SETTINGS
+                                    ).putExtra(
+                                        android.provider.Settings.EXTRA_APP_PACKAGE,
+                                        context.packageName,
+                                    )
+                                )
+                            },
+                            onNotifyEnabled = { on ->
+                                withNotificationPermission(on) { vm.setNotifyEnabled(it) }
+                            },
                             onReminder = { on, hour ->
-                                vm.setReminderEnabled(on)
-                                vm.setReminderHour(hour)
-                                if (on) ReminderWorker.schedule(context, hour)
-                                else ReminderWorker.cancel(context)
+                                withNotificationPermission(on) { granted ->
+                                    vm.setReminderEnabled(granted)
+                                    vm.setReminderHour(hour)
+                                    if (granted) ReminderWorker.schedule(context, hour)
+                                    else ReminderWorker.cancel(context)
+                                }
                             },
                             onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
                             onExport = {
@@ -425,6 +522,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
             Box(Modifier.padding(inner)) {
+                screenState.SaveableStateProvider(tab.name) {
                 when (tab) {
                     Tab.TODAY -> FeedScreen(
                         state = state,
@@ -458,6 +556,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onUnsave = vm::toggleSave,
                         onSteer = vm::steer,
                     )
+                }
                 }
             }
         }

@@ -119,6 +119,15 @@ data class FeedState(
     val popular: List<Paper> = emptyList(),
     val searchOpen: Boolean = false,
     val theme: String = "system",
+    /**
+     * Notification settings live in state rather than being read once into the settings
+     * screen, so that a switch the app refuses to turn on visibly does not turn on. Android
+     * can decline the permission without any dialog at all once the reader has said no
+     * twice, and a switch that flips anyway would be reporting a setting that does nothing.
+     */
+    val notifyEnabled: Boolean = false,
+    val reminderEnabled: Boolean = false,
+    val reminderHour: Int = 19,
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
     val reading: Paper? = null,
@@ -272,6 +281,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
     init {
+        _state.value = _state.value.copy(
+            notifyEnabled = prefs.notifyEnabled,
+            reminderEnabled = prefs.reminderEnabled,
+            reminderHour = prefs.reminderHour,
+        )
         if (prefs.onboarded) {
             // Before anything else, so a cold start with no fetch due still knows what the
             // field was reading. Popular has nothing else to rank by.
@@ -834,15 +848,47 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun currentNotifyEnabled() = prefs.notifyEnabled
     fun currentReminderHour() = prefs.reminderHour
     fun currentReminderEnabled() = prefs.reminderEnabled
-    fun setReminderHour(h: Int) { prefs.reminderHour = h }
-    fun setReminderEnabled(v: Boolean) { prefs.reminderEnabled = v }
+    fun setReminderHour(h: Int) {
+        prefs.reminderHour = h
+        _state.value = _state.value.copy(reminderHour = h)
+    }
+
+    fun setReminderEnabled(v: Boolean) {
+        prefs.reminderEnabled = v
+        _state.value = _state.value.copy(reminderEnabled = v)
+    }
+
+    /**
+     * Turns the evening reminder on, for the first grant of notification permission only.
+     *
+     * Somebody who has just said yes to notifications wants one, and the evening reminder is
+     * the useful one: the digest is built in the morning and read when there is time.
+     *
+     * Deliberately has no "have we asked" guard of its own. It had one, and it made the
+     * feature do nothing, because the permission callback marks the prompt as asked before
+     * invoking its continuation and the guard then saw its own flag. The caller reaches this
+     * only from the first-run branch, which is already behind that check.
+     */
+    fun enableEveningReminder() {
+        setReminderEnabled(true)
+        setReminderHour(prefs.reminderHour)
+    }
+
+    /** Records that the prompt has been shown, whatever the answer. */
+    fun markNotificationsAsked() { prefs.notificationsAsked = true }
+
+    fun notificationsAsked() = prefs.notificationsAsked
     fun setTheme(mode: String) {
         prefs.theme = mode
         _state.value = _state.value.copy(theme = mode)
     }
 
     fun setDigestHour(h: Int) { prefs.digestHour = h }
-    fun setNotifyEnabled(v: Boolean) { prefs.notifyEnabled = v }
+
+    fun setNotifyEnabled(v: Boolean) {
+        prefs.notifyEnabled = v
+        _state.value = _state.value.copy(notifyEnabled = v)
+    }
 
     /** Clears the model but keeps papers. Trust requires an exit. */
     fun resetModel() {
@@ -1073,17 +1119,21 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val judged = ev.count { it.value.label() != null }
         // Keep the library shelf in step. Reacting to a paper in the digest has to make it
         // appear there, and clearing a reaction has to remove it, without reopening the tab.
-        val shelf = _state.value.ratedPapers.filterNot { it.first.id == paperId } +
-            listOfNotNull(
-                _state.value.ratedPapers.firstOrNull { it.first.id == paperId }?.first
-                    ?: _state.value.paperById(paperId),
-            ).filter { liked != null }.map { it to (ev[paperId]?.label() ?: 0f) }
+        val paper = _state.value.ratedPapers.firstOrNull { it.first.id == paperId }?.first
+            ?: _state.value.paperById(paperId)
+        val rest = _state.value.ratedPapers.filterNot { it.first.id == paperId }
+        // Newest judgement at the top, matching the order the shelf is loaded in. Sorting by
+        // label here instead dropped the paper into a block of identical scores and moved
+        // everything the reader was looking at.
+        val shelf =
+            if (liked == null || paper == null) rest
+            else listOf(paper to (ev[paperId]?.label() ?: 0f)) + rest
         _state.value = _state.value.copy(
             evidence = ev,
             ratedCount = judged,
             judgedCount = judgedCount(),
             modelActive = judged >= Ranker.MIN_RATINGS,
-            ratedPapers = shelf.sortedByDescending { it.second },
+            ratedPapers = shelf,
         )
     }
 

@@ -348,6 +348,31 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
         )
     }
 
+    /**
+     * Papers the reader explicitly judged, most recently first.
+     *
+     * The library shelf used to sort these by label, which put every "more like this" in one
+     * undifferentiated block of 0.95 and left the order inside it to whatever SQLite
+     * returned. Opening a paper refreshes the shelf, so that block reshuffled under the
+     * reader every time they looked at something, and their scroll position went with it.
+     * Most recent first is stable, and it is also the order somebody looking for what they
+     * reacted to last week actually wants.
+     */
+    fun judgedRecentFirst(): List<String> =
+        readableDatabase.rawQuery(
+            """
+            SELECT paper_id, MAX(ts) AS t FROM signals
+            WHERE signal IN ('LIKED', 'DISLIKED')
+            GROUP BY paper_id
+            -- The id breaks ties. A migration or an import writes a whole batch of
+            -- judgements with the same timestamp, and SQLite is free to return equal keys
+            -- in any order it likes, so without this the shelf still shuffled by a card or
+            -- two every time it reloaded.
+            ORDER BY t DESC, paper_id
+            """.trimIndent(),
+            null,
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+
     fun evidence(): Map<String, Evidence> =
         readableDatabase.rawQuery("SELECT paper_id, signal FROM signals", null).use { c ->
             val acc = HashMap<String, MutableSet<Signal>>()
