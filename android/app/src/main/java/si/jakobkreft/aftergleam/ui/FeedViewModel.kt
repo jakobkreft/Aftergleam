@@ -37,6 +37,7 @@ import si.jakobkreft.aftergleam.rank.SearchRanker
 import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /**
  * Where a search looks.
@@ -84,6 +85,29 @@ data class FeedState(
     val searchQuery: String = "",
     val searching: Boolean = false,
     val searchHits: List<SearchRanker.Hit> = emptyList(),
+    /**
+     * Matches from papers already on the device, shown before arXiv has answered.
+     *
+     * Kept separate from [searchHits] rather than merged into one list, because merging
+     * would mean re-sorting when the network lands and the reader would watch the thing
+     * they were about to tap move somewhere else. These stay put.
+     */
+    val searchLocalHits: List<SearchRanker.Hit> = emptyList(),
+    /** How many further device matches there are beyond the few shown. */
+    val searchLocalMore: Int = 0,
+
+    /** The last day a digest was built, when that was before today. */
+    val missedSince: String? = null,
+    /** Papers announced since then that no digest ever showed. */
+    val missedCount: Int = 0,
+    val pastOpen: Boolean = false,
+    val pastDays: List<Db.DigestDay> = emptyList(),
+    /** The best of what was missed, ranked on demand. */
+    val catchUp: List<Scored> = emptyList(),
+    val catchUpLoading: Boolean = false,
+    /** A single past day being replayed exactly as it was shown. */
+    val pastDay: String? = null,
+    val pastCards: List<Scored> = emptyList(),
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
     val searchScope: SearchScope = SearchScope.ARXIV,
@@ -157,12 +181,28 @@ data class SurveyState(
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
-    private companion object {
+    companion object {
         /** Below the 0.9 an explicit "interested" carries, so real judgements dominate. */
         const val SEED_WEIGHT = 0.7f
 
         /** How many more papers an "explore" page adds. */
         const val EXPLORE_PAGE = 30
+
+        /** The catch-up is a digest, not an inbox: a morning's reading, not a backlog. */
+        const val CATCH_UP_SIZE = 25
+
+        /** Sentinel for the catch-up list, which is not a single day. */
+        const val CATCH_UP = "catch-up"
+
+        /**
+         * Device matches shown above the arXiv results.
+         *
+         * Small on purpose. This block is context, not the answer: it says "you already have
+         * these" so nobody re-reads a paper they judged last month, and anyone who wants the
+         * full list of what is on the device has a chip for exactly that. A long block here
+         * would push the arXiv results, which is what the reader asked for, off the screen.
+         */
+        const val DEVICE_HITS = 6
     }
 
 
@@ -184,6 +224,23 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      *
      * Both the digest and search want the same thing, and it depends only on the ledger.
      */
+    /**
+     * Trains the interest model in the background once the digest is already on screen.
+     *
+     * Reopening the app restores the stored digest without training anything, which is why
+     * it is fast. The bill arrives later, at whatever first needs a model: a search, or the
+     * catch-up list, each paying ten seconds or more for work that had nothing to do with
+     * what the reader just asked for. Doing it here spends that time while they are reading
+     * the first card, and both are instant when they get there.
+     */
+    private fun warmModel() {
+        if (cachedModel != null) return
+        viewModelScope.launch(Dispatchers.Default) {
+            val rated = ratedDocs()
+            if (rated.size >= Ranker.MIN_RATINGS) ensureModel(rated)
+        }
+    }
+
     private fun ensureModel(rated: List<RatedDoc>): Ranker.Model? {
         val signature = modelSignature(rated)
         if (signature == cachedSignature && cachedModel != null) return cachedModel
@@ -399,11 +456,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
+                    judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     resurfaced = resurfaced,
                     drift = withContext(Dispatchers.IO) { computeDrift() },
                 )
+                withContext(Dispatchers.IO) { refreshCatchUp() }
+                warmModel()
             } else {
                 sync(force = false)
             }
@@ -549,6 +608,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             resurfaced = findResurfaced(),
             drift = computeDrift(),
         )
+        refreshCatchUp()
     }
 
     /**
@@ -619,7 +679,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
+                    judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     categories = prefs.categories,
                     backupSummary = "Restored ${r.reactions} ratings.",
@@ -662,7 +722,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
+                    judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     importSummary = buildString {
                         append("Matched ${result.papers.size} of ${result.total}.")
@@ -771,13 +831,30 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = st.copy(
             personalisation = v,
             searchHits = SearchRanker.reorder(st.searchHits, v),
+            searchLocalHits = SearchRanker.reorder(st.searchLocalHits, v),
         )
     }
 
+    /**
+     * Runs a search, answering from the device first and from arXiv when it replies.
+     *
+     * An arXiv query is a network round trip against a one-request-every-three-seconds
+     * budget, and it measured twelve to fifteen seconds on the device. Almost none of that
+     * is the app: it is the wait for a server. But a reader searching for something they
+     * have already read does not need that server at all, and the papers are sitting in
+     * SQLite. So the device answers immediately and arXiv fills in underneath.
+     *
+     * The two are separate lists, appended to rather than merged, so nothing already on
+     * screen moves when the network lands.
+     */
     fun runSearch() {
         val q = _state.value.searchQuery.trim()
         if (q.length < 2) return
-        _state.value = _state.value.copy(searching = true, searchError = null)
+        _state.value = _state.value.copy(
+            searching = true, searchError = null,
+            searchHits = emptyList(), searchLocalHits = emptyList(), searchLocalMore = 0,
+        )
+        if (_state.value.searchScope == SearchScope.ARXIV) searchOnDevice(q)
         viewModelScope.launch {
             try {
                 val scope = _state.value.searchScope
@@ -798,8 +875,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     val model = ensureModel(rated)
                     // Papers already judged are poor results when searching arXiv, but they
                     // are the entire point when searching your own library.
+                    // Papers already judged are poor results when searching arXiv, and so
+                    // are the ones already listed above as being on the device.
+                    val shown = _state.value.searchLocalHits.map { it.paper.id }.toSet()
                     val visible =
-                        if (scope == SearchScope.ARXIV) results.filter { it.id !in ratedIds }
+                        if (scope == SearchScope.ARXIV)
+                            results.filter { it.id !in ratedIds && it.id !in shown }
                         else results
                     SearchRanker.rank(
                         results = visible,
@@ -819,11 +900,44 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _state.value = _state.value.copy(searching = false, searchHits = hits)
             } catch (e: Exception) {
+                // With device results already on screen this is a footnote rather than the
+                // whole answer, which is the other thing local-first buys: a search on a
+                // train now returns something.
                 _state.value = _state.value.copy(
                     searching = false,
                     searchError = humanError(e, "reach arXiv"),
                 )
             }
+        }
+    }
+
+    /**
+     * The instant half: what the device already holds.
+     *
+     * Deliberately does not train. [ensureModel] can take seconds on a cold start, which is
+     * the one thing this path must not do, and ordering by query match alone is arguably the
+     * better answer here anyway: "where is that paper I read" is a question about the words,
+     * not about predicted interest. If a model happens to be warm it is used.
+     */
+    private fun searchOnDevice(q: String) {
+        viewModelScope.launch {
+            val hits = withContext(Dispatchers.Default) {
+                val found = db.searchLocal(q, savedOnly = false, limit = 60)
+                if (found.isEmpty()) return@withContext emptyList()
+                SearchRanker.rank(
+                    results = found,
+                    query = q,
+                    rated = emptyList(),
+                    personalisation = _state.value.personalisation,
+                    model = cachedModel,
+                )
+            }
+            // A late arXiv reply for a previous query must not resurrect its device results.
+            if (_state.value.searchQuery.trim() != q) return@launch
+            _state.value = _state.value.copy(
+                searchLocalHits = hits.take(DEVICE_HITS),
+                searchLocalMore = (hits.size - DEVICE_HITS).coerceAtLeast(0),
+            )
         }
     }
 
@@ -1014,6 +1128,111 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
     fun closeSearch() { _state.value = _state.value.copy(searchOpen = false) }
+
+    /**
+     * Whether there is a gap worth telling the reader about, and how big.
+     *
+     * "Away" is measured from the last digest they were actually shown, which is the last day
+     * they opened the app, because the worker fetches papers without composing a digest. So
+     * the papers announced since then, minus anything a digest did put in front of them and
+     * anything they have touched, is exactly the set they never had the chance to see.
+     */
+    private fun refreshCatchUp() {
+        val today = LocalDate.now().toString()
+        val last = db.lastDigestDayBefore(today)
+        // Yesterday is not an absence. This is for the reader who was away, not the one who
+        // slept, and a card that appears every single morning is a nag rather than a service.
+        val gapDays = last?.let { ChronoUnit.DAYS.between(LocalDate.parse(it), LocalDate.now()) }
+        if (last == null || gapDays == null || gapDays < 2) {
+            _state.value = _state.value.copy(missedSince = null, missedCount = 0)
+            return
+        }
+        _state.value = _state.value.copy(
+            missedSince = last,
+            missedCount = db.unseenCountSince(last),
+        )
+    }
+
+    fun openPast() {
+        _state.value = _state.value.copy(pastOpen = true)
+        viewModelScope.launch {
+            val days = withContext(Dispatchers.IO) { db.digestDays() }
+            _state.value = _state.value.copy(pastDays = days)
+        }
+    }
+
+    fun closePast() {
+        _state.value = _state.value.copy(
+            pastOpen = false, pastDay = null, pastCards = emptyList(), catchUp = emptyList(),
+        )
+    }
+
+    /**
+     * Ranks the papers the reader missed, rather than listing them.
+     *
+     * Several hundred papers is not a catch-up, it is a second job. The same machinery that
+     * picks sixty from three hundred each morning picks the best of a week off, so coming
+     * back after a fortnight costs one screen rather than fourteen.
+     */
+    fun openCatchUp() {
+        val since = _state.value.missedSince ?: return
+        if (_state.value.catchUpLoading) return
+        _state.value = _state.value.copy(catchUpLoading = true, pastDay = CATCH_UP)
+        viewModelScope.launch {
+            val cards = withContext(Dispatchers.Default) {
+                val pool = db.unseenSince(since)
+                if (pool.isEmpty()) return@withContext emptyList()
+                val rated = ratedDocs()
+                Ranker(
+                    Weights(
+                        quality = prefs.qualityWeight,
+                        explorationRate = 0f,
+                        diversity = prefs.diversity,
+                    )
+                ).digest(
+                    candidates = pool,
+                    rated = rated,
+                    seen = emptySet(),
+                    subscribed = _state.value.categories,
+                    size = CATCH_UP_SIZE,
+                    attention = _state.value.attention,
+                    evidenceCount = evidenceCount(),
+                    topicHistory = db.topicHistory(),
+                    prebuilt = ensureModel(rated),
+                )
+            }
+            _state.value = _state.value.copy(catchUpLoading = false, catchUp = cards)
+        }
+    }
+
+    /**
+     * Replays one past morning in the order it was shown, with the reasons it carried.
+     *
+     * Not re-ranked. The reader is asking what the app told them on Tuesday, and quietly
+     * answering with what it would say today would make the record useless.
+     */
+    fun openPastDay(day: String) {
+        _state.value = _state.value.copy(pastDay = day, pastCards = emptyList())
+        viewModelScope.launch {
+            val cards = withContext(Dispatchers.IO) {
+                val items = db.digestFor(day)
+                val byId = db.papersById(items.map { it.paperId }).associateBy { it.id }
+                items.mapNotNull { item ->
+                    byId[item.paperId]?.let {
+                        Scored(it, 0f, item.confidence, runCatching { Slot.valueOf(item.slot) }
+                            .getOrDefault(Slot.RELEVANCE), storedReason = item.reason)
+                    }
+                }
+            }
+            if (_state.value.pastDay == day) {
+                _state.value = _state.value.copy(pastCards = cards)
+            }
+        }
+    }
+
+    fun closePastDay() {
+        _state.value = _state.value.copy(pastDay = null, pastCards = emptyList())
+    }
 
     fun openDetail(paper: Paper) {
         val current = _state.value.reactions[paper.id] ?: Reaction.NONE

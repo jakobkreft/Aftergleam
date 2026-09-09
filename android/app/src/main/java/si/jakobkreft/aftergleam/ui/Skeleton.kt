@@ -61,26 +61,49 @@ fun DigestSkeleton(label: String, modifier: Modifier = Modifier) {
             Text(label, style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary)
         }
-        items(5) {
-            Card(
-                Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ),
-            ) {
-                Column(Modifier.padding(14.dp).alpha(alpha)) {
-                    Bar(0.45f, 10.dp)
-                    Spacer(Modifier.height(10.dp))
-                    Bar(0.95f, 16.dp)
-                    Spacer(Modifier.height(6.dp))
-                    Bar(0.7f, 16.dp)
-                    Spacer(Modifier.height(10.dp))
-                    Bar(0.9f, 10.dp)
-                    Spacer(Modifier.height(4.dp))
-                    Bar(0.6f, 10.dp)
-                }
-            }
+        items(5) { CardBody(alpha) }
+    }
+}
+
+/**
+ * One placeholder card, for the case where results are already on screen and more are
+ * still coming. The pulse is its own here rather than shared with the list above, which
+ * costs one animation and saves threading the value through every caller.
+ */
+@Composable
+fun SkeletonCard() {
+    val transition = rememberInfiniteTransition(label = "skeleton-card")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    CardBody(alpha)
+}
+
+@Composable
+private fun CardBody(alpha: Float) {
+    Card(
+        Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+    ) {
+        Column(Modifier.padding(14.dp).alpha(alpha)) {
+            Bar(0.45f, 10.dp)
+            Spacer(Modifier.height(10.dp))
+            Bar(0.95f, 16.dp)
+            Spacer(Modifier.height(6.dp))
+            Bar(0.7f, 16.dp)
+            Spacer(Modifier.height(10.dp))
+            Bar(0.9f, 10.dp)
+            Spacer(Modifier.height(4.dp))
+            Bar(0.6f, 10.dp)
         }
     }
 }

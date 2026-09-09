@@ -141,7 +141,7 @@ fun SearchScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (state.searchHits.isNotEmpty()) {
+        if (state.searchHits.isNotEmpty() || state.searchLocalHits.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
                 "Ordering: ${(state.personalisation * 100).toInt()}% my interests",
@@ -157,21 +157,23 @@ fun SearchScreen(
 
         Spacer(Modifier.height(8.dp))
 
+        val nothingAtAll = state.searchLocalHits.isEmpty() && state.searchHits.isEmpty()
+
         when {
-            // An arXiv search is a network round trip against a one-request-every-three-
-            // seconds budget, so this wait is measured in seconds and has to say so. A
-            // silent spinner for ten seconds is the same as no feedback at all.
-            state.searching -> DigestSkeleton(
+            // Only a bare wait when there is genuinely nothing to show yet. Once the device
+            // results are up, the wait becomes a line at the bottom of them instead: a
+            // skeleton over the top of real results would hide the thing that just arrived.
+            state.searching && nothingAtAll -> DigestSkeleton(
                 when (state.searchScope) {
                     SearchScope.ARXIV -> "Asking arXiv, then ranking for you"
                     else -> "Searching this device"
                 }
             )
 
-            state.searchError != null ->
+            state.searchError != null && nothingAtAll ->
                 Text(state.searchError, style = MaterialTheme.typography.bodySmall)
 
-            state.searchHits.isEmpty() && state.searchQuery.isNotBlank() ->
+            nothingAtAll && state.searchQuery.isNotBlank() && !state.searching ->
                 Text("Nothing found. Try fewer or more common words.",
                     style = MaterialTheme.typography.bodySmall)
 
@@ -179,23 +181,111 @@ fun SearchScreen(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (state.searchLocalHits.isNotEmpty()) {
+                    item(key = "device-header") {
+                        SectionLabel("Already on your device")
+                    }
+                    items(state.searchLocalHits, key = { "d-" + it.paper.id }) { hit ->
+                        Result(state, hit, onSteer, onSave, onOpen, fromDevice = true)
+                    }
+                    if (state.searchLocalMore > 0) {
+                        item(key = "device-more") {
+                            Text(
+                                "${state.searchLocalMore} more on this device. " +
+                                    "The On device chip shows them all.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    item(key = "arxiv-header") {
+                        Spacer(Modifier.height(4.dp))
+                        SectionLabel(
+                            when {
+                                state.searching -> "Asking arXiv for the rest"
+                                state.searchError != null -> "arXiv"
+                                else -> "New to you, from arXiv"
+                            }
+                        )
+                    }
+                }
+
+                // The network's own report, under the results rather than instead of them.
+                state.searchError?.let { err ->
+                    item(key = "error") {
+                        Text(err, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
                 items(state.searchHits, key = { it.paper.id }) { hit ->
-                    val reaction = state.reactions[hit.paper.id]
-                        ?: si.jakobkreft.aftergleam.data.Reaction.NONE
-                    PaperCard(
-                        paper = hit.paper,
-                        reason = hit.why(),
-                        slot = null,
-                        liked = state.likedFlag(hit.paper.id),
-                        saved = reaction.saved,
-                        viewed = reaction.viewed,
-                        upvotes = state.attention[hit.paper.id] ?: 0,
-                        onSteer = { onSteer(hit.paper.id, it) },
-                        onSave = { onSave(hit.paper.id) },
-                        onOpen = { onOpen(hit.paper) },
-                    )
+                    Result(state, hit, onSteer, onSave, onOpen)
+                }
+
+                if (state.searching && state.searchLocalHits.isNotEmpty()) {
+                    item(key = "pending") { PendingRow() }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** One skeleton card, so the arXiv half looks like it is coming rather than missing. */
+@Composable
+private fun PendingRow() {
+    Column {
+        Spacer(Modifier.height(4.dp))
+        SkeletonCard()
+    }
+}
+
+/**
+ * What to say about a paper the reader already has.
+ *
+ * Not [SearchRanker.Hit.why], which describes a predicted interest. These results are ranked
+ * by the query alone so that they can appear instantly, and reporting "outside your usual
+ * reading" for a paper the reader saved last week would be inventing a judgement out of a
+ * score nobody computed. What is worth saying here is what they already did with it.
+ */
+private fun deviceReason(state: FeedState, id: String): String? =
+    when {
+        state.likedFlag(id) == true -> "you asked for more like this"
+        state.likedFlag(id) == false -> "you said less like this"
+        state.reactions[id]?.saved == true -> "saved for later"
+        state.reactions[id]?.viewed == true -> "you opened this before"
+        else -> null
+    }
+
+@Composable
+private fun Result(
+    state: FeedState,
+    hit: si.jakobkreft.aftergleam.rank.SearchRanker.Hit,
+    onSteer: (String, Boolean?) -> Unit,
+    onSave: (String) -> Unit,
+    onOpen: (si.jakobkreft.aftergleam.data.Paper) -> Unit,
+    fromDevice: Boolean = false,
+) {
+    val reaction = state.reactions[hit.paper.id]
+        ?: si.jakobkreft.aftergleam.data.Reaction.NONE
+    PaperCard(
+        paper = hit.paper,
+        reason = if (fromDevice) deviceReason(state, hit.paper.id) else hit.why(),
+        slot = null,
+        liked = state.likedFlag(hit.paper.id),
+        saved = reaction.saved,
+        viewed = reaction.viewed,
+        upvotes = state.attention[hit.paper.id] ?: 0,
+        onSteer = { onSteer(hit.paper.id, it) },
+        onSave = { onSave(hit.paper.id) },
+        onOpen = { onOpen(hit.paper) },
+    )
 }

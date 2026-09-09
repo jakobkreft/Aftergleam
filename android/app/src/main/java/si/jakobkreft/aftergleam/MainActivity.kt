@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.ui.DetailScreen
+import si.jakobkreft.aftergleam.ui.PastScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
@@ -262,6 +263,28 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return@MaterialTheme
         }
 
+        // Below the detail screen in the overlay stack and above the tabs, so opening a
+        // paper from an earlier digest covers this and closing it comes back here rather
+        // than dumping the reader on today.
+        if (state.pastOpen) {
+            BackHandler { if (state.pastDay != null) vm.closePastDay() else vm.closePast() }
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    PastScreen(
+                        state = state,
+                        onOpenDay = vm::openPastDay,
+                        onOpenCatchUp = vm::openCatchUp,
+                        onSteer = vm::steer,
+                        onSave = vm::toggleSave,
+                        onOpen = vm::openDetail,
+                        onBackToIndex = vm::closePastDay,
+                        onBack = vm::closePast,
+                    )
+                }
+            }
+            return@MaterialTheme
+        }
+
         val searchOpen = state.searchOpen
         if (searchOpen) {
             BackHandler { vm.closeSearch() }
@@ -410,6 +433,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onOpen = vm::openDetail,
                         onRerank = vm::rerank,
                         onRefresh = vm::refresh,
+                        onPast = vm::openPast,
                         onDismissResurfaced = vm::dismissResurfaced,
                     )
                     Tab.EXPLORE -> ExploreScreen(

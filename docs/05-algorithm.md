@@ -521,3 +521,65 @@ still works.
 does have a confirmation step; the library crash reported when offline no longer reproduces;
 the library-scope search works with no network; Popular survived a cold start with no fetch.
 
+## Search that answers before the network does
+
+An arXiv search measured twelve to fifteen seconds on the device, nearly all of it the wait
+for a server on a one-request-every-three-seconds budget. But a reader looking for something
+they have already read does not need that server: the papers are in SQLite. The device now
+answers first and arXiv fills in underneath, in a separate list appended to rather than
+merged, so nothing already on screen moves when the network lands. Device results appear in
+about a second; the arXiv half arrives when it arrives.
+
+Three details that turned out to matter more than the split itself:
+
+- **The ordering slider had to appear with the first results, not the arXiv ones.** It was
+  conditioned on the arXiv list being non-empty, so it materialised late and shoved the block
+  the reader was already reading down the screen. The same class of mistake the two-phase
+  digest was removed for.
+- **Device hits must not narrate a model that was never consulted.** They are ranked by query
+  match alone, deliberately, so that they can appear without waiting for training; reporting
+  "outside your usual reading" for a paper the reader saved last week would be inventing a
+  judgement out of a score nobody computed. They report what the reader did with the paper
+  instead.
+- **The block is capped at six.** It is context, not the answer: it says "you already have
+  these" so nobody re-reads a paper they judged last month. A long block would push the
+  arXiv results, which is what was actually asked for, off the screen.
+
+A side effect worth more than the speed: an arXiv search with no network now returns the
+device results and a line explaining the rest, instead of an error.
+
+## Earlier: what the occasional reader missed
+
+The `shown` table keeps a row per day and nothing read yesterday, so missing a day lost those
+sixty papers. The obvious fix, a browser over past days, turns out to answer the smaller half
+of the question.
+
+**The daily worker fetches papers but never composes a digest.** It calls `upsertPapers` and
+stops. So the days somebody was away leave no `shown` rows at all: those days are not in the
+table to browse. What is on the device is the papers themselves, hundreds of them, that no
+digest ever selected. On this device, 779 from the last seven days.
+
+So there are two different needs and the data says which is which:
+
+**Catching up** is the one that matters, and it is not about `shown`. It is the papers
+announced since the last digest the reader was actually shown, minus anything a digest put in
+front of them and anything they have touched. Several hundred papers is not a catch-up, it is
+a second job, so they are ranked by the same machinery that picks sixty from three hundred
+each morning and the best twenty-five are shown. A fortnight away costs one screen.
+
+**Replaying a past digest** answers "where was that paper on Tuesday". Cheap, since the day's
+order, slots and reasons are all stored, and shown exactly as it was: re-ranking the record
+with today's model would answer a question nobody asked.
+
+Both live on one Earlier screen, reached two ways. A card at the top of the digest, shown
+only when there is a real gap of two days or more, so a daily reader never sees it; and a
+link on the end card, where "and before today?" is a natural question and it costs no tab.
+Phrased as papers rather than days, because "142 papers" is a quantity somebody can decide
+about where "you were away 3 days" is a fact about them they already know.
+
+**The model is now warmed in the background.** Reopening the app restores the stored digest
+without training, which is why it is fast, and the bill used to arrive at whatever first
+needed a model. The catch-up list took seventeen seconds for that reason. Training once the
+digest is already on screen took it to five, and does the same for the first search of a
+session, which had been an open item since the search rewrite.
+

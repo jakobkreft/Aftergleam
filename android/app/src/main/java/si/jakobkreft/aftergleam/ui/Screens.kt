@@ -64,6 +64,7 @@ fun FeedScreen(
     onOpen: (Paper) -> Unit,
     onRerank: () -> Unit,
     onRefresh: () -> Unit,
+    onPast: () -> Unit,
     onDismissResurfaced: (Boolean) -> Unit = {},
 ) {
     when {
@@ -111,6 +112,12 @@ fun FeedScreen(
                     )
                 }
             }
+            // Above the papers, because the reader who was away needs to know before they
+            // start reading today that there is a "before today". Only when there is a real
+            // gap: someone who opens the app every morning never sees it.
+            if (state.missedCount > 0 && state.missedSince != null) {
+                item { AwayCard(state.missedCount, onPast) }
+            }
             state.resurfaced?.let { r ->
                 item {
                     ResurfacedCard(
@@ -136,7 +143,7 @@ fun FeedScreen(
                     onOpen = { onOpen(card.paper) },
                 )
             }
-            item { EndCard(state, onRerank, onRefresh) }
+            item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
         }
         }
@@ -253,8 +260,39 @@ private fun CompactAction(label: String, onClick: () -> Unit) {
     )
 }
 
+/**
+ * The one line a returning reader needs before anything else.
+ *
+ * Phrased as papers rather than days: "142 papers" is a quantity somebody can decide about,
+ * where "you were away 3 days" is a fact about them that they already know.
+ */
 @Composable
-private fun EndCard(state: FeedState, onRerank: () -> Unit, onRefresh: () -> Unit) {
+private fun AwayCard(count: Int, onOpen: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("While you were away", style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "$count papers you have not seen. Tap for the best of them.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EndCard(
+    state: FeedState,
+    onRerank: () -> Unit,
+    onRefresh: () -> Unit,
+    onPast: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp)) {
         Text("That is today", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
@@ -274,6 +312,9 @@ private fun EndCard(state: FeedState, onRerank: () -> Unit, onRefresh: () -> Uni
         // arXiv announces once a weekday and a second fetch returns the same papers.
         TextButton(onClick = onRerank) { Text("Shuffle with my reactions") }
         TextButton(onClick = onRefresh) { Text("Check arXiv for new papers") }
+        // The end of today is where "and before today?" is a natural question, and it costs
+        // no tab and no chrome to answer it here.
+        TextButton(onClick = onPast) { Text("Earlier digests") }
     }
 }
 

@@ -476,6 +476,78 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6)
         }
     }
 
+    /** One past day the reader was actually shown a digest. */
+    data class DigestDay(val day: String, val papers: Int, val reacted: Int)
+
+    /**
+     * The days a digest was built, most recent first.
+     *
+     * Only days the app was opened: the daily worker fetches papers but does not compose a
+     * digest, so `shown` is a record of what the reader was offered, not of what existed.
+     * That is the right thing for replaying a particular morning, and the wrong thing for
+     * working out what somebody missed, which is what [unseenSince] is for.
+     */
+    fun digestDays(limit: Int = 30): List<DigestDay> =
+        readableDatabase.rawQuery(
+            """
+            SELECT s.day,
+                   COUNT(DISTINCT s.paper_id) AS papers,
+                   COUNT(DISTINCT CASE WHEN g.signal IN ('LIKED','DISLIKED')
+                         THEN s.paper_id END) AS reacted
+            FROM shown s
+            LEFT JOIN signals g ON g.paper_id = s.paper_id
+            GROUP BY s.day
+            ORDER BY s.day DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(limit.toString()),
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(DigestDay(c.getString(0), c.getInt(1), c.getInt(2)))
+                }
+            }
+        }
+
+    /** The last day before [today] on which the reader opened the app and got a digest. */
+    fun lastDigestDayBefore(today: String): String? =
+        readableDatabase.rawQuery(
+            "SELECT MAX(day) FROM shown WHERE day < ?", arrayOf(today)
+        ).use { if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null }
+
+    /**
+     * Papers announced since [day] that were never put in front of the reader.
+     *
+     * This, not the `shown` table, is what "you were away" means. The worker keeps fetching
+     * while the app is closed, so a week away leaves several hundred papers on the device
+     * that no digest ever selected: on this device, 779 from the last seven days. Anything
+     * already carrying a signal is excluded, because the reader has plainly seen it.
+     */
+    fun unseenSince(day: String, limit: Int = 600): List<Paper> =
+        readableDatabase.rawQuery(
+            """
+            SELECT p.* FROM papers p
+            WHERE p.published > ?
+              AND NOT EXISTS (SELECT 1 FROM shown s WHERE s.paper_id = p.id)
+              AND NOT EXISTS (SELECT 1 FROM signals g WHERE g.paper_id = p.id)
+            ORDER BY p.published DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(day, limit.toString()),
+        ).use { it.toPapers() }
+
+    /** How many there are, without loading their abstracts. */
+    fun unseenCountSince(day: String): Int =
+        readableDatabase.rawQuery(
+            """
+            SELECT COUNT(*) FROM papers p
+            WHERE p.published > ?
+              AND NOT EXISTS (SELECT 1 FROM shown s WHERE s.paper_id = p.id)
+              AND NOT EXISTS (SELECT 1 FROM signals g WHERE g.paper_id = p.id)
+            """.trimIndent(),
+            arrayOf(day),
+        ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
     fun shownIds(): Set<String> =
         readableDatabase.rawQuery("SELECT DISTINCT paper_id FROM shown", null).use { c ->
             buildSet { while (c.moveToNext()) add(c.getString(0)) }
