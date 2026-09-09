@@ -98,7 +98,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
     }
     // rememberSaveable: a rotation recreates the activity, and plain remember would drop the
     // reader back on Today from whichever tab they were using.
-    var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
+    var tab by rememberSaveable {
+        // Landing on the one screen that is ready, rather than on placeholder cards.
+        mutableStateOf(if (vm.openOnPopular) Tab.POPULAR else Tab.TODAY)
+    }
 
     /**
      * Keeps each screen's scroll position while it is off the composition.
@@ -326,9 +329,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                     // which stopped being true when bioRxiv and medRxiv
                                     // arrived.
                                     "${detail.displayTitle}\n${detail.absUrl}" +
-                                        "\n\nSent with Aftergleam, a private reader for " +
-                                        "arXiv, bioRxiv and medRxiv. " +
-                                        "github.com/jakobkreft/aftergleam",
+                                        "\n\nFound with Aftergleam, a privacy reader for " +
+                                        "arXiv scientific papers.",
                                 )
                             }
                             context.startActivity(Intent.createChooser(share, null))
@@ -463,7 +465,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
         LaunchedEffect(tab) {
             when (tab) {
                 Tab.EXPLORE -> if (state.explore.isEmpty()) vm.loadExplore()
-                Tab.POPULAR -> vm.loadPopular()
+                // Both are precomputed once the digest lands, so this is only the fallback
+                // for a tab reached before that finished.
+                Tab.POPULAR -> if (state.popular.isEmpty()) vm.loadPopular()
                 else -> Unit
             }
         }

@@ -14,9 +14,11 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import si.jakobkreft.aftergleam.MainActivity
 import si.jakobkreft.aftergleam.data.ArxivApi
+import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.BioRxivApi
 import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Topics
+import si.jakobkreft.aftergleam.rank.DigestBuilder
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Prefs
 import java.time.Duration
@@ -25,7 +27,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 
 /**
- * Fetches tomorrow's papers before the user wakes up.
+ * Builds tomorrow's digest before the user wakes up.
  *
  * arXiv announces once per weekday at 20:00 US Eastern, so one run a day is all that can
  * possibly be useful; this is periodic-daily rather than aggressive. An empty result is not
@@ -53,8 +55,29 @@ class DailyDigestWorker(
                         .getOrDefault(emptyList())
                 }
             }
-            Db(applicationContext).upsertPapers(papers)
+            val db = Db(applicationContext)
+            db.upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
+            prefs.fetchedCategories = prefs.fetchedCategories + subscribed
+
+            // What is everyone reading, joined locally. Enrichment: a failure here leaves
+            // the digest exactly as it would have been.
+            runCatching { Attention.fetch() }.getOrNull()
+                ?.takeIf { it.isNotEmpty() }?.let { db.saveAttention(it) }
+
+            // Compose the digest too, not just fetch the papers for it.
+            //
+            // This worker used to stop at the download, so opening the app in the morning
+            // meant waiting through a fetch that had already happened and a ranking that
+            // had not. Both now happen at five in the morning, on wifi, on a charger, and
+            // the first open of the day is a database read.
+            //
+            // Failing here is not a failed run: the papers are stored, and the app will
+            // rank them itself the moment it is opened.
+            runCatching {
+                DigestBuilder.build(db, prefs, db.attention())
+            }
+
             if (papers.isNotEmpty() && prefs.notifyEnabled) notify(papers.size)
             Result.success()
         } catch (e: Exception) {

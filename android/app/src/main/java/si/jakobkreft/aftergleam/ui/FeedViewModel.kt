@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Source
@@ -23,6 +24,7 @@ import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Evidence
+import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
@@ -33,6 +35,7 @@ import si.jakobkreft.aftergleam.data.ShownItem
 import si.jakobkreft.aftergleam.data.Taste
 import si.jakobkreft.aftergleam.data.Topics
 import si.jakobkreft.aftergleam.rank.RatedDoc
+import si.jakobkreft.aftergleam.rank.DigestBuilder
 import si.jakobkreft.aftergleam.rank.Ranker
 import si.jakobkreft.aftergleam.rank.Scored
 import si.jakobkreft.aftergleam.rank.SearchRanker
@@ -193,9 +196,6 @@ data class SurveyState(
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
-        /** Below the 0.9 an explicit "interested" carries, so real judgements dominate. */
-        const val SEED_WEIGHT = 0.7f
-
         /** How many more papers an "explore" page adds. */
         const val EXPLORE_PAGE = 30
 
@@ -236,6 +236,26 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * Both the digest and search want the same thing, and it depends only on the ledger.
      */
     /**
+     * Fills in everything the reader has not asked for yet, while they read what they did.
+     *
+     * The digest is on screen at this point and the phone is otherwise idle. Popular is a
+     * sort over what is already stored and costs almost nothing; Explore ranks eight hundred
+     * candidates and is the slowest screen in the app to open cold. Both are computed here
+     * so that the tab bar is instant, and both are cheap to throw away if the reader never
+     * touches them.
+     *
+     * Ordered deliberately: the model first, because Explore ranks with it and would
+     * otherwise train its own copy.
+     */
+    private fun prewarm() {
+        viewModelScope.launch {
+            warmModelNow()
+            if (_state.value.popular.isEmpty()) loadPopular()
+            if (_state.value.explore.isEmpty()) loadExplore()
+        }
+    }
+
+    /**
      * Trains the interest model in the background once the digest is already on screen.
      *
      * Reopening the app restores the stored digest without training anything, which is why
@@ -245,12 +265,29 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * the first card, and both are instant when they get there.
      */
     private fun warmModel() {
+        viewModelScope.launch { warmModelNow() }
+    }
+
+    private suspend fun warmModelNow() {
         if (cachedModel != null) return
-        viewModelScope.launch(Dispatchers.Default) {
+        withContext(Dispatchers.Default) {
             val rated = ratedDocs()
-            if (rated.size >= Ranker.MIN_RATINGS) ensureModel(rated)
+            if (rated.size >= Ranker.MIN_RATINGS) ensureModelShared(rated)
         }
     }
+
+    /**
+     * Serialises model fitting.
+     *
+     * The background warm-up and whatever the reader opens next both want a model, and
+     * without this they each trained their own: tapping Explore the moment the digest landed
+     * paid for two fits at nine seconds each, one of which was thrown away. Now the second
+     * caller waits for the first and takes its result.
+     */
+    private val modelLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun ensureModelShared(rated: List<RatedDoc>): Ranker.Model? =
+        modelLock.withLock { ensureModel(rated) }
 
     private fun ensureModel(rated: List<RatedDoc>): Ranker.Model? {
         val signature = modelSignature(rated)
@@ -280,6 +317,22 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     )
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
+    /**
+     * Whether to open on Popular rather than on the digest.
+     *
+     * True exactly when the digest is not ready and For You would therefore be a screen of
+     * placeholder cards: the first launch of a day, before that day's papers have been
+     * fetched and ranked. Popular is a sort over what is already stored, so it is on screen
+     * immediately and is real reading rather than a promise of some.
+     *
+     * Deliberately decided once, here, and never revisited. Moving somebody to another tab
+     * because a background job finished would be worse than the wait it saves, and the
+     * digest announces itself in the tab bar without help. It also cannot fire straight
+     * after onboarding, because that path does not construct a view model.
+     */
+    val openOnPopular: Boolean =
+        prefs.onboarded && db.digestFor(LocalDate.now().toString()).isEmpty()
+
     init {
         _state.value = _state.value.copy(
             notifyEnabled = prefs.notifyEnabled,
@@ -288,8 +341,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         )
         if (prefs.onboarded) {
             // Before anything else, so a cold start with no fetch due still knows what the
-            // field was reading. Popular has nothing else to rank by.
+            // field was reading. Popular has nothing else to rank by, and ranking it before
+            // this line would quietly demote it to venue matches.
             _state.value = _state.value.copy(attention = db.attention())
+            // Popular is the landing screen when the digest is not ready, and nothing else
+            // would fill it in time: the usual precompute waits for a digest that is, by
+            // definition, not there yet.
+            if (openOnPopular) loadPopular()
             restore()
         }
     }
@@ -320,54 +378,79 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             var any = false
-            for (pass in 0 until 2) {
-                for (probe in probes) {
-                    // bioRxiv has no keyword-plus-subject search, so a probe there is
-                    // simply the subject's recent papers. Either way the survey shows real
-                    // current work rather than a frozen list that ages badly.
-                    val fetched = runCatching {
-                        if (probe.source == Source.ARXIV) {
-                            ArxivApi.probe(probe.category, probe.phrase, max = pass + 1)
-                        } else {
-                            BioRxivApi.recent(
-                                server = probe.source,
-                                subjects = setOf(probe.category),
-                                days = 4,
-                                maxPages = 4,
-                            )
-                        }
-                    }.getOrDefault(emptyList())
-
-                    // On the second pass ask for two and keep the one not already seen.
-                    val alreadyHave = _state.value.survey.let { st ->
-                        (st.deck.map { it.second.id } + st.liked.map { it.second.id }).toSet()
-                    }
-                    val fresh = fetched.filter { it.id !in alreadyHave }
-                        .take(1)
-                        .map { probe to it }
-
-                    if (fresh.isNotEmpty()) {
-                        any = true
-                        withContext(Dispatchers.IO) { db.upsertPapers(fresh.map { it.second }) }
-                        val cur = _state.value.survey
-                        _state.value = _state.value.copy(
-                            survey = cur.copy(deck = cur.deck + fresh)
+            // One probe per topic, three seconds apart, which is what puts the first
+            // question on screen in about six.
+            for (probe in probes) {
+                // bioRxiv has no keyword-plus-subject search, so a probe there is simply
+                // the subject's recent papers. Either way the survey shows real current
+                // work rather than a frozen list that ages badly.
+                val fetched = runCatching {
+                    if (probe.source == Source.ARXIV) {
+                        ArxivApi.probe(probe.category, probe.phrase, max = 1)
+                    } else {
+                        BioRxivApi.recent(
+                            server = probe.source,
+                            subjects = setOf(probe.category),
+                            days = 4,
+                            maxPages = 4,
                         )
                     }
-                    // The published rate limit is one request every three seconds.
-                    kotlinx.coroutines.delay(3_000)
+                }.getOrDefault(emptyList())
 
-                    // Stop early once onboarding is over, so the loader does not keep
-                    // fetching into a screen nobody is looking at.
-                    if (_state.value.onboarded) return@launch
-                }
+                if (addToDeck(probe, fetched)) any = true
+                // The published rate limit is one request every three seconds.
+                delay(ArxivApi.SLEEP_MS)
+
+                // Stop early once onboarding is over, so the loader does not keep fetching
+                // into a screen nobody is looking at.
+                if (_state.value.onboarded) return@launch
             }
+
+            // The reader is now several questions into the survey and the network is free.
+            // Fetching their actual feed here costs them nothing: it happens while they are
+            // reading, in time that was going to be spent anyway, and by the time they
+            // finish the digest is a re-rank rather than a wait on three servers.
+            //
+            // It also replaces the survey's second pass. That pass was another twelve
+            // requests and thirty-six seconds of rate limit to fetch, one at a time, papers
+            // that this single pull already brought back.
+            val seeded = Topics.categoriesFor(prefs.seedTopics)
+            if (seeded.isNotEmpty()) {
+                runCatching { fetchInto(seeded) }
+                prefetched = seeded
+            }
+            if (_state.value.onboarded) return@launch
+
+            // Top up the deck from what arrived, with no further requests.
+            for (probe in probes) {
+                if (_state.value.onboarded) return@launch
+                val pool = withContext(Dispatchers.IO) {
+                    db.papersInCategory(Source.qualify(probe.source, probe.category), limit = 40)
+                }
+                if (addToDeck(probe, pool)) any = true
+            }
+
             val cur = _state.value.survey
             _state.value = _state.value.copy(
                 survey = cur.copy(loading = false, failed = !any)
             )
         }
     }
+
+    /** Adds the first paper not already in the deck. Returns whether one was added. */
+    private suspend fun addToDeck(probe: Taste.Probe, candidates: List<Paper>): Boolean {
+        val alreadyHave = _state.value.survey.let { st ->
+            (st.deck.map { it.second.id } + st.liked.map { it.second.id }).toSet()
+        }
+        val fresh = candidates.firstOrNull { it.id !in alreadyHave } ?: return false
+        withContext(Dispatchers.IO) { db.upsertPapers(listOf(fresh)) }
+        val cur = _state.value.survey
+        _state.value = _state.value.copy(survey = cur.copy(deck = cur.deck + (probe to fresh)))
+        return true
+    }
+
+    /** Categories already pulled by the onboarding prefetch, so finishing does not repeat them. */
+    private var prefetched: Set<String> = emptySet()
 
     /** Answers the top card. Liked papers become training data straight away. */
     fun answerSurvey(liked: Boolean) {
@@ -490,7 +573,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     drift = withContext(Dispatchers.IO) { computeDrift() },
                 )
                 withContext(Dispatchers.IO) { refreshCatchUp() }
-                warmModel()
+                prewarm()
             } else {
                 sync(force = false)
             }
@@ -506,14 +589,70 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Explicit pull for new papers, subject to the fetch interval. */
     fun refresh() = sync(force = true)
 
+    /**
+     * Pulls [subscribed] from every server it spans and stores the result.
+     *
+     * Shared by the digest and by the prefetch that runs during onboarding, so the two
+     * cannot drift into fetching different things. Reports progress through [label] when the
+     * caller is a screen the reader is watching, and says nothing when it is not.
+     */
+    private suspend fun fetchInto(
+        subscribed: Set<String>,
+        label: ((String) -> Unit)? = null,
+    ): Int {
+        val papers = mutableListOf<Paper>()
+        val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
+        if (arxivCats.isNotEmpty()) {
+            label?.invoke("Fetching from arXiv")
+            papers += runCatching { ArxivApi.recent(arxivCats, max = 300) }
+                .getOrDefault(emptyList())
+        }
+        // Each server is optional and independent: somebody who only reads biology never
+        // waits on arXiv, and a server being down costs that server's papers rather than
+        // the whole morning.
+        for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
+            val subjects = Topics.categoriesOf(server, subscribed)
+            if (subjects.isEmpty()) continue
+            label?.invoke("Fetching from ${Source.label(server)}")
+            papers += runCatching { BioRxivApi.recent(server, subjects) }
+                .getOrDefault(emptyList())
+        }
+        if (papers.isNotEmpty()) {
+            withContext(Dispatchers.IO) { db.upsertPapers(papers) }
+        }
+        prefs.lastFetchMillis = System.currentTimeMillis()
+        prefs.fetchedCategories = prefs.fetchedCategories + subscribed
+        return papers.size
+    }
+
     private fun sync(force: Boolean, networkAllowed: Boolean = true) {
         val cats = _state.value.categories.toList()
         if (cats.isEmpty()) return
 
-        val shouldFetch = networkAllowed && (force || prefs.fetchIsStale())
+        // What is actually worth asking for.
+        //
+        // Asking again for what arXiv has not re-announced returns the same papers, and on
+        // this device that cost six seconds for arXiv alone and half a minute with bioRxiv
+        // and medRxiv on. Refusing the trip and saying so is faster, and more honest, than
+        // spending it to arrive back where we started. A subject ticked since the last fetch
+        // is the exception: it has no papers here yet, so it is pulled on its own rather
+        // than dragging every other subject along with it.
+        val toFetch = FetchPlan.decide(
+            subscribed = cats.toSet(),
+            alreadyFetched = prefs.fetchedCategories,
+            announced = prefs.fetchIsStale(),
+            recent = prefs.fetchedRecently(),
+            forced = force,
+            networkAllowed = networkAllowed,
+        )
+        val shouldFetch = toFetch.isNotEmpty()
         _state.value = _state.value.copy(
             loading = true,
-            loadingLabel = if (shouldFetch) "Fetching from arXiv" else "Re-ranking",
+            loadingLabel = when {
+                shouldFetch -> "Fetching from arXiv"
+                force -> "Nothing new announced, re-ranking what you have"
+                else -> "Re-ranking"
+            },
             error = null,
             emptyDay = false,
         )
@@ -521,33 +660,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 if (shouldFetch) {
-                    val subscribed = cats.toSet()
-                    val papers = mutableListOf<Paper>()
-
-                    val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
-                    if (arxivCats.isNotEmpty()) {
-                        _state.value = _state.value.copy(loadingLabel = "Fetching from arXiv")
-                        papers += ArxivApi.recent(arxivCats, max = 300)
+                    val n = fetchInto(toFetch) { msg ->
+                        _state.value = _state.value.copy(loadingLabel = msg)
                     }
-
-                    // Each server is optional and independent: somebody who only reads
-                    // biology never waits on arXiv, and a server being down or slow costs
-                    // the digest that server's papers rather than the whole morning.
-                    for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
-                        val subjects = Topics.categoriesOf(server, subscribed)
-                        if (subjects.isEmpty()) continue
-                        _state.value = _state.value.copy(
-                            loadingLabel = "Fetching from ${Source.label(server)}"
-                        )
-                        papers += runCatching { BioRxivApi.recent(server, subjects) }
-                            .getOrDefault(emptyList())
-                    }
-
                     _state.value = _state.value.copy(
-                        loadingLabel = "Got ${papers.size} papers, checking what is popular"
+                        loadingLabel = "Got $n papers, checking what is popular"
                     )
-                    withContext(Dispatchers.IO) { db.upsertPapers(papers) }
-                    prefs.lastFetchMillis = System.currentTimeMillis()
 
                     // Enrichment only. A failure here returns an empty map and the digest
                     // is built exactly as it would have been.
@@ -587,7 +705,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-                _state.value = _state.value.copy(loadingLabel = "Ranking")
+                // Keep the explanation when there was nothing to fetch. Overwriting it with
+                // "Ranking" meant the one message that answers "why is this so quick, did it
+                // even check" was replaced before anybody could read it.
+                if (shouldFetch) {
+                    _state.value = _state.value.copy(loadingLabel = "Ranking")
+                }
                 withContext(Dispatchers.Default) { rebuild(cats) }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -608,52 +731,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun rebuild(cats: List<String>) {
         val today = LocalDate.now().toString()
-        val candidates = db.recentPapers(limit = 400)
-        // Easy negatives come from older papers, deliberately disjoint from the candidates
-        // being scored so that training cannot mark a good candidate as a negative.
-        val candidateIds = candidates.map { it.id }.toSet()
-        // Only as many negatives as the trainer will actually sample, rather than loading
-        // three thousand abstracts out of SQLite on every rebuild to discard most of them.
-        val negativePool = db.recentPapers(limit = 900)
-            .filter { it.id !in candidateIds }
-            .map { it.rankText }
-
-        val rated = ratedDocs()
-
-        // Papers shown on an earlier day stay out, but today's own digest does not count
-        // as seen, otherwise re-ranking would empty the screen.
-        val seen = db.shownIds() - db.digestFor(today).map { it.paperId }.toSet()
-
-        val weights = Weights(
-            quality = prefs.qualityWeight,
-            explorationRate = prefs.explorationRate,
-            diversity = prefs.diversity,
-        )
-
         // Reuse the model whenever the ledger is unchanged, which is every re-rank that is
         // not preceded by a reaction.
+        val rated = ratedDocs()
         val signature = modelSignature(rated)
-        val reusable = if (signature == cachedSignature) cachedModel else null
-        val model = reusable ?: Ranker(weights).train(candidates, rated, negativePool)
-        cachedModel = model
-        cachedSignature = signature
-
-        val cards = Ranker(weights).digest(
-            candidates = candidates,
-            rated = rated,
-            seen = seen,
-            subscribed = cats.toSet(),
-            size = prefs.digestSize,
-            negativePool = negativePool,
+        val built = DigestBuilder.build(
+            db = db,
+            prefs = prefs,
             attention = _state.value.attention,
-            evidenceCount = evidenceCount(),
-            topicHistory = db.topicHistory(),
-            prebuilt = model,
+            day = today,
+            prebuilt = if (signature == cachedSignature) cachedModel else null,
         )
-        db.markShown(
-            cards.map { ShownItem(it.paper.id, it.slot.name, it.why(), it.relevance) },
-            today,
-        )
+        val cards = built.cards
+        cachedModel = built.model
+        cachedSignature = signature
         val reactions = db.allReactions()
         _state.value = _state.value.copy(
             loading = false,
@@ -671,6 +762,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             drift = computeDrift(),
         )
         refreshCatchUp()
+        prewarm()
     }
 
     /**
@@ -966,7 +1058,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     val ratedIds = rated.mapNotNull { it.paperId }.toSet()
                     // The digest's model, not a fresh one. Training here was the whole cost
                     // of a search, and it is the same model either way.
-                    val model = ensureModel(rated)
+                    val model = ensureModelShared(rated)
                     // Papers already judged are poor results when searching arXiv, but they
                     // are the entire point when searching your own library.
                     // Papers already judged are poor results when searching arXiv, and so
@@ -1043,14 +1135,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * win. They keep contributing rather than being discarded at the first rating, because a
      * handful of ratings is a thinner picture of someone than the fields they told us about.
      */
-    private fun ratedDocs(): List<RatedDoc> {
-        val evidence = db.evidence()
-        val judged = db.papersById(evidence.keys).mapNotNull { p ->
-            evidence[p.id]?.label()?.let { RatedDoc(p.id, p.rankText, it) }
-        }
-        val seeds = Topics.seedsFor(prefs.seedTopics).map { RatedDoc(null, it, SEED_WEIGHT) }
-        return judged + seeds
-    }
+    private fun ratedDocs(): List<RatedDoc> = DigestBuilder.ratedDocs(db, prefs)
 
     /**
      * Papers carrying any signal at all. This is what decides how far the model's confidence
@@ -1161,6 +1246,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val candidates = db.recentPapers(limit = 800)
                     .filter { it.id !in inDigest && it.id !in alreadyShown }
                 val rated = ratedDocs()
+                val model = ensureModelShared(rated)
                 Ranker(
                     Weights(
                         quality = prefs.qualityWeight,
@@ -1177,7 +1263,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     attention = _state.value.attention,
                     evidenceCount = evidenceCount(),
                     topicHistory = db.topicHistory(),
-                    prebuilt = cachedModel,
+                    prebuilt = model,
                 )
             }
             _state.value = _state.value.copy(
@@ -1296,7 +1382,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     attention = _state.value.attention,
                     evidenceCount = evidenceCount(),
                     topicHistory = db.topicHistory(),
-                    prebuilt = ensureModel(rated),
+                    prebuilt = ensureModelShared(rated),
                 )
             }
             _state.value = _state.value.copy(catchUpLoading = false, catchUp = cards)

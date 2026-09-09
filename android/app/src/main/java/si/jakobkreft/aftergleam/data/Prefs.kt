@@ -114,6 +114,30 @@ class Prefs(context: Context) {
      */
     fun fetchIsStale(): Boolean = Announcements.hasNewSince(lastFetchMillis)
 
+    /**
+     * How long after a fetch another one is pointless.
+     *
+     * arXiv announces once per weekday, so between announcements a second fetch returns the
+     * same papers it returned the first time. bioRxiv has no announcement to key off, which
+     * is what this is for: a plain interval, short enough that somebody who comes back in an
+     * hour still gets a real check, long enough that pulling twice in a row does not cost
+     * another trip through three servers.
+     */
+    private val MIN_FETCH_INTERVAL_MS = 10 * 60 * 1000L
+
+    fun fetchedRecently(now: Long = System.currentTimeMillis()): Boolean =
+        lastFetchMillis > 0L && now - lastFetchMillis < MIN_FETCH_INTERVAL_MS
+
+    /**
+     * Categories whose papers are already on the device.
+     *
+     * Subscribing to something new has to fetch it even inside the interval above, or the
+     * reader ticks a subject and is told there is nothing new to get.
+     */
+    var fetchedCategories: Set<String>
+        get() = sp.getStringSet("fetched_categories", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("fetched_categories", v).apply()
+
     companion object {
         private const val MAX_REMEMBERED_PAGES = 100
     }

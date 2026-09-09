@@ -668,3 +668,46 @@ invoking its continuation, so the guard saw its own flag and the feature did not
 true when bioRxiv and medRxiv arrived. It now names all three and carries the repository, so a
 colleague who wants the app can act on it and one who does not has lost a line.
 
+## Doing the waiting before the reader arrives
+
+Four places where the app made somebody wait for work it could have done already.
+
+**Refreshing re-fetched what it had just fetched.** Pull to refresh always went to the
+network, however recently it had been. arXiv announces once a weekday, so the second request
+returned the same papers: six seconds for arXiv alone, half a minute with bioRxiv and medRxiv
+on. The decision is now a pure function with four cases, tested rather than reasoned about:
+anything announced means fetch everything; a reader asking after ten minutes means fetch
+everything, because bioRxiv has no announcement to key off; a subject ticked since the last
+fetch is pulled on its own, since it has no papers here at all; otherwise nothing is asked for
+and the screen says "Nothing new announced, re-ranking what you have". Verified by watching
+`last_fetch`: it does not move.
+
+That message had to be rescued twice. The line after it overwrote the label with "Ranking"
+before anybody could read it, which is how the one sentence that answers "did it even check"
+never appeared.
+
+**The nightly worker fetched the papers and stopped.** It downloaded at five in the morning,
+on wifi, on a charger, and then left the ranking to be paid for on the first open of the day.
+It now composes the digest too, through a `DigestBuilder` that the screen also calls, so there
+is one implementation rather than two that drift a weight at a time. The first open of a day
+the worker ran is a database read.
+
+**Onboarding left the network idle.** The survey's second pass was twelve more requests, one
+per topic, three seconds apart, to fetch papers one at a time. It now pulls the reader's real
+feed instead, once, while they are answering questions: the same papers, fewer requests, and
+the digest is already downloaded when they finish. First question 6.6 seconds to 2.9, and 303
+papers on the device by the end of the survey where there used to be two dozen.
+
+**Explore and Popular were computed when first opened.** Both are now built once the digest is
+on screen and the phone is otherwise idle. Tapping Explore the instant the digest landed still
+cost fourteen seconds, because the warm-up and Explore were each fitting their own model and
+throwing one away; a lock around model fitting made the second caller wait for the first, and
+took it to eight. A reader who spends a few seconds on the digest first finds it instant.
+
+**And the app opens on the screen that is ready.** When there is no digest for today, For You
+is placeholder cards for several seconds while Popular is a sort over what is already stored.
+Landing on Popular there is not a preference about which feed matters; it is refusing to show
+a promise of reading when there is real reading to hand. Decided once at launch and never
+revisited, because moving somebody to another tab when a background job finishes would be
+worse than the wait it saves.
+

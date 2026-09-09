@@ -584,6 +584,23 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
             arrayOf(day),
         ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
+    /**
+     * Recent papers whose primary category is [category].
+     *
+     * The survey's second pass used to be twelve more requests, one per topic. Once the feed
+     * has been pulled the same papers are already here, so the pass costs a query instead.
+     */
+    fun papersInCategory(category: String, limit: Int = 40): List<Paper> =
+        readableDatabase.rawQuery(
+            """
+            SELECT * FROM papers
+            WHERE categories = ? OR categories LIKE ? || '|%'
+            ORDER BY published DESC, id DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(category, category, limit.toString()),
+        ).use { it.toPapers() }
+
     fun shownIds(): Set<String> =
         readableDatabase.rawQuery("SELECT DISTINCT paper_id FROM shown", null).use { c ->
             buildSet { while (c.moveToNext()) add(c.getString(0)) }
