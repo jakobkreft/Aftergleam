@@ -35,11 +35,27 @@ data class Scored(
         Slot.RELEVANCE -> when {
             placedByQuality && reasonTerms.isNotEmpty() ->
                 "ranked up for its venue, matches " +
-                    reasonTerms.take(2).joinToString(", ") { it.replace('_', ' ') }
+                    distinctTerms(reasonTerms).take(2).joinToString(", ")
             placedByQuality -> "ranked up for its venue"
             reasonTerms.isEmpty() -> "recent in your categories"
-            else -> "matches " + reasonTerms.joinToString(", ") { it.replace('_', ' ') }
+            else -> "matches " + distinctTerms(reasonTerms).joinToString(", ")
         }
+    }
+
+    /**
+     * Drops a term that merely repeats one already listed, so a chip reads
+     * "diffusion, generated" rather than "diffusion, diffusion models, generated".
+     * Bigrams and their component words are both real features, but printing both wastes
+     * the one line the card gives the explanation.
+     */
+    private fun distinctTerms(terms: List<String>): List<String> {
+        val out = mutableListOf<String>()
+        for (raw in terms) {
+            val words = raw.split('_')
+            if (words.any { w -> out.any { shown -> w in shown.split(' ') } }) continue
+            out += words.joinToString(" ")
+        }
+        return out
     }
 }
 

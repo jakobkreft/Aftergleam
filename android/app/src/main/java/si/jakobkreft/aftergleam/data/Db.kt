@@ -13,7 +13,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -38,6 +38,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
               paper_id TEXT PRIMARY KEY,
               interest REAL,
               saved INTEGER NOT NULL DEFAULT 0,
+              viewed INTEGER NOT NULL DEFAULT 0,
               ts INTEGER NOT NULL
             )
             """.trimIndent()
@@ -60,6 +61,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old in 1..3) {
+            runCatching { db.execSQL("ALTER TABLE reactions ADD COLUMN viewed INTEGER NOT NULL DEFAULT 0") }
+        }
         // Papers and digests are a cache and can be rebuilt, but feedback is the user's
         // own data and must never be dropped silently, so only `shown` is recreated here.
         if (old < 3) {
@@ -143,13 +147,14 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
     }
 
     fun setReaction(paperId: String, r: Reaction) = writableDatabase.use { db ->
-        if (!r.rated && !r.saved) {
+        if (r.empty) {
             db.delete("reactions", "paper_id = ?", arrayOf(paperId))
         } else {
             db.insertWithOnConflict("reactions", null, ContentValues().apply {
                 put("paper_id", paperId)
                 if (r.interest != null) put("interest", r.interest) else putNull("interest")
                 put("saved", if (r.saved) 1 else 0)
+                put("viewed", if (r.viewed) 1 else 0)
                 put("ts", System.currentTimeMillis())
             }, SQLiteDatabase.CONFLICT_REPLACE)
         }
@@ -267,7 +272,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
 
     fun allReactions(): Map<String, Reaction> =
         readableDatabase.rawQuery(
-            "SELECT paper_id, interest, saved FROM reactions", null
+            "SELECT paper_id, interest, saved, viewed FROM reactions", null
         ).use { c ->
             buildMap {
                 while (c.moveToNext()) {
@@ -276,6 +281,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 3)
                         Reaction(
                             interest = if (c.isNull(1)) null else c.getFloat(1),
                             saved = c.getInt(2) == 1,
+                            viewed = c.getInt(3) == 1,
                         )
                     )
                 }

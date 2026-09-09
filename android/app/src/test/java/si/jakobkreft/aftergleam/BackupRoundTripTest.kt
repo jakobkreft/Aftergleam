@@ -69,6 +69,24 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun `viewing a paper is remembered but not exported`() {
+        val db = Db(ctx)
+        val prefs = Prefs(ctx)
+        db.clearReactions()
+        db.upsertPapers(listOf(paper("v1"), paper("v2")))
+        db.setReaction("v1", Reaction(viewed = true))
+        db.setReaction("v2", Reaction(interest = 0.9f, viewed = true))
+
+        // Opening a paper must survive a restart, so it can be marked in the digest.
+        assertTrue("viewed must persist", db.allReactions()["v1"]!!.viewed)
+
+        val json = Backup.export(db, prefs)
+        assertTrue("a view-only row carries no judgement and should not travel",
+            !json.contains("\"v1\""))
+        assertTrue("a rated paper still travels", json.contains("\"v2\""))
+    }
+
+    @Test
     fun `restore merges rather than replacing`() {
         val db = Db(ctx)
         val prefs = Prefs(ctx)

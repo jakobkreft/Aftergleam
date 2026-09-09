@@ -31,6 +31,9 @@ object Backup {
     fun export(db: Db, prefs: Prefs): String {
         val reactions = JSONArray()
         for ((id, r) in db.allReactions()) {
+            // A paper that was merely opened carries no judgement worth moving to another
+            // device, and exporting it would write a row that restore then deletes.
+            if (!r.rated && !r.saved) continue
             reactions.put(
                 JSONObject().apply {
                     put("id", id)

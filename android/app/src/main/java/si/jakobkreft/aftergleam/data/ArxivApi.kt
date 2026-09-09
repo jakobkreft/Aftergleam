@@ -49,6 +49,17 @@ object ArxivApi {
     }
 
     /**
+     * A few recent papers matching a phrase within one category, for the onboarding survey.
+     *
+     * Sorted by relevance rather than date: the survey wants representative papers for the
+     * topic, and the newest submissions on any given morning are a poor sample of a field.
+     */
+    suspend fun probe(category: String, phrase: String, max: Int = 4): List<Paper> {
+        val q = java.net.URLEncoder.encode("cat:$category AND all:$phrase", "UTF-8")
+        return parse(get("$ENDPOINT?search_query=$q&max_results=$max"))
+    }
+
+    /**
      * Free-text search across title, abstract and authors.
      *
      * This is arXiv's own keyword index, not semantic search. The UI says so: promising

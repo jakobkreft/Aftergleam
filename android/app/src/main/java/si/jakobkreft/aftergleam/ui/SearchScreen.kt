@@ -1,6 +1,10 @@
 package si.jakobkreft.aftergleam.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.width
@@ -46,7 +53,30 @@ fun SearchScreen(
     onPersonalisation: (Float) -> Unit,
     onOpen: (Paper) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    // After a reorder the best result is at the top, and leaving the reader parked halfway
+    // down the old ranking hides the very change they asked for.
+    LaunchedEffect(state.searchHits.firstOrNull()?.paper?.id) {
+        if (state.searchHits.isNotEmpty()) listState.animateScrollToItem(0)
+    }
+
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val dismiss = {
+        keyboard?.hide()
+        focus.clearFocus()
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            // Tapping anywhere off the field puts the keyboard away, which is what every
+            // other app on the phone does.
+            .pointerInput(Unit) { detectTapGestures(onTap = { dismiss() }) }
+            .padding(16.dp)
+    ) {
         // A visible button as well as the keyboard action. Relying on the IME alone leaves
         // the feature unreachable whenever the keyboard does not offer a search key.
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -57,10 +87,13 @@ fun SearchScreen(
                 label = { Text("Search arXiv") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                keyboardActions = KeyboardActions(onSearch = { dismiss(); onSubmit() }),
             )
             Spacer(Modifier.width(8.dp))
-            Button(onClick = onSubmit, enabled = state.searchQuery.trim().length >= 2) {
+            Button(
+                onClick = { dismiss(); onSubmit() },
+                enabled = state.searchQuery.trim().length >= 2,
+            ) {
                 Text("Search")
             }
         }
@@ -99,7 +132,10 @@ fun SearchScreen(
                 Text("Nothing found. Try fewer or more common words.",
                     style = MaterialTheme.typography.bodySmall)
 
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            else -> LazyColumn(
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 items(state.searchHits, key = { it.paper.id }) { hit ->
                     Card(Modifier.fillMaxWidth().clickable { onOpen(hit.paper) }) {
                         Column(Modifier.padding(12.dp)) {
@@ -117,6 +153,11 @@ fun SearchScreen(
                             Spacer(Modifier.height(4.dp))
                             Text(hit.why(), style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "query ${(hit.queryMatch * 100).toInt()}%  ·  " +
+                                    "you ${(hit.interest * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                             Venue.of(hit.paper)?.let {
                                 Text(it, style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.tertiary)

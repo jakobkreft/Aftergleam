@@ -33,6 +33,18 @@ class DisplayTitleTest {
     }
 
     @Test
+    fun `authors render as a name plus et al rather than a bare surname`() {
+        val many = Paper(
+            id = "1", title = "T", abstract = "A",
+            authors = listOf("Jinwoo Park", "Someone Else"),
+            categories = listOf("cs.CV"), published = "2026-09-01", updated = "2026-09-01",
+        )
+        assertEquals("Park et al.", many.shortAuthors)
+        assertEquals("Park", many.copy(authors = listOf("Jinwoo Park")).shortAuthors)
+        assertEquals("", many.copy(authors = emptyList()).shortAuthors)
+    }
+
+    @Test
     fun `plain titles are left alone`() {
         val plain = "Denoising Diffusion Probabilistic Models"
         assertEquals(plain, titled(plain).displayTitle)

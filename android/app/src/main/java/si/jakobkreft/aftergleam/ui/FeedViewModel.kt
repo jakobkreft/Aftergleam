@@ -19,9 +19,11 @@ import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
 import si.jakobkreft.aftergleam.data.ShownItem
+import si.jakobkreft.aftergleam.data.Taste
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
 import si.jakobkreft.aftergleam.rank.Scored
@@ -44,6 +46,8 @@ data class FeedState(
     val importProgress: LibraryImport.Progress? = null,
     val importSummary: String? = null,
     val saved: List<Paper> = emptyList(),
+    val downloaded: List<Paper> = emptyList(),
+    val ratedPapers: List<Pair<Paper, Float>> = emptyList(),
     val attention: Map<String, Int> = emptyMap(),
     val resurfaced: Resurfaced? = null,
     val backupSummary: String? = null,
@@ -54,7 +58,35 @@ data class FeedState(
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
     val drift: Drift.Report? = null,
+    val theme: String = "system",
+    val survey: SurveyState = SurveyState(),
 )
+
+/**
+ * The onboarding survey.
+ *
+ * The deck fills while the user is already answering. arXiv allows one request every three
+ * seconds and the survey draws from a dozen fields, so waiting for the whole set first meant
+ * staring at a progress bar for half a minute before being asked anything. Reading one
+ * abstract takes about as long as fetching the next, so after the first card the loading is
+ * invisible.
+ */
+data class SurveyState(
+    val loading: Boolean = false,
+    val deck: List<Pair<Taste.Probe, Paper>> = emptyList(),
+    val liked: List<Pair<Taste.Probe, Paper>> = emptyList(),
+    val seen: Int = 0,
+    val expected: Int = 0,
+    val failed: Boolean = false,
+) {
+    val started: Boolean get() = expected > 0
+    /** Out of papers and none still coming. */
+    val done: Boolean get() = deck.isEmpty() && !loading && started
+    /** Answered everything fetched so far, but more is on the way. */
+    val waiting: Boolean get() = deck.isEmpty() && loading
+    /** Three liked papers is where ranking switches on, so that is the honest target. */
+    val enough: Boolean get() = liked.size >= 3
+}
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -62,12 +94,104 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
 
     private val _state = MutableStateFlow(
-        FeedState(categories = prefs.categories, onboarded = prefs.onboarded)
+        FeedState(
+            categories = prefs.categories,
+            onboarded = prefs.onboarded,
+            theme = prefs.theme,
+        )
     )
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
     init {
         if (prefs.onboarded) restore()
+    }
+
+    /**
+     * Fills the survey deck in the background while the user answers.
+     *
+     * Two passes of one paper per probe rather than two papers from each probe in turn. The
+     * first pass alone gives a card from every field, so the questions alternate subject
+     * from the very start, and the second pass only matters for someone who keeps going.
+     */
+    fun startSurvey() {
+        val sv = _state.value.survey
+        if (sv.started || sv.loading) return
+        _state.value = _state.value.copy(
+            survey = SurveyState(loading = true, expected = Taste.PROBES.size * 2)
+        )
+
+        viewModelScope.launch {
+            var any = false
+            for (pass in 0 until 2) {
+                for (probe in Taste.PROBES) {
+                    val fetched = runCatching {
+                        ArxivApi.probe(probe.category, probe.phrase, max = pass + 1)
+                    }.getOrDefault(emptyList())
+
+                    // On the second pass ask for two and keep the one not already seen.
+                    val alreadyHave = _state.value.survey.let { st ->
+                        (st.deck.map { it.second.id } + st.liked.map { it.second.id }).toSet()
+                    }
+                    val fresh = fetched.filter { it.id !in alreadyHave }
+                        .take(1)
+                        .map { probe to it }
+
+                    if (fresh.isNotEmpty()) {
+                        any = true
+                        withContext(Dispatchers.IO) { db.upsertPapers(fresh.map { it.second }) }
+                        val cur = _state.value.survey
+                        _state.value = _state.value.copy(
+                            survey = cur.copy(deck = cur.deck + fresh)
+                        )
+                    }
+                    // The published rate limit is one request every three seconds.
+                    kotlinx.coroutines.delay(3_000)
+
+                    // Stop early once onboarding is over, so the loader does not keep
+                    // fetching into a screen nobody is looking at.
+                    if (_state.value.onboarded) return@launch
+                }
+            }
+            val cur = _state.value.survey
+            _state.value = _state.value.copy(
+                survey = cur.copy(loading = false, failed = !any)
+            )
+        }
+    }
+
+    /** Answers the top card. Liked papers become training data straight away. */
+    fun answerSurvey(liked: Boolean) {
+        val sv = _state.value.survey
+        val head = sv.deck.firstOrNull() ?: return
+        db.setReaction(
+            head.second.id,
+            Reaction(interest = if (liked) Reaction.LIKED else Reaction.DISLIKED),
+        )
+        _state.value = _state.value.copy(
+            survey = sv.copy(
+                deck = sv.deck.drop(1),
+                liked = if (liked) sv.liked + head else sv.liked,
+                seen = sv.seen + 1,
+            ),
+            reactions = db.allReactions(),
+        )
+    }
+
+    /** Finishes onboarding using what the survey learned. */
+    fun finishSurvey() {
+        val sv = _state.value.survey
+        val cats = Taste.categoriesFrom(sv.liked.map { it.second }, sv.liked.map { it.first })
+        prefs.categories = cats
+        prefs.onboarded = true
+        val reactions = db.allReactions()
+        _state.value = _state.value.copy(
+            categories = cats,
+            onboarded = true,
+            reactions = reactions,
+            ratedCount = reactions.count { it.value.rated },
+            modelActive = reactions.count { it.value.rated } >= Ranker.MIN_RATINGS,
+        )
+        sync(force = true)
     }
 
     fun setCategories(cats: Set<String>) {
@@ -139,7 +263,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 if (shouldFetch) {
+                    _state.value = _state.value.copy(loadingLabel = "Fetching from arXiv")
                     val papers = ArxivApi.recent(cats, max = 300)
+                    _state.value = _state.value.copy(
+                        loadingLabel = "Got ${papers.size} papers, checking what is popular"
+                    )
                     withContext(Dispatchers.IO) { db.upsertPapers(papers) }
                     prefs.lastFetchMillis = System.currentTimeMillis()
 
@@ -152,6 +280,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     // user's categories there is nothing for that slot to choose from, which
                     // is why it never fired. Failure is silently fine: the slot just stays
                     // empty and the digest backfills.
+                    _state.value = _state.value.copy(loadingLabel = "Looking outside your fields")
                     val outside = Bridge.candidatesFor(
                         subscribed = cats.toSet(),
                         dayOfYear = LocalDate.now().dayOfYear,
@@ -161,6 +290,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                             .onSuccess { withContext(Dispatchers.IO) { db.upsertPapers(it) } }
                     }
                 }
+                _state.value = _state.value.copy(loadingLabel = "Ranking")
                 withContext(Dispatchers.Default) { rebuild(cats) }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -307,6 +437,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             reactions = reactions,
             ratedCount = reactions.count { it.value.rated },
+            // Keep the library list in step, so changing a rating there does not leave the
+            // row showing the old value until the tab is reopened.
+            ratedPapers = _state.value.ratedPapers.mapNotNull { (p, old) ->
+                if (p.id == paperId) interest?.let { p to it } else p to old
+            },
         )
     }
 
@@ -355,11 +490,29 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadSaved() {
+    /** Everything the user has accumulated: saved, downloaded, and rated. */
+    fun loadLibrary() {
         viewModelScope.launch {
-            val ids = _state.value.reactions.filterValues { it.saved }.keys
-            val papers = withContext(Dispatchers.IO) { db.papersById(ids) }
-            _state.value = _state.value.copy(saved = papers)
+            val reactions = _state.value.reactions
+            val store = PdfStore(getApplication())
+            val loaded = withContext(Dispatchers.IO) {
+                val saved = db.papersById(reactions.filterValues { it.saved }.keys)
+                val ratings = db.ratings()
+                val rated = db.papersById(ratings.keys)
+                    .mapNotNull { p -> ratings[p.id]?.let { p to it } }
+                    .sortedByDescending { it.second }
+                // Downloaded is a property of the cache, not of any table, so it is asked
+                // of the store directly rather than tracked in a column that could drift.
+                val downloaded = db.papersById(
+                    (reactions.keys + ratings.keys).filter { store.isCached(it) }
+                )
+                Triple(saved, downloaded, rated)
+            }
+            _state.value = _state.value.copy(
+                saved = loaded.first,
+                downloaded = loaded.second,
+                ratedPapers = loaded.third,
+            )
         }
     }
 
@@ -373,6 +526,15 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun currentDiversity() = prefs.diversity
     fun currentDigestHour() = prefs.digestHour
     fun currentNotifyEnabled() = prefs.notifyEnabled
+    fun currentReminderHour() = prefs.reminderHour
+    fun currentReminderEnabled() = prefs.reminderEnabled
+    fun setReminderHour(h: Int) { prefs.reminderHour = h }
+    fun setReminderEnabled(v: Boolean) { prefs.reminderEnabled = v }
+    fun setTheme(mode: String) {
+        prefs.theme = mode
+        _state.value = _state.value.copy(theme = mode)
+    }
+
     fun setDigestHour(h: Int) { prefs.digestHour = h }
     fun setNotifyEnabled(v: Boolean) { prefs.notifyEnabled = v }
 
@@ -424,7 +586,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         query = q,
                         rated = rated,
                         personalisation = _state.value.personalisation,
-                        negativePool = db.recentPapers(limit = 800).map { it.rankText },
+                        // Rated papers are cached like any other, so an unfiltered pool
+                        // hands the model its own positives labelled as negatives and
+                        // flattens every interest score towards zero.
+                        negativePool = db.recentPapers(limit = 800)
+                            .filter { it.id !in ratedIds }
+                            .map { it.rankText },
                     )
                 }
                 withContext(Dispatchers.IO) { db.upsertPapers(results) }
@@ -446,7 +613,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openDetail(paper: Paper) {
-        _state.value = _state.value.copy(detail = paper)
+        val current = _state.value.reactions[paper.id] ?: Reaction.NONE
+        if (!current.viewed) db.setReaction(paper.id, current.copy(viewed = true))
+        _state.value = _state.value.copy(
+            detail = paper,
+            reactions = db.allReactions(),
+        )
     }
 
     fun closeDetail() {

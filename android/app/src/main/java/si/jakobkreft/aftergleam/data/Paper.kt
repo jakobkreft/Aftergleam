@@ -32,6 +32,15 @@ data class Paper(
 
     val displayAbstract: String get() = cleanLatex(abstract)
 
+    /** "Park et al." rather than a bare surname, which reads as a fragment. */
+    val shortAuthors: String
+        get() {
+            val first = authors.firstOrNull()?.trim().orEmpty()
+            if (first.isBlank()) return ""
+            val surname = first.substringAfterLast(' ').ifBlank { first }
+            return if (authors.size > 1) "$surname et al." else surname
+        }
+
     val absUrl: String get() = "https://arxiv.org/abs/$id"
 
     val pdfUrl: String get() = "https://arxiv.org/pdf/$id"
@@ -66,8 +75,19 @@ private fun cleanLatex(s: String): String =
 data class Reaction(
     val interest: Float? = null,
     val saved: Boolean = false,
+    /**
+     * The paper's own screen has been opened.
+     *
+     * Recorded so the digest can mark what has already been looked at, and for nothing else.
+     * It is explicitly not a weak positive: opening a paper and deciding against it is a
+     * perfectly ordinary outcome, and treating it as approval is how implicit signals
+     * quietly poison a model.
+     */
+    val viewed: Boolean = false,
 ) {
     val rated: Boolean get() = interest != null
+
+    val empty: Boolean get() = interest == null && !saved && !viewed
 
     companion object {
         const val LIKED = 0.9f

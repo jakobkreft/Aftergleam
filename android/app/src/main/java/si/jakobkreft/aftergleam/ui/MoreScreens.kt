@@ -34,53 +34,6 @@ import si.jakobkreft.aftergleam.data.Venue
 import kotlin.math.roundToInt
 
 @Composable
-fun SavedScreen(papers: List<Paper>, onOpen: (Paper) -> Unit, onUnsave: (String) -> Unit) {
-    if (papers.isEmpty()) {
-        Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
-            Text("Nothing saved yet", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Saving is separate from rating. Rate a paper to teach the model, save it " +
-                    "to come back to it.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        return
-    }
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item { Text("${papers.size} saved", style = MaterialTheme.typography.titleMedium) }
-        items(papers, key = { it.id }) { p ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        p.displayTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { onOpen(p) },
-                    )
-                    Venue.of(p)?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(p.published, style = MaterialTheme.typography.labelSmall)
-                    androidx.compose.foundation.layout.Row {
-                        TextButton(onClick = { onOpen(p) }) { Text("Open") }
-                        TextButton(onClick = { onUnsave(p.id) }) { Text("Remove") }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun TuneScreen(
     digestSize: Int,
     quality: Float,
@@ -88,6 +41,9 @@ fun TuneScreen(
     diversity: Float,
     digestHour: Int,
     notifyEnabled: Boolean,
+    reminderHour: Int,
+    reminderEnabled: Boolean,
+    theme: String,
     ratedCount: Int,
     importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
@@ -97,6 +53,8 @@ fun TuneScreen(
     onDiversity: (Float) -> Unit,
     onDigestHour: (Int) -> Unit,
     onNotifyEnabled: (Boolean) -> Unit,
+    onReminder: (Boolean, Int) -> Unit,
+    onTheme: (String) -> Unit,
     onPickLibrary: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
@@ -110,6 +68,8 @@ fun TuneScreen(
     var divr by remember { mutableFloatStateOf(diversity) }
     var hour by remember { mutableFloatStateOf(digestHour.toFloat()) }
     var notify by remember { mutableStateOf(notifyEnabled) }
+    var remindOn by remember { mutableStateOf(reminderEnabled) }
+    var remindHour by remember { mutableFloatStateOf(reminderHour.toFloat()) }
     var confirmReset by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -198,6 +158,24 @@ fun TuneScreen(
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.layout.Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("system" to "Follow system", "light" to "Light", "dark" to "Dark")
+                    .forEach { (value, label) ->
+                        androidx.compose.material3.FilterChip(
+                            selected = theme == value,
+                            onClick = { onTheme(value) },
+                            label = { Text(label) },
+                        )
+                    }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
             Text("Daily digest", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
@@ -221,6 +199,30 @@ fun TuneScreen(
             Spacer(Modifier.height(8.dp))
             Button(onClick = { onDigestHour(hour.roundToInt()); onNotifyEnabled(notify) }) {
                 Text("Save schedule")
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Text("Reading reminder", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "A separate nudge at an hour that suits reading. Downloads nothing, and " +
+                    "stays quiet if you have already been through the digest.",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Switch(
+                    checked = remindOn, onCheckedChange = { remindOn = it }
+                )
+                Text("  Remind me at %02d:00".format(remindHour.roundToInt()),
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            if (remindOn) {
+                Slider(remindHour, { remindHour = it }, valueRange = 0f..23f, steps = 22)
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { onReminder(remindOn, remindHour.roundToInt()) }) {
+                Text("Save reminder")
             }
 
             Spacer(Modifier.height(24.dp))

@@ -2,8 +2,22 @@ package si.jakobkreft.aftergleam.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import si.jakobkreft.aftergleam.rank.Slot
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -29,8 +43,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,69 +50,11 @@ import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Reaction
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.Scored
-import kotlin.math.roundToInt
 
 val COMMON_CATEGORIES = listOf(
     "cs.LG", "cs.CV", "cs.CL", "cs.AI", "cs.RO", "cs.CR", "cs.SE", "cs.IR",
     "stat.ML", "eess.IV", "eess.AS", "q-bio.NC", "math.OC", "astro-ph.GA",
 )
-
-@Composable
-fun OnboardingScreen(
-    selected: Set<String>,
-    onToggle: (String) -> Unit,
-    onImport: () -> Unit,
-    importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
-    importSummary: String?,
-    onDone: () -> Unit,
-) {
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Text("Aftergleam", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Pick the categories you follow. A ranked digest each day, tuned by how you " +
-                "rate papers. Nothing you read leaves this device.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(20.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            COMMON_CATEGORIES.forEach { cat ->
-                FilterChip(cat in selected, { onToggle(cat) }, { Text(cat) })
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        // Optional but prominent: importing a reading list is the difference between a feed
-        // that is useful today and one that takes three weeks to become useful.
-        Text("Already have a library?", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "A BibTeX or RIS export seeds the model with papers you actually chose to read.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        if (importProgress != null) {
-            Text(
-                "Resolving ${importProgress.done} of ${importProgress.total}, " +
-                    "matched ${importProgress.matched}",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        } else {
-            androidx.compose.material3.OutlinedButton(onClick = onImport) {
-                Text("Import a .bib or .ris file")
-            }
-        }
-        importSummary?.let {
-            Spacer(Modifier.height(6.dp))
-            Text(it, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary)
-        }
-
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onDone, enabled = selected.isNotEmpty()) {
-            Text(if (selected.isEmpty()) "Pick at least one" else "Show me today")
-        }
-    }
-}
 
 @Composable
 fun FeedScreen(
@@ -288,6 +242,14 @@ private fun CompactAction(label: String, onClick: () -> Unit) {
     )
 }
 
+/**
+ * A digest card.
+ *
+ * Deliberately light. The earlier version put the whole rating control, four text actions
+ * and two metadata lines on every card, so a screen held one and a half papers and the list
+ * read as a wall of controls. Triage needs a title, a hint of the content, why it is here
+ * and one gesture; everything else belongs on the paper's own screen, one tap away.
+ */
 @Composable
 private fun PaperCard(
     card: Scored,
@@ -299,72 +261,131 @@ private fun PaperCard(
     onOpen: (Paper) -> Unit,
 ) {
     val p = card.paper
+    val rated = reaction.rated
+    // Viewed cards recede rather than disappear. The digest is a fixed set and removing
+    // rows from under the reader would lose their place; dimming says "you have been here"
+    // without moving anything.
+    val seen = reaction.viewed
     Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        Modifier.fillMaxWidth().clickable { onOpen(p) },
+        elevation = CardDefaults.cardElevation(defaultElevation = if (seen) 0.dp else 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (seen) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.surfaceContainer
+        ),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            // Why the card is here comes first: it is the thing that makes the list
+            // legible, and it is cheap to skim.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SlotDot(card.slot)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    card.why(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+
             Text(
                 p.displayTitle,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (seen) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (seen) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { onOpen(p) },
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                p.authors.take(3).joinToString(", ") +
-                    if (p.authors.size > 3) " +${p.authors.size - 3}" else "",
-                style = MaterialTheme.typography.labelSmall,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                p.abstract.take(200).let { if (p.abstract.length > 200) "$it..." else it },
+                p.displayAbstract,
                 style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(8.dp))
 
-            Text(
-                card.why(),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Venue.of(p)?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-            if (upvotes > 0) {
-                Text(
-                    si.jakobkreft.aftergleam.data.Attention.label(upvotes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-
-            InterestControl(card.relevance, reaction, modelActive) { onRate(p.id, it) }
-
-            // A single compact row: with a longer digest, two rows of tall buttons per
-            // card turned the list into mostly chrome.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CompactAction("Not for me") { onRate(p.id, Reaction.DISLIKED) }
-                CompactAction("Interested") { onRate(p.id, Reaction.LIKED) }
-                CompactAction(if (reaction.saved) "Saved" else "Save") { onSave(p.id) }
-                CompactAction(if (reaction.rated) "Clear" else "Open") {
-                    if (reaction.rated) onRate(p.id, null) else onOpen(p)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (seen) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = "Opened",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                    )
                 }
+                MetaChip(p.shortAuthors)
+                Venue.of(p)?.let { MetaChip(it, MaterialTheme.colorScheme.tertiary) }
+                if (upvotes > 0) MetaChip("$upvotes read", MaterialTheme.colorScheme.secondary)
+                if (modelActive) MetaChip("${(card.relevance * 100).roundToInt()}%")
+
+                Spacer(Modifier.weight(1f))
+
+                // Icons, because these three are universal and a word each would crowd out
+                // the paper. The full slider lives on the detail screen.
+                IconToggle(
+                    icon = Icons.Filled.Clear,
+                    active = rated && reaction.interest!! < 0.5f,
+                    description = "Not for me",
+                ) { onRate(p.id, if (rated && reaction.interest!! < 0.5f) null else Reaction.DISLIKED) }
+                IconToggle(
+                    icon = Icons.Filled.Favorite,
+                    active = rated && reaction.interest!! >= 0.5f,
+                    description = "Interested",
+                ) { onRate(p.id, if (rated && reaction.interest!! >= 0.5f) null else Reaction.LIKED) }
+                IconToggle(
+                    icon = Icons.Filled.Star,
+                    active = reaction.saved,
+                    description = "Save for later",
+                ) { onSave(p.id) }
             }
         }
+    }
+}
+
+/** A small colour cue for which slot a card came from, paired with the text reason. */
+@Composable
+private fun SlotDot(slot: Slot) {
+    val colour = when (slot) {
+        Slot.RELEVANCE -> MaterialTheme.colorScheme.primary
+        Slot.EXPLORATION -> MaterialTheme.colorScheme.secondary
+        Slot.BRIDGE -> MaterialTheme.colorScheme.tertiary
+    }
+    Box(Modifier.size(8.dp).clip(CircleShape).background(colour))
+}
+
+@Composable
+private fun MetaChip(text: String, colour: Color = Color.Unspecified) {
+    if (text.isBlank()) return
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (colour == Color.Unspecified) MaterialTheme.colorScheme.onSurfaceVariant else colour,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(end = 10.dp),
+    )
+}
+
+@Composable
+private fun IconToggle(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 

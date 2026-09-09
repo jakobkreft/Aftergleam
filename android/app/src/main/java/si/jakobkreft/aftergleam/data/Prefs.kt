@@ -44,6 +44,26 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("notify", true)
         set(v) = sp.edit().putBoolean("notify", v).apply()
 
+    /**
+     * A nudge to read, separate from the hour the digest is prepared.
+     *
+     * These are different events with different natural times. The digest is prepared at
+     * five in the morning because that is when the phone is on wifi and charging; nobody
+     * wants to be told about it then.
+     */
+    var reminderHour: Int
+        get() = sp.getInt("reminder_hour", 19)
+        set(v) = sp.edit().putInt("reminder_hour", v.coerceIn(0, 23)).apply()
+
+    var reminderEnabled: Boolean
+        get() = sp.getBoolean("reminder_enabled", false)
+        set(v) = sp.edit().putBoolean("reminder_enabled", v).apply()
+
+    /** "system", "light" or "dark". */
+    var theme: String
+        get() = sp.getString("theme", "system") ?: "system"
+        set(v) = sp.edit().putString("theme", v).apply()
+
     var lastFetchMillis: Long
         get() = sp.getLong("last_fetch", 0L)
         set(v) = sp.edit().putLong("last_fetch", v).apply()

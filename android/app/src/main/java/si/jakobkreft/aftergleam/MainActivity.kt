@@ -39,11 +39,12 @@ import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
-import si.jakobkreft.aftergleam.ui.SavedScreen
+import si.jakobkreft.aftergleam.ui.LibraryScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
 import si.jakobkreft.aftergleam.work.DailyDigestWorker
 import si.jakobkreft.aftergleam.work.MetadataRefreshWorker
+import si.jakobkreft.aftergleam.work.ReminderWorker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,14 +55,18 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val label: String) {
-    TODAY("Today"), SEARCH("Search"), SAVED("Saved"), TUNE("Tune")
+    TODAY("Today"), SEARCH("Search"), LIBRARY("Library"), TUNE("Tune")
 }
 
 @Composable
 private fun App(vm: FeedViewModel = viewModel()) {
     val context = LocalContext.current
     val state by vm.state.collectAsState()
-    val dark = isSystemInDarkTheme()
+    val dark = when (state.theme) {
+        "light" -> false
+        "dark" -> true
+        else -> isSystemInDarkTheme()
+    }
     var tab by remember { mutableStateOf(Tab.TODAY) }
 
     // Any text MIME type: exports are variously text/plain, text/x-bibtex or octet-stream,
@@ -109,29 +114,33 @@ private fun App(vm: FeedViewModel = viewModel()) {
             Scaffold { inner ->
                 Box(Modifier.padding(inner)) {
                     OnboardingScreen(
-                        selected = state.categories,
-                        onToggle = { cat ->
-                            val next = state.categories.toMutableSet()
-                            if (!next.remove(cat)) next.add(cat)
-                            vm.setCategories(next)
-                        },
-                        onImport = { pickLibrary.launch(arrayOf("*/*")) },
+                        survey = state.survey,
                         importProgress = state.importProgress,
                         importSummary = state.importSummary,
-                        onDone = vm::finishOnboarding,
+                        onStart = vm::startSurvey,
+                        onAnswer = vm::answerSurvey,
+                        onFinish = vm::finishSurvey,
+                        onImport = { pickLibrary.launch(arrayOf("*/*")) },
+                        onSkip = {
+                            vm.setCategories(setOf("cs.LG"))
+                            vm.finishOnboarding()
+                        },
                     )
                 }
             }
             return@MaterialTheme
         }
 
-        LaunchedEffect(tab, state.reactions) { if (tab == Tab.SAVED) vm.loadSaved() }
+        LaunchedEffect(tab, state.reactions) { if (tab == Tab.LIBRARY) vm.loadLibrary() }
 
         // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
         // also repairs the schedule if the user cleared app data or rebooted.
         LaunchedEffect(Unit) {
             DailyDigestWorker.schedule(context, vm.currentDigestHour())
             MetadataRefreshWorker.schedule(context)
+            if (vm.currentReminderEnabled()) {
+                ReminderWorker.schedule(context, vm.currentReminderHour())
+            }
             if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(
                 android.Manifest.permission.POST_NOTIFICATIONS
             )
@@ -145,7 +154,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     DetailScreen(
                         paper = detail,
                         reaction = state.reactions[detail.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE,
-                        confidence = state.cards.firstOrNull { it.paper.id == detail.id }?.relevance ?: 0f,
+                        // A paper opened from search is not in today's digest, so looking
+                        // only at `cards` reported every search result as 0% interest.
+                        confidence = state.cards.firstOrNull { it.paper.id == detail.id }?.relevance
+                            ?: state.searchHits.firstOrNull { it.paper.id == detail.id }?.interest
+                            ?: 0f,
                         modelActive = state.modelActive,
                         upvotes = state.attention[detail.id] ?: 0,
                         onRate = { vm.rate(detail.id, it) },
@@ -172,7 +185,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                     when (t) {
                                         Tab.TODAY -> Icons.Filled.List
                                         Tab.SEARCH -> Icons.Filled.Search
-                                        Tab.SAVED -> Icons.Filled.Star
+                                        Tab.LIBRARY -> Icons.Filled.Star
                                         Tab.TUNE -> Icons.Filled.Settings
                                     },
                                     contentDescription = t.label,
@@ -205,10 +218,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onPersonalisation = vm::setPersonalisation,
                         onOpen = vm::openDetail,
                     )
-                    Tab.SAVED -> SavedScreen(
-                        papers = state.saved,
+                    Tab.LIBRARY -> LibraryScreen(
+                        saved = state.saved,
+                        downloaded = state.downloaded,
+                        rated = state.ratedPapers,
                         onOpen = vm::openDetail,
                         onUnsave = vm::toggleSave,
+                        onRate = vm::rate,
                     )
                     Tab.TUNE -> TuneScreen(
                         digestSize = vm.currentDigestSize(),
@@ -217,6 +233,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         diversity = vm.currentDiversity(),
                         digestHour = vm.currentDigestHour(),
                         notifyEnabled = vm.currentNotifyEnabled(),
+                        reminderHour = vm.currentReminderHour(),
+                        reminderEnabled = vm.currentReminderEnabled(),
+                        theme = state.theme,
                         ratedCount = state.ratedCount,
                         importProgress = state.importProgress,
                         importSummary = state.importSummary,
@@ -231,6 +250,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             DailyDigestWorker.schedule(context, h)
                         },
                         onNotifyEnabled = vm::setNotifyEnabled,
+                        onTheme = vm::setTheme,
+                        onReminder = { on, hour ->
+                            vm.setReminderEnabled(on)
+                            vm.setReminderHour(hour)
+                            if (on) ReminderWorker.schedule(context, hour)
+                            else ReminderWorker.cancel(context)
+                        },
                         onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
                         onExport = {
                             exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())

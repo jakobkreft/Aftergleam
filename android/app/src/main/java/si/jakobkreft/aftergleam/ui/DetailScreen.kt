@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +66,10 @@ fun DetailScreen(
 ) {
     val context = LocalContext.current
     val store = remember { PdfStore(context) }
-    var showPdf by remember { mutableStateOf(false) }
+    // rememberSaveable, not remember: a rotation recreates the activity and plain remember
+    // would close the PDF the reader had open. The file itself is already cached on disk,
+    // so only this flag was standing between them and their place in the paper.
+    var showPdf by rememberSaveable(paper.id) { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
