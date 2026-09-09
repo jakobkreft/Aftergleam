@@ -45,12 +45,11 @@ fun ExploreScreen(
     onOpen: (Paper) -> Unit,
     onMore: () -> Unit,
 ) {
+    // The same placeholder cards the digest uses. A bare spinner on an empty screen reads
+    // as "something is wrong" rather than "something is coming", and this surface waits
+    // longer than the digest does because it ranks eight hundred candidates.
     if (state.explore.isEmpty() && state.exploreLoading) {
-        Column(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) { CircularProgressIndicator() }
+        DigestSkeleton("Looking wider than your digest")
         return
     }
 

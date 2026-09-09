@@ -9,10 +9,45 @@ import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.LogReg
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
+import si.jakobkreft.aftergleam.rank.Scored
+import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
 import si.jakobkreft.aftergleam.rank.Tfidf
 
 class RankCoreTest {
+    @Test
+    fun `an explanation names the subject, not the scaffolding`() {
+        // A real digest produced "matches layers, arbitrarily, terms". Two of those three
+        // words appear in every abstract ever written and tell the reader nothing.
+        val paper = Paper(
+            id = "w1", title = "Sinkhorn layers", abstract = "x",
+            authors = listOf("A"), categories = listOf("cs.LG"),
+            published = "2026-09-01", updated = "2026-09-01",
+        )
+        val scored = Scored(
+            paper = paper, score = 0.8f, relevance = 0.8f, slot = Slot.RELEVANCE,
+            reasonTerms = listOf("layers", "arbitrarily", "terms", "transport"),
+        )
+        val why = scored.why()
+        assertTrue("filler must not be named: $why", "arbitrarily" !in why)
+        assertTrue("nor generic nouns: $why", "terms" !in why)
+        assertTrue("the topical words stay: $why", "layers" in why && "transport" in why)
+    }
+
+    @Test
+    fun `an all filler explanation still says something`() {
+        // Better an unhelpful chip than an empty one that looks like a rendering bug.
+        val paper = Paper(
+            id = "w2", title = "T", abstract = "x", authors = listOf("A"),
+            categories = listOf("cs.LG"), published = "2026-09-01", updated = "2026-09-01",
+        )
+        val why = Scored(
+            paper = paper, score = 0.8f, relevance = 0.8f, slot = Slot.RELEVANCE,
+            reasonTerms = listOf("results", "approach"),
+        ).why()
+        assertTrue("must not be blank: '$why'", why.isNotBlank())
+    }
+
 
     private fun paper(id: String, title: String, abs: String, comments: String = "") =
         Paper(id, title, abs, listOf("A"), listOf("cs.CV"), "2026-09-01", "2026-09-01", comments)

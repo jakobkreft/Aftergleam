@@ -55,8 +55,34 @@ data class Scored(
             if (words.any { w -> out.any { shown -> w in shown.split(' ') } }) continue
             out += words.joinToString(" ")
         }
-        return out
+        // Prefer terms that say what the paper is about. A real digest produced "matches
+        // layers, arbitrarily, terms", where two words in three describe no subject at all.
+        // Filtered here rather than in the vectoriser on purpose: the model may well be
+        // right to weight them, and dropping them from the vocabulary would change the
+        // ranking to fix a caption. If filtering leaves nothing, the unfiltered list is
+        // still better than an empty chip.
+        val topical = out.filter { term -> term.split(' ').none { it in FILLER } }
+        return topical.ifEmpty { out }
     }
+
+    /**
+     * Words every abstract contains regardless of subject, excluded from explanations only.
+     *
+     * Not a stopword list for the model. These are the words that survive TF-IDF because
+     * they are genuinely uneven across documents, and still tell a reader nothing about
+     * what a paper is on.
+     */
+    private val FILLER = setOf(
+        "terms", "term", "results", "result", "approach", "approaches", "method", "methods",
+        "propose", "proposed", "proposes", "paper", "papers", "work", "works", "study",
+        "studies", "based", "using", "used", "use", "show", "shows", "shown", "however",
+        "arbitrarily", "arbitrary", "various", "several", "different", "existing", "novel",
+        "new", "recent", "recently", "particular", "particularly", "significantly",
+        "extensive", "extensively", "empirical", "empirically", "demonstrate", "demonstrates",
+        "achieve", "achieves", "achieved", "provide", "provides", "present", "presents",
+        "introduce", "introduces", "consider", "considered", "given", "well", "may", "often",
+        "furthermore", "moreover", "additionally", "respectively", "via", "towards", "toward",
+    )
 }
 
 data class Weights(

@@ -59,7 +59,17 @@ data class FeedState(
     val emptyDay: Boolean = false,
     val categories: Set<String> = emptySet(),
     val onboarded: Boolean = false,
+    /** Papers carrying any signal at all. What the model actually learns from. */
     val ratedCount: Int = 0,
+    /**
+     * Papers the reader explicitly judged.
+     *
+     * Separate from [ratedCount] because they are separate claims. The digest header said
+     * "87 papers you have reacted to" while the library shelf, two taps away, said 62: the
+     * first was counting everything opened, downloaded or saved, the second only the button
+     * presses. Both numbers were right and one of them was lying about what it counted.
+     */
+    val judgedCount: Int = 0,
     val modelActive: Boolean = false,
     val importProgress: LibraryImport.Progress? = null,
     val importSummary: String? = null,
@@ -292,6 +302,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             ),
             evidence = db.evidence(),
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
         )
     }
 
@@ -317,6 +328,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             ),
             evidence = db.evidence(),
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
         )
     }
 
@@ -345,6 +357,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             reactions = reactions,
             evidence = db.evidence(),
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
             modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
         )
         sync(force = true)
@@ -386,6 +399,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     resurfaced = resurfaced,
                     drift = withContext(Dispatchers.IO) { computeDrift() },
@@ -530,6 +544,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             // here made the header claim judgements that did not exist and switched the
             // model on before it had been taught anything.
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
             modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
             resurfaced = findResurfaced(),
             drift = computeDrift(),
@@ -589,6 +604,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             resurfaced = null,
             evidence = db.evidence(),
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
         )
     }
 
@@ -603,6 +619,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     categories = prefs.categories,
                     backupSummary = "Restored ${r.reactions} ratings.",
@@ -645,6 +662,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     importSummary = buildString {
                         append("Matched ${result.papers.size} of ${result.total}.")
@@ -725,7 +743,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             invalidateModel()
             _state.value = _state.value.copy(
                 reactions = emptyMap(), evidence = emptyMap(), ratedPapers = emptyList(),
-                ratedCount = 0, modelActive = false,
+                ratedCount = 0, judgedCount = 0, modelActive = false,
             )
             rerank()
         }
@@ -803,7 +821,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     searching = false,
-                    searchError = e.message ?: "Search failed",
+                    searchError = humanError(e, "reach arXiv"),
                 )
             }
         }
@@ -833,6 +851,26 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun evidenceCount(): Int = db.evidence().count { it.value.label() != null }
 
+    /** Papers the reader pressed a button on, which is a smaller and different number. */
+    private fun judgedCount(): Int = db.evidence().count { it.value.explicit }
+
+    /**
+     * A sentence a reader can act on, rather than the exception's own words.
+     *
+     * An offline-first app that answers "why is this blank" with
+     * `Unable to resolve host "arxiv.org": No address associated with hostname` is telling
+     * the one person who cannot use that information. Being offline is the expected case
+     * here, not a fault, and it is the only case with an obvious next step.
+     */
+    private fun humanError(e: Exception, action: String): String = when (e) {
+        is java.net.UnknownHostException, is java.net.ConnectException ->
+            "You are offline, so the app cannot $action. Everything already downloaded " +
+                "still works."
+        is java.net.SocketTimeoutException ->
+            "arXiv did not answer in time. Worth another try in a moment."
+        else -> e.message ?: "Could not $action."
+    }
+
     /** Pending dwell timers, cancelled the moment their screen closes. */
     private var dwell: Job? = null
     private var readerDwell: Job? = null
@@ -844,6 +882,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             evidence = db.evidence(),
             ratedCount = evidenceCount(),
+            judgedCount = judgedCount(),
         )
     }
 
@@ -880,6 +919,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             evidence = ev,
             ratedCount = judged,
+            judgedCount = judgedCount(),
             modelActive = judged >= Ranker.MIN_RATINGS,
             ratedPapers = shelf.sortedByDescending { it.second },
         )
@@ -1037,9 +1077,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     evidence = db.evidence(),
                 )
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    readingError = e.message ?: "Could not fetch the PDF",
-                )
+                _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF"))
             }
         }
     }

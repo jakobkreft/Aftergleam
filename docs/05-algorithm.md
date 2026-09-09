@@ -487,3 +487,37 @@ Verified by wiping the device and onboarding from scratch: six survey answers pr
 ledger rows and no rows in the old column, the shelf showed four papers with three More and
 one Less lit, and reacting to two more in the digest took the shelf to six.
 
+## A session of just using it
+
+Findings from driving the app rather than testing a change, and what each turned out to be.
+
+**Three screens, three different numbers, one word.** The digest header said "87 papers you
+have reacted to", the end card said "87 rated", settings said "87 papers reacted to", and the
+library shelf two taps away said 62. Every number was correct: the first three counted every
+paper carrying any signal, including the merely opened, and the fourth counted button presses.
+They are different claims and now say so, with a separate count for each and wording that
+distinguishes learned-from and reacted-to.
+
+**Explanations naming nothing.** A card read "matches layers, arbitrarily, terms". The
+vectoriser's stopword list is deliberately short because words like "not" and "without" carry
+method meaning, and that is still right for ranking; the mistake was reusing it for captions.
+Explanations now skip generic research vocabulary, chosen separately from the model's
+vocabulary so that fixing a caption cannot change a ranking. Measured over a rebuilt digest:
+0 of 60 explanations name filler, against a sample that previously produced "arbitrarily" and
+"terms" in the top three of a card.
+
+**Two surfaces still spun.** For You got skeleton cards when the two-phase digest was removed;
+Explore and Search kept bare spinners, which is the appearance the skeletons exist to avoid.
+Search waits longest of the three, twelve to fifteen seconds against arXiv's rate limit, and
+was the one saying least. Both now show placeholder cards and a line naming the wait.
+
+**The offline message was the exception's.** Tapping Read with no network produced
+`Unable to resolve host "arxiv.org": No address associated with hostname` on a blank screen.
+For an offline-first reader, being offline is the expected case and the only one with an
+obvious next step, so it now says so in a sentence and points out that what is downloaded
+still works.
+
+**Checked and found fine**, worth recording so they are not re-investigated: the reset control
+does have a confirmation step; the library crash reported when offline no longer reproduces;
+the library-scope search works with no network; Popular survived a cold start with no fetch.
+

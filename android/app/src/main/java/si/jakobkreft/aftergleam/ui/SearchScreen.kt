@@ -25,6 +25,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -91,6 +95,16 @@ fun SearchScreen(
                 // do not touch arXiv at all.
                 label = { Text("Search anything") },
                 singleLine = true,
+                // The last query is still there when search reopens, which is usually what
+                // you want and occasionally the opposite. Without this the only way out is
+                // holding backspace.
+                trailingIcon = {
+                    if (state.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onQuery("") }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear the query")
+                        }
+                    }
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { dismiss(); onSubmit() }),
             )
@@ -144,11 +158,15 @@ fun SearchScreen(
         Spacer(Modifier.height(8.dp))
 
         when {
-            state.searching -> Column(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) { CircularProgressIndicator() }
+            // An arXiv search is a network round trip against a one-request-every-three-
+            // seconds budget, so this wait is measured in seconds and has to say so. A
+            // silent spinner for ten seconds is the same as no feedback at all.
+            state.searching -> DigestSkeleton(
+                when (state.searchScope) {
+                    SearchScope.ARXIV -> "Asking arXiv, then ranking for you"
+                    else -> "Searching this device"
+                }
+            )
 
             state.searchError != null ->
                 Text(state.searchError, style = MaterialTheme.typography.bodySmall)

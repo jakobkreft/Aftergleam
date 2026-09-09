@@ -304,6 +304,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             theme = state.theme,
                             topics = state.topics,
                             ratedCount = state.ratedCount,
+                            judgedCount = state.judgedCount,
                             importProgress = state.importProgress,
                             importSummary = state.importSummary,
                             onDigestSize = vm::setDigestSize,

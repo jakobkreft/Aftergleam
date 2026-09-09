@@ -46,6 +46,7 @@ fun TuneScreen(
     theme: String,
     topics: Set<String>,
     ratedCount: Int,
+    judgedCount: Int,
     importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
     onDigestSize: (Int) -> Unit,
@@ -300,7 +301,11 @@ fun TuneScreen(
             Spacer(Modifier.height(12.dp))
             Text("Model", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
-            Text("$ratedCount papers reacted to.", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Learned from $ratedCount papers, $judgedCount of them reacted to. " +
+                    "The rest is what you opened, saved and read.",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(Modifier.height(8.dp))
             // Trust requires an exit. Confirming in place avoids a dialog dependency.
             if (!confirmReset) {
@@ -332,7 +337,7 @@ fun TuneScreen(
                 "Papers come from arXiv, which asks for one request every three seconds; " +
                     "the app stays well inside that. Popularity counts come from the " +
                     "Hugging Face daily papers list, fetched whole so it says nothing " +
-                    "about you. Ranking, your ratings and everything you read stay on " +
+                    "about you. Ranking, your reactions and everything you read stay on " +
                     "this device.",
                 style = MaterialTheme.typography.labelSmall,
             )

@@ -103,7 +103,7 @@ fun FeedScreen(
                     )
                     Text(
                         if (state.modelActive)
-                            "Ranked from ${state.ratedCount} papers you have reacted to"
+                            "Learned from ${state.ratedCount} papers you have read or reacted to"
                         else
                             "React to ${3 - state.ratedCount} more to switch ranking on",
                         style = MaterialTheme.typography.labelSmall,
@@ -260,9 +260,12 @@ private fun EndCard(state: FeedState, onRerank: () -> Unit, onRefresh: () -> Uni
         Spacer(Modifier.height(6.dp))
         Text(
             when {
-                state.ratedCount == 0 -> "Rate a few papers and the next digest is chosen for you."
-                !state.modelActive -> "${state.ratedCount} rated. Three is where ranking switches on."
-                else -> "${state.ratedCount} rated. Ranking is using them."
+                state.ratedCount == 0 ->
+                    "React to a few papers and the next digest is chosen for you."
+                !state.modelActive ->
+                    "${state.ratedCount} so far. Three is where ranking switches on."
+                else -> "Learned from ${state.ratedCount} papers, " +
+                    "${state.judgedCount} of them reacted to."
             },
             style = MaterialTheme.typography.bodySmall,
         )
@@ -296,7 +299,7 @@ private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
             if (report.thin) {
                 // Saying "not yet" is better than inventing a trend from four papers.
                 Text(
-                    "Not enough history yet. After a couple of weeks of rating, this is " +
+                    "Not enough history yet. After a couple of weeks of reading, this is " +
                         "where the shift in what you read shows up.",
                     style = MaterialTheme.typography.bodySmall,
                 )

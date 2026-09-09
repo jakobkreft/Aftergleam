@@ -264,6 +264,12 @@ the digest is unusually competitive this week".
 
 ## Open items
 
+- **No way to see a past digest.** `shown` keeps a row per day, but nothing reads yesterday.
+  Miss a day and those sixty papers are gone unless they resurface. The occasional reader is
+  the one this app should suit best and is currently served worst.
+- **An arXiv search takes twelve to fifteen seconds**, nearly all of it the network round
+  trip. It now says what it is doing rather than spinning silently, but the wait is real.
+  Searching the device first and showing those hits while arXiv answers would hide most of it.
 - The first search of a session still pays for training if the digest has not been built yet.
   In practice the digest builds first and the model is warm.
 - Dwell timers run while the app is in the background, so a paper opened and left on screen
