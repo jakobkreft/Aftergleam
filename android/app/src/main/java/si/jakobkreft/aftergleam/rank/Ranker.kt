@@ -111,6 +111,8 @@ class Ranker(private val weights: Weights = Weights()) {
         attention: Map<String, Int> = emptyMap(),
         /** Papers the reader has given any signal for; drives how much the model is trusted. */
         evidenceCount: Int = rated.size,
+        /** Per-topic engaged/ignored counts, driving how slots are shared out. */
+        topicHistory: Map<String, Pair<Int, Int>> = emptyMap(),
     ): List<Scored> {
         // A paper the user has already judged is finished business. Leaving rated papers
         // in the pool made them dominate the top of the list, because the model scores its
@@ -168,7 +170,7 @@ class Ranker(private val weights: Weights = Weights()) {
             )
         }.sortedByDescending { it.score }
 
-        return compose(scored, subscribed, size, random, hasModel, model)
+        return compose(scored, subscribed, size, random, hasModel, model, topicHistory)
     }
 
     /**
@@ -239,6 +241,55 @@ class Ranker(private val weights: Weights = Weights()) {
         return chosen
     }
 
+    /**
+     * Fills [n] slots by repeatedly drawing a topic and taking the best paper from it.
+     *
+     * Within a topic the existing stochastic diversity pass still chooses, so the two work at
+     * different levels: the bandit decides how much attention an area deserves, and the
+     * sampler decides which paper represents it.
+     */
+    private fun allocateByTopic(
+        candidates: List<Scored>,
+        n: Int,
+        model: Model?,
+        random: Random,
+        topicHistory: Map<String, Pair<Int, Int>>,
+    ): List<Scored> {
+        if (n <= 0 || candidates.isEmpty()) return emptyList()
+        val byTopic = candidates.groupBy { it.paper.primaryCategory }
+        // With one topic there is nothing to allocate, and with no history the bandit would
+        // just be a uniform draw over topics, which the sampler already handles better.
+        if (byTopic.size < 2 || topicHistory.isEmpty()) {
+            return selectDiverse(candidates, n, model, random)
+        }
+
+        val pools = byTopic.mapValues { (_, v) -> v.toMutableList() }
+        val chosen = mutableListOf<Scored>()
+        var guard = 0
+        while (chosen.size < n && guard++ < n * 8) {
+            val arms = pools.entries
+                .filter { it.value.isNotEmpty() }
+                .map { (topic, _) ->
+                    val (engaged, ignored) = topicHistory[topic] ?: (0 to 0)
+                    TopicBandit.Arm(topic, engaged, ignored)
+                }
+            val topic = TopicBandit.draw(arms, random) ?: break
+            val pool = pools[topic] ?: break
+            // One paper at a time, so the next slot is decided with the previous pick known.
+            val pick = selectDiverse(pool, 1, model, random).firstOrNull() ?: break
+            pool.remove(pick)
+            chosen += pick
+        }
+        // A short pool or an unlucky run of draws must not leave the digest short.
+        if (chosen.size < n) {
+            chosen += selectDiverse(
+                candidates.filter { c -> chosen.none { it.paper.id == c.paper.id } },
+                n - chosen.size, model, random,
+            )
+        }
+        return chosen
+    }
+
     private fun gumbel(random: Random): Float {
         val u = random.nextFloat().coerceIn(1e-6f, 1f - 1e-6f)
         return -kotlin.math.ln(-kotlin.math.ln(u))
@@ -255,6 +306,7 @@ class Ranker(private val weights: Weights = Weights()) {
         random: Random,
         hasModel: Boolean,
         model: Model?,
+        topicHistory: Map<String, Pair<Int, Int>>,
     ): List<Scored> {
         if (scored.size <= size) return scored
 
@@ -279,8 +331,17 @@ class Ranker(private val weights: Weights = Weights()) {
                 ?.let { picked[it.paper.id] = it.copy(slot = Slot.BRIDGE) }
         }
 
-        selectDiverse(scored.filter { it.paper.id !in picked }, nRelevance, model, random)
-            .forEach { picked[it.paper.id] = it }
+        // Slots are shared out across topics before any paper is chosen.
+        //
+        // Sampling papers alone still draws from the region the model is confident about: a
+        // reader who liked four diffusion papers gets a model sure about diffusion and silent
+        // about everything else, and per-item noise only shuffles the diffusion papers. The
+        // bandit decides how much of the morning each area gets, and the width of its
+        // posterior does the exploring, so an area nothing is known about is tried because it
+        // is unknown rather than because a slider said to.
+        val remaining = scored.filter { it.paper.id !in picked }
+        val allocated = allocateByTopic(remaining, nRelevance, model, random, topicHistory)
+        allocated.forEach { picked[it.paper.id] = it }
 
         // Uncertainty sampling: relevance nearest 0.5 is where a label teaches the most.
         scored.asSequence()

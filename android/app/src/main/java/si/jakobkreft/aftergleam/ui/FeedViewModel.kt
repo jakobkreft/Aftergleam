@@ -432,6 +432,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             negativePool = negativePool,
             attention = _state.value.attention,
             evidenceCount = evidenceCount(),
+            topicHistory = db.topicHistory(),
         )
         db.markShown(
             cards.map { ShownItem(it.paper.id, it.slot.name, it.why(), it.relevance) },

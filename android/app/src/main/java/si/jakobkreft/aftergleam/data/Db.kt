@@ -349,6 +349,41 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5)
             acc.mapValues { (id, set) -> Evidence(id, set) }
         }
 
+    /**
+     * Per-topic engagement history, for the slot bandit.
+     *
+     * A topic here is the paper's primary arXiv category: stable, already stored, and the
+     * right granularity for deciding how much of a morning to spend on an area. Engaged
+     * means a shown paper later earned a positive signal; ignored means it did not.
+     */
+    fun topicHistory(): Map<String, Pair<Int, Int>> =
+        readableDatabase.rawQuery(
+            """
+            SELECT substr(p.categories, 1, CASE
+                     WHEN instr(p.categories, '|') = 0 THEN length(p.categories)
+                     ELSE instr(p.categories, '|') - 1 END) AS topic,
+                   COUNT(DISTINCT s.paper_id) AS shown,
+                   COUNT(DISTINCT CASE WHEN g.signal IN
+                       ('LIKED','READ_PAGES','SHARED','DOWNLOADED','SAVED','DWELLED')
+                     THEN s.paper_id END) AS engaged
+            FROM shown s
+            JOIN papers p ON p.id = s.paper_id
+            LEFT JOIN signals g ON g.paper_id = s.paper_id
+            GROUP BY topic
+            """.trimIndent(),
+            null,
+        ).use { c ->
+            buildMap {
+                while (c.moveToNext()) {
+                    val topic = c.getString(0)
+                    if (topic.isNullOrBlank()) continue
+                    val shown = c.getInt(1)
+                    val engaged = c.getInt(2)
+                    put(topic, engaged to (shown - engaged).coerceAtLeast(0))
+                }
+            }
+        }
+
     fun clearSignals() { writableDatabase.delete("signals", null, null) }
 
     fun clearReactions() { writableDatabase.delete("reactions", null, null) }

@@ -215,6 +215,38 @@ Two things fell out of this that are worth recording:
   picks, since near-duplicates cluster and a paper echoing something chosen forty slots ago is
   not what the pass is for.
 
+## Stage 4: the topic bandit
+
+Slots are now shared out across topics *before* any paper is chosen. A topic is the paper's
+primary arXiv category, which is stable, already stored and the right granularity for deciding
+how much of a morning an area deserves. Each carries a Beta posterior over "does this reader
+engage with this", and slots go to whichever topic wins a Thompson draw.
+
+The width of the posterior does the exploring. A topic tried four times with three
+engagements sits narrowly around 0.75; a topic never tried is flat across the whole range and
+so wins slots regularly, purely because nothing is known about it. That is the property
+per-item sampling cannot provide: item-level noise only ever reshuffles the papers inside the
+region the model is already confident about.
+
+On the device the difference is visible: **sixty papers across thirteen topics**, with cs.CV
+and cs.LG still dominant as the history warrants, and real representation for robotics,
+language, signal processing and optimisation.
+
+Two things the tests settled, both of which corrected me rather than the code:
+
+- **A consistently ignored topic should stop appearing.** I first asserted that every topic
+  keeps a foothold; it does not, and it should not. Forty ignores out of forty is strong
+  evidence, and a recommender that kept serving that anyway would not be listening.
+- **Certainty has to be bounded even so.** Without a cap the posteriors sharpen without
+  limit, and a topic abandoned long ago becomes unrecoverable: no amount of renewed interest
+  moves a Beta(1, 201). Interests are not stationary, so the counts are scaled down to a
+  window that keeps the conclusion and discards the excess certainty.
+
+**Still missing, and the tests say so explicitly:** the window bounds certainty but preserves
+the *ratio*, so it does not on its own resurrect a topic whose engagement rate is genuinely
+poor. Weighting recent evidence above old evidence is the piece that would, and it is the
+natural next refinement.
+
 ## Making it fast
 
 The digest took 73 seconds to build, and the fix was not the algorithm.
@@ -246,8 +278,7 @@ either way, and the label says plainly what is happening rather than showing a s
 1. ~~Signal ledger and the two-button control.~~ Done.
 2. ~~Shrinkage.~~ Done.
 3. ~~Sampling in place of argmax.~~ Done.
-4. **Topic bandit.** The real fix for collapse, and the one that makes exploration a
-   consequence of uncertainty rather than a number in settings.
+4. ~~Topic bandit.~~ Done. See below.
 5. **Fetch and training skips.** Record the newest submission seen and skip the request when
    no announcement has happened since; cache the model against a hash of the ledger.
 6. **Surfaces**: For you, Explore, Popular, Library.
