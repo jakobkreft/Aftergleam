@@ -112,7 +112,7 @@ class Ranker(private val weights: Weights = Weights()) {
         /** Papers the reader has given any signal for; drives how much the model is trusted. */
         evidenceCount: Int = rated.size,
         /** Per-topic engaged/ignored counts, driving how slots are shared out. */
-        topicHistory: Map<String, Pair<Int, Int>> = emptyMap(),
+        topicHistory: Map<String, Pair<Float, Float>> = emptyMap(),
         /** A model trained earlier, when the reader's signals have not changed since. */
         prebuilt: Model? = null,
     ): List<Scored> {
@@ -255,7 +255,7 @@ class Ranker(private val weights: Weights = Weights()) {
         n: Int,
         model: Model?,
         random: Random,
-        topicHistory: Map<String, Pair<Int, Int>>,
+        topicHistory: Map<String, Pair<Float, Float>>,
     ): List<Scored> {
         if (n <= 0 || candidates.isEmpty()) return emptyList()
         val byTopic = candidates.groupBy { it.paper.primaryCategory }
@@ -272,7 +272,7 @@ class Ranker(private val weights: Weights = Weights()) {
             val arms = pools.entries
                 .filter { it.value.isNotEmpty() }
                 .map { (topic, _) ->
-                    val (engaged, ignored) = topicHistory[topic] ?: (0 to 0)
+                    val (engaged, ignored) = topicHistory[topic] ?: (0f to 0f)
                     TopicBandit.Arm(topic, engaged, ignored)
                 }
             val topic = TopicBandit.draw(arms, random) ?: break
@@ -308,7 +308,7 @@ class Ranker(private val weights: Weights = Weights()) {
         random: Random,
         hasModel: Boolean,
         model: Model?,
-        topicHistory: Map<String, Pair<Int, Int>>,
+        topicHistory: Map<String, Pair<Float, Float>>,
     ): List<Scored> {
         if (scored.size <= size) return scored
 

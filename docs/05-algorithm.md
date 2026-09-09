@@ -81,23 +81,43 @@ the model trains on an aggregate.
 
 | Event | Weight | Reasoning |
 |---|---|---|
-| Explicit "more like this" | **+1.0** | The ceiling. Unambiguous. |
+| Explicit "more like this" | **+0.95** | An instruction, not a measurement |
 | Read 3+ PDF pages | +0.9 | Costly and deliberate |
 | Shared | +0.85 | Endorsement to a third party |
-| Downloaded the PDF | +0.7 | Real commitment, one tap past curiosity |
+| Read the PDF for 20s+ | +0.7 | Real commitment, well past curiosity |
 | Saved for later | +0.6 | Intent, weaker than action |
-| Dwelled 20s+ on the paper | +0.4 | Read the abstract properly |
+| Stayed 15s+ on the paper | +0.4 | Read the abstract properly |
 | Opened the paper | +0.25 | Curiosity, cheap, still information |
-| Shown and passed over | **−0.05** | Kept tiny on purpose, see below |
-| Explicit "not for me" | **−1.0** | The floor |
+| Shown and passed over | **-0.05** | Reserved, not emitted. See below |
+| Explicit "not for me" | **-1.0** | The floor |
 
-A paper's training label is the **strongest positive event it earned**, not a sum: opening,
-downloading and reading one paper is one endorsement, not three.
+**Corroboration, not a sum and not a maximum.** The label was originally the strongest event
+alone, which is right about the danger and wrong about the evidence: under a maximum, saving
+a paper *and* asking for more like it says exactly what asking on its own says, and a paper
+someone downloaded, read four pages of and saved is indistinguishable from one they merely
+read. The strongest signal now sets the floor and the rest close half the remaining gap to 1,
+by noisy-OR. It is bounded above by 1 whatever happens, which is what the no-sums rule was
+actually protecting: a single enthusiastic afternoon still cannot outweigh a month of
+judgements. Measured on 84 papers of real history, bare likes moved 1.0 to 0.95, like plus
+save plus open rose to 0.968, and downloaded plus read plus opened rose to 0.939.
 
-**The skip signal is the dangerous one.** It is admitted at 1/20th the weight of a like, only
-counted for cards that were actually on screen long enough to be judged, and the *total mass*
-of skips is capped at the total mass of positives during training. Without that cap D8's
-thirty-to-one imbalance reappears and the feed strangles itself.
+**Weights above "saved" are gated on time, not on taps.** Downloading used to score 0.7 the
+instant the reader tapped Read, so bouncing straight back out of a PDF was worth the same as
+reading it. Cost is what justifies those numbers, and cost includes time: the dwell signal
+fires at 15 seconds on the paper, and the download signal at 20 seconds with the PDF actually
+on screen. Both are timers armed on open and cancelled on leaving, rather than a stopwatch
+read on the way out, because the way people leave a screen is by swiping home or killing the
+app, and a stopwatch would record nothing in exactly the cases where the reader was most
+absorbed. Verified on device: a glance recorded `OPENED` alone, a 15-second read added
+`DWELLED`, and the PDF signal appeared at 20 seconds and not at 8.
+
+**The skip signal is the dangerous one, and is deliberately dormant.** Nothing emits it.
+Not-engaged-with is already used where it is safe, as the `ignored` count in the topic bandit,
+where thirty-to-one is a ratio rather than thirty times the training mass. Feeding the same
+observation to the classifier as well is the part that would reproduce D8's imbalance and
+strangle the feed. The weight and the mass cap stay defined for whenever there is a
+measurement saying otherwise; until then the honest description is that skips steer how much
+of a topic gets shown and do not train the model.
 
 **What replaces the slider.** Two buttons: *more like this* and *less like this*. That is a
 steering instruction, not a measurement, so there is no scale to calibrate and nothing to
@@ -401,3 +421,30 @@ separable. Stage 6 is a UI change resting on all of it.
 E1 still holds: abstracts carry enough signal, and TF-IDF matched a neural embedder on the
 one real library tested. None of this replaces the ranker; it replaces everything around it.
 The venue signal, the resurfacer and the arXiv-only data path are all unaffected.
+
+## Time-decayed evidence, and attention that survives a restart
+
+Two gaps closed after the bandit had been running for a while.
+
+**The bandit could not be talked out of a conclusion.** `EVIDENCE_WINDOW` bounds how sharp a
+topic's posterior may get, which stops a topic becoming *unrecoverable*, but it preserves the
+ratio, so it cannot revive a topic whose rate is genuinely poor. Two hundred ignores from last
+spring against a dozen engagements this month is six percent, and the bandit was right to call
+that poor and wrong about what it was answering: the reader has changed project, and only the
+recent part of that history is about them.
+
+Each paper now contributes to its topic by the day it was last shown, discounted by a
+half-life of thirty days. Exponential rather than a cutoff, so a topic's standing never lurches
+on the day an old observation falls off the end. Thirty days is chosen against the app's own
+rhythm rather than a sweep: the digest arrives daily, so it is roughly one working cycle of a
+project, long enough that a fortnight away from a field does not erase it. Tested in both
+directions, because forgetting everything on a schedule is just periodic amnesia: a topic
+ignored heavily six months ago and read again this week comes back, and one declined
+repeatedly this month stays gone.
+
+**Popular was quietly lying on cold starts.** Hugging Face upvote counts lived only in the
+view model, so the tab was correct exactly once per fetch and degraded to venue matches alone
+on every launch where no fetch was due, which is most weekends, with nothing on screen saying
+so. They are now a table, loaded before the first frame, replaced wholesale on each fetch and
+pruned at thirty days. Confirmed on device: force-stop, relaunch with no fetch due, and the
+tab still ranks by attention with the Hugging Face attribution on the cards.

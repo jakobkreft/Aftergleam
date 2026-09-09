@@ -4,6 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import si.jakobkreft.aftergleam.rank.TopicBandit
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /**
  * Plain SQLite rather than Room.
@@ -13,7 +16,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 6) {
 
     // Never call `use` on the database this helper returns. It is a single shared instance,
     // and closing it leaves the helper handing a closed connection pool to the next caller.
@@ -74,9 +77,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5)
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX idx_signals_paper ON signals(paper_id)")
+        db.execSQL(ATTENTION_TABLE)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 6) db.execSQL(ATTENTION_TABLE)
         if (old < 5) {
             db.execSQL(
                 """
@@ -350,37 +355,54 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5)
         }
 
     /**
-     * Per-topic engagement history, for the slot bandit.
+     * Per-topic engagement history, for the slot bandit, weighted towards recent days.
      *
      * A topic here is the paper's primary arXiv category: stable, already stored, and the
      * right granularity for deciding how much of a morning to spend on an area. Engaged
      * means a shown paper later earned a positive signal; ignored means it did not.
+     *
+     * Each paper contributes by the day it was last shown, discounted by
+     * [TopicBandit.recency]. Counting every day equally made abandoned topics permanent:
+     * a field the reader has left is buried under its own ignores, and coming back to it
+     * could not dig it out, because the arithmetic could not tell "no longer interested"
+     * from "was not interested last spring".
+     *
+     * Grouped per paper rather than per row, so a paper resurfaced three times is one
+     * observation dated by its most recent showing, not three.
      */
-    fun topicHistory(): Map<String, Pair<Int, Int>> =
+    fun topicHistory(today: LocalDate = LocalDate.now()): Map<String, Pair<Float, Float>> =
         readableDatabase.rawQuery(
             """
             SELECT substr(p.categories, 1, CASE
                      WHEN instr(p.categories, '|') = 0 THEN length(p.categories)
                      ELSE instr(p.categories, '|') - 1 END) AS topic,
-                   COUNT(DISTINCT s.paper_id) AS shown,
-                   COUNT(DISTINCT CASE WHEN g.signal IN
+                   MAX(s.day) AS last_day,
+                   MAX(CASE WHEN g.signal IN
                        ('LIKED','READ_PAGES','SHARED','DOWNLOADED','SAVED','DWELLED')
-                     THEN s.paper_id END) AS engaged
+                     THEN 1 ELSE 0 END) AS engaged
             FROM shown s
             JOIN papers p ON p.id = s.paper_id
             LEFT JOIN signals g ON g.paper_id = s.paper_id
-            GROUP BY topic
+            GROUP BY s.paper_id
             """.trimIndent(),
             null,
         ).use { c ->
-            buildMap {
-                while (c.moveToNext()) {
-                    val topic = c.getString(0)
-                    if (topic.isNullOrBlank()) continue
-                    val shown = c.getInt(1)
-                    val engaged = c.getInt(2)
-                    put(topic, engaged to (shown - engaged).coerceAtLeast(0))
-                }
+            val engaged = HashMap<String, Float>()
+            val ignored = HashMap<String, Float>()
+            while (c.moveToNext()) {
+                val topic = c.getString(0)
+                if (topic.isNullOrBlank()) continue
+                // A day that will not parse is treated as today rather than dropped: a bad
+                // row should not silently remove a topic's whole history from the bandit.
+                val age = runCatching {
+                    ChronoUnit.DAYS.between(LocalDate.parse(c.getString(1)), today)
+                }.getOrDefault(0L).coerceAtLeast(0L)
+                val w = TopicBandit.recency(age.toFloat())
+                val bucket = if (c.getInt(2) == 1) engaged else ignored
+                bucket[topic] = (bucket[topic] ?: 0f) + w
+            }
+            (engaged.keys + ignored.keys).associateWith {
+                (engaged[it] ?: 0f) to (ignored[it] ?: 0f)
             }
         }
 
@@ -505,5 +527,69 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 5)
                 )
             )
         }
+    }
+
+    /**
+     * Remembers what the field was reading, so Popular survives a restart.
+     *
+     * Upvote counts used to live only in memory. Open the app on a Sunday, or any time no
+     * fetch was due, and Popular quietly fell back to venue matches alone: a tab whose whole
+     * job is "what is everyone reading" showing a list assembled from something else, with
+     * nothing on screen to say so.
+     *
+     * Cheap to keep. A hundred rows of an id and an integer, replaced wholesale each fetch,
+     * against a network call that is allowed to fail and often should be skipped.
+     */
+    fun saveAttention(upvotes: Map<String, Int>, now: Long = System.currentTimeMillis()) {
+        if (upvotes.isEmpty()) return
+        writableDatabase.let { db ->
+            db.beginTransaction()
+            try {
+                for ((id, n) in upvotes) {
+                    db.insertWithOnConflict("attention", null, ContentValues().apply {
+                        put("paper_id", id); put("upvotes", n); put("ts", now)
+                    }, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+                // Yesterday's list is not today's news and nothing reads it back, so it is
+                // dropped here rather than left to grow by a hundred rows a day forever.
+                db.delete(
+                    "attention", "ts < ?",
+                    arrayOf((now - RETENTION_DAYS * 24 * 60 * 60 * 1000).toString()),
+                )
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /**
+     * The stored attention counts, forgetting anything older than [days].
+     *
+     * "What is everyone reading" is a claim about now. A month-old upvote count is not a
+     * weaker version of that claim, it is a different one, and letting it rank today's
+     * Popular tab would be the same mistake as ranking by citations.
+     */
+    fun attention(days: Long = RETENTION_DAYS, now: Long = System.currentTimeMillis()): Map<String, Int> {
+        val cutoff = now - days * 24 * 60 * 60 * 1000
+        return readableDatabase.rawQuery(
+            "SELECT paper_id, upvotes FROM attention WHERE ts >= ?",
+            arrayOf(cutoff.toString()),
+        ).use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getInt(1)) }
+        }
+    }
+
+    private companion object {
+        /** How long a day's upvote counts stay useful. */
+        const val RETENTION_DAYS = 30L
+
+        const val ATTENTION_TABLE = """
+            CREATE TABLE IF NOT EXISTS attention (
+              paper_id TEXT PRIMARY KEY,
+              upvotes INTEGER NOT NULL,
+              ts INTEGER NOT NULL
+            )
+        """
     }
 }

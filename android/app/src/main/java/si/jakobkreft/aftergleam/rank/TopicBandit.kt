@@ -26,8 +26,16 @@ import kotlin.random.Random
  */
 object TopicBandit {
 
-    /** Engagements and disengagements observed for one topic. */
-    data class Arm(val topic: String, val engaged: Int, val ignored: Int)
+    /**
+     * Engagements and disengagements observed for one topic.
+     *
+     * Fractional, because evidence is time-weighted before it gets here: half an engagement
+     * is what an engagement from a month ago is worth.
+     */
+    data class Arm(val topic: String, val engaged: Float, val ignored: Float) {
+        constructor(topic: String, engaged: Int, ignored: Int) :
+            this(topic, engaged.toFloat(), ignored.toFloat())
+    }
 
     /**
      * How much evidence any one topic is allowed to accumulate.
@@ -47,12 +55,36 @@ object TopicBandit {
     private fun Arm.bounded(): Arm {
         val total = engaged + ignored
         if (total <= EVIDENCE_WINDOW) return this
-        val f = EVIDENCE_WINDOW.toFloat() / total
-        return copy(
-            engaged = (engaged * f).toInt(),
-            ignored = (ignored * f).toInt(),
-        )
+        val f = EVIDENCE_WINDOW / total
+        return copy(engaged = engaged * f, ignored = ignored * f)
     }
+
+    /**
+     * How long a day's evidence keeps half its weight.
+     *
+     * The window above bounds *certainty*, which is not the same as forgetting, and the
+     * difference is why an abandoned topic used to be unrecoverable. Ignoring a topic two
+     * hundred times last year and engaging with it twelve times this month is a six percent
+     * rate, and the bandit was right to call that poor, but it is the wrong question: the
+     * reader has changed project and only the recent part of that history describes them.
+     *
+     * A month is chosen against the app's own rhythm rather than a tuning sweep. The digest
+     * arrives daily, so thirty days is roughly one working cycle of a project: long enough
+     * that a fortnight away from a field does not erase it, short enough that a genuine
+     * change of direction is reflected in the allocation inside a few weeks rather than
+     * being outvoted by a year of history that is no longer about this reader.
+     */
+    const val HALF_LIFE_DAYS = 30f
+
+    /**
+     * What a piece of evidence from [ageDays] ago is still worth, in 0..1.
+     *
+     * Exponential rather than a cutoff window: a cliff edge would mean a topic's standing
+     * lurched on the day an old observation fell off the end, and the reader would see the
+     * digest change for no reason they did anything to cause.
+     */
+    fun recency(ageDays: Float): Float =
+        0.5f.pow((ageDays / HALF_LIFE_DAYS).coerceAtLeast(0f))
 
     /**
      * Draws a topic, in proportion to the posterior probability that it is the best one.

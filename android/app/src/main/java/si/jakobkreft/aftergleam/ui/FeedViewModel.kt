@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +15,7 @@ import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Bridge
 import si.jakobkreft.aftergleam.data.Drift
+import si.jakobkreft.aftergleam.data.Dwell
 import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
@@ -189,7 +192,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
     init {
-        if (prefs.onboarded) restore()
+        if (prefs.onboarded) {
+            // Before anything else, so a cold start with no fetch due still knows what the
+            // field was reading. Popular has nothing else to rank by.
+            _state.value = _state.value.copy(attention = db.attention())
+            restore()
+        }
     }
 
     /**
@@ -405,7 +413,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     // Enrichment only. A failure here returns an empty map and the digest
                     // is built exactly as it would have been.
                     val hot = Attention.fetch()
-                    if (hot.isNotEmpty()) _state.value = _state.value.copy(attention = hot)
+                    if (hot.isNotEmpty()) {
+                        withContext(Dispatchers.IO) { db.saveAttention(hot) }
+                        _state.value = _state.value.copy(
+                            attention = _state.value.attention + hot
+                        )
+                    }
 
                     // One extra request for the bridge slot. Without a pool from outside the
                     // user's categories there is nothing for that slot to choose from, which
@@ -803,6 +816,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun evidenceCount(): Int = db.evidence().count { it.value.label() != null }
 
+    /** Pending dwell timers, cancelled the moment their screen closes. */
+    private var dwell: Job? = null
+    private var readerDwell: Job? = null
+
     /** Records a behavioural signal. Free for the reader, and far more honest than a rating. */
     fun signal(paperId: String, signal: Signal) {
         invalidateModel()
@@ -936,6 +953,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val current = _state.value.reactions[paper.id] ?: Reaction.NONE
         if (!current.viewed) db.setReaction(paper.id, current.copy(viewed = true))
         db.addSignal(paper.id, Signal.OPENED)
+        dwell?.cancel()
+        dwell = startDwell(paper.id, Signal.DWELLED, Dwell.DETAIL_MILLIS)
         _state.value = _state.value.copy(
             detail = paper,
             reactions = db.allReactions(),
@@ -944,8 +963,31 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeDetail() {
+        dwell?.cancel()
+        dwell = null
         _state.value = _state.value.copy(detail = null)
     }
+
+    /** Records a paper being passed on to somebody, which is a strong thing to do quietly. */
+    fun share(paperId: String) {
+        db.addSignal(paperId, Signal.SHARED)
+        _state.value = _state.value.copy(evidence = db.evidence())
+    }
+
+    /**
+     * Arms a signal that only fires if the reader is still on the paper when the clock runs out.
+     *
+     * A timer rather than a stopwatch read on the way out: the way people leave a screen is by
+     * swiping home or killing the app, and a stopwatch would record nothing in exactly the
+     * cases where the reader was most absorbed. Cancelled when the screen closes, so a glance
+     * costs nothing.
+     */
+    private fun startDwell(paperId: String, signal: Signal, millis: Long): Job =
+        viewModelScope.launch {
+            delay(millis)
+            db.addSignal(paperId, signal)
+            _state.value = _state.value.copy(evidence = db.evidence())
+        }
 
     /** Opens the reader, downloading first if the file is not already cached. */
     fun openReader(paper: Paper) {
@@ -959,9 +1001,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val file = store.download(paper.id)
-                // Downloading is a real commitment, and unambiguous in anyone's private
-                // scale, which is exactly what a rating is not.
-                db.addSignal(paper.id, Signal.DOWNLOADED)
+                // The download itself is not the signal. Tapping Read is one tap, and this
+                // used to score it 0.7 whether the reader took in a word of it or reversed
+                // straight back out. The clock starts once the file is actually on screen.
+                readerDwell?.cancel()
+                readerDwell = startDwell(paper.id, Signal.DOWNLOADED, Dwell.READER_MILLIS)
                 _state.value = _state.value.copy(
                     readingFile = file,
                     evidence = db.evidence(),
@@ -975,6 +1019,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeReader() {
+        readerDwell?.cancel()
+        readerDwell = null
         _state.value = _state.value.copy(reading = null, readingFile = null, readingError = null)
     }
 

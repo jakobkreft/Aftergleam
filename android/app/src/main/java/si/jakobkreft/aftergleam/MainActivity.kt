@@ -238,6 +238,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         },
                         onRead = { vm.openReader(detail) },
                         onShare = {
+                            vm.share(detail.id)
                             // Title plus link: what a colleague actually needs, and it
                             // pastes usefully into any chat or mail client.
                             val share = Intent(Intent.ACTION_SEND).apply {

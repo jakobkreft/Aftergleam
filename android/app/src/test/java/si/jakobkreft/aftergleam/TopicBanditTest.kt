@@ -81,10 +81,6 @@ class TopicBanditTest {
         // guarantees is that certainty stays bounded, so a genuine change in the engagement
         // *rate* is believed within a handful of interactions instead of being outvoted by
         // years of accumulated history.
-        //
-        // It does not, on its own, resurrect a topic whose rate is still poor: twelve
-        // engagements against two hundred is six percent, and correctly stays rare. Weighting
-        // recent evidence above old evidence is the missing piece, and is noted in the plan.
         val other = Arm("current", engaged = 60, ignored = 20)
         val stale = Arm("old", engaged = 5, ignored = 200)
         val renewed = Arm("old", engaged = 90, ignored = 200)
@@ -92,6 +88,54 @@ class TopicBanditTest {
         val before = tally(listOf(stale, other)).getOrDefault("old", 0)
         val after = tally(listOf(renewed, other)).getOrDefault("old", 0)
         assertTrue("a changed rate must be believed, $before -> $after", after > before)
+    }
+
+    @Test
+    fun `evidence loses half its weight over the half life`() {
+        assertEquals(1f, TopicBandit.recency(0f), 1e-4f)
+        assertEquals(0.5f, TopicBandit.recency(TopicBandit.HALF_LIFE_DAYS), 1e-4f)
+        assertEquals(0.25f, TopicBandit.recency(2 * TopicBandit.HALF_LIFE_DAYS), 1e-4f)
+        // Never negative, whatever a clock change hands it.
+        assertEquals(1f, TopicBandit.recency(-5f), 1e-4f)
+    }
+
+    @Test
+    fun `a topic abandoned and taken up again comes back`() {
+        // The case the evidence window alone could not fix. Two hundred ignores from six
+        // months ago against a dozen engagements this month is a six percent rate, and on
+        // the raw counts the bandit correctly calls that poor and stops offering the topic,
+        // so the reader has no way to tell it they have changed project.
+        //
+        // Decayed, those old ignores are worth about a fiftieth each and the recent
+        // engagements almost their full value, which is the same evidence read as a
+        // description of the reader now rather than of the reader last spring.
+        val other = Arm("current", engaged = 40, ignored = 10)
+
+        val raw = Arm("returned", engaged = 12, ignored = 200)
+        val decayed = Arm(
+            "returned",
+            engaged = 12 * TopicBandit.recency(5f),
+            ignored = 200 * TopicBandit.recency(180f),
+        )
+
+        val without = tally(listOf(raw, other)).getOrDefault("returned", 0) / 4000.0
+        val with = tally(listOf(decayed, other)).getOrDefault("returned", 0) / 4000.0
+        assertTrue("stale counts should bury it, got $without", without < 0.05)
+        assertTrue("decayed counts should revive it, got $with", with > 0.25)
+    }
+
+    @Test
+    fun `decay does not resurrect a topic ignored recently`() {
+        // The other half of the bargain. If decay let *everything* back in, the bandit would
+        // just be periodic amnesia, and the reader would keep being shown the thing they
+        // have spent this month declining.
+        val counts = tally(listOf(
+            Arm("liked", engaged = 40 * TopicBandit.recency(10f),
+                ignored = 2 * TopicBandit.recency(10f)),
+            Arm("declined", engaged = 0f, ignored = 40 * TopicBandit.recency(3f)),
+        ))
+        assertTrue("a fresh, well-evidenced dislike must still be respected: $counts",
+            counts.getOrDefault("declined", 0) < 40)
     }
 
     @Test

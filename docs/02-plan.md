@@ -251,7 +251,8 @@ the digest is unusually competitive this week".
 
 ## Next, in order
 
-1. **Reading polish**: page zoom in the PDF view, and remembering the last page read.
+1. **Release engineering**: signing config from env or gradle properties, fastlane metadata,
+   and a reproducible-build check. Release builds compile; nothing has been shipped.
 2. **Catch-up mode**, still blocked on a landmark source. See M2.
 3. **Does the bridge survive contact with reality?** This was open question 4 in the original
    design and is now answerable: the slot fires, so rating the cards it produces over a few
@@ -263,6 +264,12 @@ the digest is unusually competitive this week".
 
 ## Open items
 
+- The first search of a session still pays for training if the digest has not been built yet.
+  In practice the digest builds first and the model is warm.
+- Dwell timers run while the app is in the background, so a paper opened and left on screen
+  during a phone call earns its 15 seconds. One `DWELLED` at 0.4 is cheap enough that
+  lifecycle-aware timers are not worth the machinery yet; worth revisiting if the pattern
+  shows up in real use.
 - Confidence tops out near 0.45 with three ratings. Diagnosed as honest uncertainty, not
   undertraining: the model separates cleanly at 200 epochs (0.67 vs 0.11) and more epochs make
   it slightly worse. Worth re-checking once a real user has fifty ratings rather than three.
