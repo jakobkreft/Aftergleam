@@ -113,6 +113,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private val db = Db(app)
     private val prefs = Prefs(app)
 
+    /**
+     * The trained model, kept between rebuilds.
+     *
+     * Training took the better part of the nine seconds a rebuild costs, and it depends only
+     * on the reader's signals: re-fitting it because today's papers arrived is work for
+     * nothing. The signature is the ledger, so any new reaction invalidates it at once.
+     */
+    private var cachedModel: Ranker.Model? = null
+    private var cachedSignature: String? = null
+
+    private fun modelSignature(rated: List<RatedDoc>): String =
+        rated.joinToString("|") { "${it.paperId ?: it.text.hashCode()}:${it.interest}" }
+            .hashCode().toString()
+
     private val _state = MutableStateFlow(
         FeedState(
             categories = prefs.categories,
@@ -423,6 +437,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // Reuse the model whenever the ledger is unchanged, which is every re-rank that is
+        // not preceded by a reaction.
+        val signature = modelSignature(rated)
+        val reusable = if (signature == cachedSignature) cachedModel else null
+        val model = reusable ?: Ranker(weights).train(candidates, rated, negativePool)
+        cachedModel = model
+        cachedSignature = signature
+
         val cards = Ranker(weights).digest(
             candidates = candidates,
             rated = rated,
@@ -433,6 +455,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             attention = _state.value.attention,
             evidenceCount = evidenceCount(),
             topicHistory = db.topicHistory(),
+            prebuilt = model,
         )
         db.markShown(
             cards.map { ShownItem(it.paper.id, it.slot.name, it.why(), it.relevance) },
@@ -734,6 +757,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Records a behavioural signal. Free for the reader, and far more honest than a rating. */
     fun signal(paperId: String, signal: Signal) {
+        invalidateModel()
         db.addSignal(paperId, signal)
         _state.value = _state.value.copy(
             evidence = db.evidence(),
@@ -747,7 +771,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * "More like this" and "less like this" rather than a number: a steering instruction has
      * no scale to calibrate, so it means the same thing coming from any two readers.
      */
+    /** Any new signal makes the cached model wrong, so it is dropped rather than aged. */
+    private fun invalidateModel() {
+        cachedModel = null
+        cachedSignature = null
+    }
+
     fun steer(paperId: String, liked: Boolean?) {
+        invalidateModel()
         db.removeSignal(paperId, Signal.LIKED)
         db.removeSignal(paperId, Signal.DISLIKED)
         when (liked) {

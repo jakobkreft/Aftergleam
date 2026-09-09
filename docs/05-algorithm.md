@@ -247,6 +247,32 @@ the *ratio*, so it does not on its own resurrect a topic whose engagement rate i
 poor. Weighting recent evidence above old evidence is the piece that would, and it is the
 natural next refinement.
 
+## Stage 5: not doing the work twice
+
+**Fetching now asks the schedule, not a timer.** arXiv announces once per weekday evening at
+20:00 US Eastern, Sunday through Thursday, so between announcements the same query returns the
+same papers. Pulling to refresh twice in ten minutes used to issue two identical requests.
+
+Knowing the schedule beats a fixed interval in both directions: a six-hour timer refetches
+four times a day for nothing and can still sit an hour stale straight after an announcement.
+This fetches exactly once per announcement, and over a Friday-to-Sunday weekend it makes no
+requests at all, which the tests check explicitly because that is the case a naive interval
+gets most wrong.
+
+Checked against the real clock on the device: last fetch 06:04 Eastern, last announcement
+20:00 the previous evening, so the network was correctly skipped.
+
+**The model is kept between rebuilds.** Training is most of what a rebuild costs and it
+depends only on the reader's signals, so re-fitting it because today's papers arrived is work
+for nothing. The cache is keyed on the ledger, so any new reaction drops it immediately, and
+the easy negatives are now drawn with a seed derived from the ratings: the same ledger always
+trains the same model, so caching cannot quietly change what the reader sees.
+
+**Scope, honestly.** The cache lives for the session, so it saves a re-rank or a pull to
+refresh, not an app restart. That is less of a gap than it sounds, because reopening the app
+restores the day's digest from the database and never trains at all. The nine seconds are paid
+once a day, and the unpersonalised first pass covers them.
+
 ## Making it fast
 
 The digest took 73 seconds to build, and the fix was not the algorithm.
@@ -279,8 +305,7 @@ either way, and the label says plainly what is happening rather than showing a s
 2. ~~Shrinkage.~~ Done.
 3. ~~Sampling in place of argmax.~~ Done.
 4. ~~Topic bandit.~~ Done. See below.
-5. **Fetch and training skips.** Record the newest submission seen and skip the request when
-   no announcement has happened since; cache the model against a hash of the ledger.
+5. ~~Fetch and training skips.~~ Done. See below.
 6. **Surfaces**: For you, Explore, Popular, Library.
 
 Stages 1 to 3 are worth doing together, since they change the same code path. Stage 4 is

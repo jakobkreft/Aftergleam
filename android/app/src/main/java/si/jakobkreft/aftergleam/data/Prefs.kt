@@ -94,16 +94,16 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putLong("last_fetch", v).apply()
 
     /**
-     * arXiv announces once per weekday at 20:00 US Eastern, so a second fetch on the same
-     * day returns exactly the same papers. Measured: the newest cs.CV submission stayed at
-     * 2026-09-04 across a whole day of polling. Re-ranking needs no network at all, which
-     * is why the two operations are separate.
+     * Whether arXiv has published anything since the last fetch.
+     *
+     * This asks the schedule rather than a timer. arXiv announces once per weekday evening,
+     * so between announcements the same query returns the same papers; a fixed interval both
+     * refetches for nothing several times a day and can sit stale right after an
+     * announcement. Re-ranking needs no network at all, which is why the two are separate.
      */
-    fun fetchIsStale(now: Long = System.currentTimeMillis()): Boolean =
-        now - lastFetchMillis > FETCH_INTERVAL_MS
+    fun fetchIsStale(): Boolean = Announcements.hasNewSince(lastFetchMillis)
 
     companion object {
         private const val MAX_REMEMBERED_PAGES = 100
-        const val FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
 }

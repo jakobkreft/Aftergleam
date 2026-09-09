@@ -113,6 +113,8 @@ class Ranker(private val weights: Weights = Weights()) {
         evidenceCount: Int = rated.size,
         /** Per-topic engaged/ignored counts, driving how slots are shared out. */
         topicHistory: Map<String, Pair<Int, Int>> = emptyMap(),
+        /** A model trained earlier, when the reader's signals have not changed since. */
+        prebuilt: Model? = null,
     ): List<Scored> {
         // A paper the user has already judged is finished business. Leaving rated papers
         // in the pool made them dominate the top of the list, because the model scores its
@@ -121,7 +123,7 @@ class Ranker(private val weights: Weights = Weights()) {
         val fresh = candidates.filter { it.id !in seen && it.id !in ratedIds }
         if (fresh.isEmpty()) return emptyList()
 
-        val model = train(fresh, rated, negativePool)
+        val model = prebuilt ?: train(fresh, rated, negativePool)
         val today = LocalDate.now()
 
         val hasModel = model != null
@@ -360,7 +362,14 @@ class Ranker(private val weights: Weights = Weights()) {
         return picked.values.take(size).sortedByDescending { it.score }
     }
 
-    private class Model(val vec: Tfidf, val clf: LogReg)
+    /**
+     * A fitted vectoriser and classifier.
+     *
+     * Public so it can be held between digests. Training is the expensive part of a rebuild,
+     * and it depends only on what the reader has reacted to; re-fitting it because the day's
+     * papers changed is work for nothing.
+     */
+    class Model(val vec: Tfidf, val clf: LogReg)
 
     /**
      * Trains on stars as positives and hides plus sampled random papers as negatives.
@@ -376,7 +385,14 @@ class Ranker(private val weights: Weights = Weights()) {
      *   exactly the good matches we are looking for. In practice this is older cached
      *   papers, disjoint from today's arrivals; the fallback below only matters on day one.
      */
-    private fun train(
+    /**
+     * Fits a model, or returns null when there is too little to learn from.
+     *
+     * Public so the caller can hold on to the result. The negatives are drawn with a seed
+     * derived from the ratings, so the same ledger always trains the same model and caching
+     * it cannot silently change what the reader sees.
+     */
+    fun train(
         candidates: List<Paper>,
         rated: List<RatedDoc>,
         negativePool: List<String>,
@@ -384,7 +400,9 @@ class Ranker(private val weights: Weights = Weights()) {
         if (rated.size < MIN_RATINGS) return null   // cold start: venue and recency only
 
         val pool = negativePool.ifEmpty { candidates.map { it.rankText } }
-        val easyNegatives = pool.shuffled().take(rated.size * 10)
+        val easyNegatives = pool
+            .shuffled(Random(rated.sumOf { it.text.hashCode().toLong() }))
+            .take(rated.size * 10)
         val docs = rated.map { it.text } + easyNegatives
         val vec = Tfidf().apply { fit(docs) }
         if (vec.size == 0) return null
