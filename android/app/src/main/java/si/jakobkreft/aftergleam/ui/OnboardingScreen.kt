@@ -37,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Topics
 
 /**
@@ -57,7 +56,6 @@ import si.jakobkreft.aftergleam.data.Topics
 fun OnboardingScreen(
     survey: SurveyState,
     topics: Set<String>,
-    importProgress: LibraryImport.Progress?,
     importSummary: String?,
     onTopics: (Set<String>) -> Unit,
     onStart: () -> Unit,
@@ -69,9 +67,7 @@ fun OnboardingScreen(
 ) {
     var step by rememberSaveable { mutableStateOf(0) }
     when {
-        !survey.started && step == 0 -> Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)
-        ) { Intro({ step = 1 }, onImport, importProgress, importSummary) }
+        !survey.started && step == 0 -> Welcome(onDone = { step = 1 })
 
         !survey.started -> TopicPicker(
             selected = topics,
@@ -81,6 +77,8 @@ fun OnboardingScreen(
             onBack = { step = 0 },
             onSurvey = onStart,
             onSkip = onSkip,
+            onImport = onImport,
+            importSummary = importSummary,
         )
 
         survey.deck.isNotEmpty() -> Question(survey, onAnswer, onBack, onFinish)
@@ -93,68 +91,6 @@ fun OnboardingScreen(
         else -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)
         ) { Finished(survey, onFinish) }
-    }
-}
-
-@Composable
-private fun Intro(
-    onStart: () -> Unit,
-    onImport: () -> Unit,
-    importProgress: LibraryImport.Progress?,
-    importSummary: String?,
-) {
-    Text("Aftergleam", style = MaterialTheme.typography.headlineMedium)
-    Spacer(Modifier.height(10.dp))
-    Text(
-        "A short digest of new arXiv papers each day, ranked by what you actually read.",
-        style = MaterialTheme.typography.bodyLarge,
-    )
-    Spacer(Modifier.height(16.dp))
-    Text(
-        "First pick the subjects you work in. Then, if you like, judge a few real papers " +
-            "from those subjects, which sharpens the ranking considerably. About a minute " +
-            "in total.",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    Spacer(Modifier.height(12.dp))
-    Text(
-        "Nothing you read leaves the device. There is no account and no server. Every " +
-            "answer here is visible and changeable later.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    Spacer(Modifier.height(24.dp))
-    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-        Text("Choose my subjects")
-    }
-    Spacer(Modifier.height(12.dp))
-
-    if (importProgress != null) {
-        Text(
-            "Reading your library: ${importProgress.done} of ${importProgress.total}, " +
-                "matched ${importProgress.matched}",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = {
-                if (importProgress.total == 0) 0f
-                else importProgress.done.toFloat() / importProgress.total
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else {
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-            Text("I have a BibTeX library")
-        }
-        Text(
-            "Faster and more accurate than the survey, if you have a Zotero export handy.",
-            style = MaterialTheme.typography.labelSmall,
-        )
-    }
-    importSummary?.let {
-        Spacer(Modifier.height(6.dp))
-        Text(it, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -172,6 +108,8 @@ private fun TopicPicker(
     onBack: () -> Unit,
     onSurvey: () -> Unit,
     onSkip: () -> Unit,
+    onImport: () -> Unit,
+    importSummary: String?,
 ) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -208,6 +146,19 @@ private fun TopicPicker(
                 Text("Skip the papers, these subjects are enough")
             }
         }
+
+        // Importing a library is the same question as the survey, asked a faster way: both
+        // are ways of telling the app what you read. It belongs beside them rather than on
+        // a welcome screen, where it was a technical aside in the middle of a promise.
+        // Choosing a file hands the whole screen to ImportScreen until it is finished.
+        TextButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+            Text("Or import a BibTeX library")
+        }
+        importSummary?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -323,12 +274,19 @@ private fun Finished(survey: SurveyState, onFinish: () -> Unit) {
     Text("Ready", style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(8.dp))
     Text(
-        if (survey.enough)
-            "You kept ${survey.liked.size} of ${survey.seen}. That is enough to rank your " +
-                "first digest, and it sharpens every time you rate something."
-        else
-            "You kept ${survey.liked.size} of ${survey.seen}. That is a thin start, so the " +
-                "first digest leans on recency and venue until you have rated a few more.",
+        buildString {
+            append("You kept ${survey.liked.size} of ${survey.seen}")
+            if (survey.seeded > 0) append(", and your library added ${survey.seeded}")
+            append(". ")
+            append(
+                if (survey.enough)
+                    "That is enough to rank your first digest, and it sharpens every time " +
+                        "you rate something."
+                else
+                    "That is a thin start, so the first digest leans on recency and venue " +
+                        "until you have rated a few more."
+            )
+        },
         style = MaterialTheme.typography.bodyMedium,
     )
     Spacer(Modifier.height(20.dp))

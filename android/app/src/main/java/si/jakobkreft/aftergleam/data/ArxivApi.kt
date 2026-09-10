@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.data
 
 import android.util.Xml
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
@@ -43,20 +44,8 @@ object ArxivApi {
         for (chunk in clean.chunked(100)) {
             val url = "$ENDPOINT?id_list=${chunk.joinToString(",")}&max_results=${chunk.size}"
             out += parse(get(url))
-            if (chunk !== clean.takeLast(chunk.size)) Thread.sleep(SLEEP_MS)
         }
         return out
-    }
-
-    /**
-     * A few recent papers matching a phrase within one category, for the onboarding survey.
-     *
-     * Sorted by relevance rather than date: the survey wants representative papers for the
-     * topic, and the newest submissions on any given morning are a poor sample of a field.
-     */
-    suspend fun probe(category: String, phrase: String, max: Int = 4): List<Paper> {
-        val q = java.net.URLEncoder.encode("cat:$category AND all:$phrase", "UTF-8")
-        return parse(get("$ENDPOINT?search_query=$q&max_results=$max"))
     }
 
     /**
@@ -85,7 +74,12 @@ object ArxivApi {
         return parse(get("$ENDPOINT?search_query=$encoded&max_results=$max"))
     }
 
-    private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+    /** Every request in the app goes through one gate. See [RateLimiter]. */
+    private val limiter = RateLimiter(SLEEP_MS)
+
+    private suspend fun get(url: String): String = limiter.paced { fetch(url) }
+
+    private suspend fun fetch(url: String): String = withContext(Dispatchers.IO) {
         var attempt = 0
         var lastError: Exception? = null
         while (attempt < 3) {
@@ -107,7 +101,7 @@ object ArxivApi {
                 lastError = e
             }
             attempt++
-            if (attempt < 3) Thread.sleep(3_000L * attempt)
+            if (attempt < 3) delay(3_000L * attempt)
         }
         throw FetchError("arXiv fetch failed after 3 attempts", lastError)
     }

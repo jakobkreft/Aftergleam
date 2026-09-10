@@ -3,6 +3,10 @@ package si.jakobkreft.aftergleam.work
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import androidx.core.content.ContextCompat
+import android.os.Build
+import android.content.pm.PackageManager
+import android.Manifest
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
@@ -110,7 +114,14 @@ class DailyDigestWorker(
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        runCatching { NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, n) }
+        // From Android 13 posting is a permission, and posting without it throws. The
+        // throw was being swallowed, which worked but read as if somebody saying no were an
+        // unexpected failure. Asking first says which it is.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, n)
     }
 
     companion object {

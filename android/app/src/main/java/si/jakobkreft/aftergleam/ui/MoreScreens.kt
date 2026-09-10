@@ -81,7 +81,6 @@ fun TuneScreen(
     topics: Set<String>,
     ratedCount: Int,
     judgedCount: Int,
-    importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
     onDigestSize: (Int) -> Unit,
     onQuality: (Float) -> Unit,
@@ -138,7 +137,7 @@ fun TuneScreen(
                 onNotifyEnabled, onReminder,
             )
             Page.LIBRARY -> LibraryPage(
-                importProgress, importSummary, backupSummary,
+                importSummary, backupSummary,
                 onPickLibrary, onExport, onRestore,
             )
             Page.MODEL -> ModelPage(ratedCount, judgedCount, onReset)
@@ -417,7 +416,6 @@ private fun NotificationsPage(
 
 @Composable
 private fun LibraryPage(
-    importProgress: si.jakobkreft.aftergleam.data.LibraryImport.Progress?,
     importSummary: String?,
     backupSummary: String?,
     onPickLibrary: () -> Unit,
@@ -433,24 +431,7 @@ private fun LibraryPage(
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(8.dp))
-    if (importProgress != null) {
-        Text(
-            "Resolving ${importProgress.done} of ${importProgress.total}, matched " +
-                "${importProgress.matched}. arXiv allows one request every three seconds, " +
-                "so this takes a while.",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = {
-                if (importProgress.total == 0) 0f
-                else importProgress.done.toFloat() / importProgress.total
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else {
-        Button(onClick = onPickLibrary) { Text("Choose a .bib or .ris file") }
-    }
+    Button(onClick = onPickLibrary) { Text("Choose a .bib or .ris file") }
     importSummary?.let {
         Spacer(Modifier.height(6.dp))
         Text(it, style = MaterialTheme.typography.labelSmall,

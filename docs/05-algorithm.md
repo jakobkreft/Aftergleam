@@ -874,3 +874,48 @@ The share sheet's text was written inline at the detail screen's call site, and 
 function: a share that said something different depending on which screen you started from
 would be a small mystery nobody needs.
 
+## The survey was asking thirteen times for one request's worth of papers
+
+**It was not fetching per answer**, which was the suspicion, but the effect was worse than
+that. It asked arXiv for one paper per topic, twelve separate times, three seconds apart,
+because the published rate limit is one request every three seconds. Thirty-six seconds of
+asking to obtain twelve papers, and the deck therefore filled more slowly than anybody
+answers: a reader who was quick ran out of cards and waited for the next one to arrive.
+
+The papers were already available, and the guess about the digest was exactly right.
+`recent` returns three hundred across every subscribed category in **one request** — the same
+pull the digest makes a moment later. Measured against arXiv directly, that request is 727 KB
+and 1.3 seconds. The survey now draws its deck from it, bucketed by topic and taken
+round-robin so the questions still alternate subject.
+
+**One request per server replaces thirteen**, and the same download then serves the digest,
+Explore and Popular without being asked for twice. The keyword-probe endpoint and the search
+phrase each probe carried are gone, along with the code that stitched two passes together.
+
+**Fetching while the reader chooses.** Picking subjects takes ten or twenty seconds of
+expanding fields and reading names, and the app spent every one of them idle before making
+the reader wait for a fetch it could have finished already. The feed is now pulled as soon as
+the selection holds still for a second, debounced so that ticking four subjects makes one
+request rather than four. The survey joins that job rather than starting its own, and asks
+only for subjects it did not cover.
+
+Measured end to end on a wiped install: first question 2.3 seconds after asking for papers,
+the full deck of twelve available at once with no stalling across eleven rapid answers, and
+finishing the survey performs **no network request at all** — `last_fetch` does not move,
+because the papers arrived while the reader was still choosing.
+
+## Onboarding as three promises
+
+The first screen was a wall: what the app is, what the survey will ask, how long it takes, a
+privacy note and a BibTeX importer, all before anything had been shown.
+
+It is three swipeable pages now, one sentence each, saying the three things that are actually
+unusual about this app: the ranking is a model that lives on the phone, nothing about the
+reading goes anywhere, and papers can be read and kept rather than thrown at a browser.
+Skippable from the first frame. It is deliberately not a feature tour — somebody still
+deciding whether to spend a minute on the survey needs three reasons, not thirty.
+
+The importer moved to the subject screen, which is where it belongs: importing a library and
+answering the survey are the same question asked two ways, and it was a technical aside in
+the middle of a promise.
+

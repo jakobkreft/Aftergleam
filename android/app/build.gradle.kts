@@ -50,6 +50,8 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // A virtual clock, so pacing can be tested without waiting three real seconds a few times.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     // Robolectric for anything touching framework classes. Plain android.jar stubs return
     // nulls or throw "not mocked", so org.json and SQLite cannot be tested without it.
     testImplementation("org.robolectric:robolectric:4.16.1")

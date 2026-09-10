@@ -79,6 +79,16 @@ data class FeedState(
     val modelActive: Boolean = false,
     val importProgress: LibraryImport.Progress? = null,
     val importSummary: String? = null,
+    /**
+     * Set from the moment a file is chosen until the reader dismisses the outcome.
+     *
+     * The import owns the whole screen for that whole time. It is a single flag rather than
+     * "progress is not null" because there is a gap at each end, opening the file and
+     * reading the result, where there is no progress to report and leaving the screen would
+     * still lose the work.
+     */
+    val importing: Boolean = false,
+    val importResult: LibraryImport.Result? = null,
     val saved: List<Paper> = emptyList(),
     val downloaded: List<Paper> = emptyList(),
     /** Bytes each downloaded paper occupies, so the reader can see what to reclaim. */
@@ -191,6 +201,14 @@ data class SurveyState(
     val failed: Boolean = false,
     /** Answered cards, newest last, so a mis-tap can be taken back. */
     val history: List<Pair<Taste.Probe, Paper>> = emptyList(),
+    /**
+     * Papers an imported library already contributed, which count towards [enough].
+     *
+     * Somebody who imports two hundred read papers has told the ranker far more than twelve
+     * survey taps could, and being asked to keep three of them anyway, then told it was a
+     * thin start, is the app failing to notice what it was just handed.
+     */
+    val seeded: Int = 0,
 ) {
     val canGoBack: Boolean get() = history.isNotEmpty()
     val started: Boolean get() = expected > 0
@@ -199,7 +217,7 @@ data class SurveyState(
     /** Answered everything fetched so far, but more is on the way. */
     val waiting: Boolean get() = deck.isEmpty() && loading
     /** Three liked papers is where ranking switches on, so that is the honest target. */
-    val enough: Boolean get() = liked.size >= 3
+    val enough: Boolean get() = liked.size + seeded >= Ranker.MIN_RATINGS
 }
 
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
@@ -207,6 +225,17 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         /** How many more papers an "explore" page adds. */
         const val EXPLORE_PAGE = 30
+
+        /**
+         * How many papers the survey asks about.
+         *
+         * Enough to place somebody in their field, few enough to stay under a minute. The
+         * reader can stop at any point and the answers so far still count.
+         */
+        const val SURVEY_CARDS = 12
+
+        /** How long a subject selection must hold still before it is worth fetching. */
+        const val SELECTION_SETTLE_MS = 1_200L
 
         /** The catch-up is a digest, not an inbox: a morning's reading, not a backlog. */
         const val CATCH_UP_SIZE = 25
@@ -378,6 +407,24 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * so anyone outside that field was asked to judge a dozen papers they had no reason to
      * care about.
      */
+    /**
+     * Fills the survey from the reader's own feed, in one request per server.
+     *
+     * This used to ask arXiv for one paper per topic, twelve times, three seconds apart,
+     * because the published rate limit is one request every three seconds. Thirty-six
+     * seconds of asking to obtain twelve papers, and the deck filled more slowly than
+     * anybody answers, so a reader who was quick simply ran out of cards and waited.
+     *
+     * The papers were already available. `recent` returns three hundred across every
+     * subscribed category in a single request, which is exactly the pull the digest makes
+     * a moment later, so the survey now draws from that and the whole deck exists at once.
+     * One request replaces thirteen, and the same download then serves the digest, Explore
+     * and Popular without being asked for twice.
+     *
+     * The deck is refilled as each server lands rather than at the end: arXiv answers in a
+     * second or two and bioRxiv takes ten, and there is no reason to look at a spinner for
+     * the second while the first is already on the device.
+     */
     fun startSurvey() {
         val sv = _state.value.survey
         if (sv.started || sv.loading) return
@@ -385,80 +432,78 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val probes = Taste.probesFor(prefs.seedTopics)
         if (probes.isEmpty()) return
         _state.value = _state.value.copy(
-            survey = SurveyState(loading = true, expected = probes.size * 2)
+            survey = SurveyState(
+                loading = true,
+                expected = SURVEY_CARDS,
+                // Carried across the reset: the library was imported before this point.
+                seeded = _state.value.survey.seeded,
+            )
         )
 
         viewModelScope.launch {
-            var any = false
-            // One probe per topic, three seconds apart, which is what puts the first
-            // question on screen in about six.
-            for (probe in probes) {
-                // bioRxiv has no keyword-plus-subject search, so a probe there is simply
-                // the subject's recent papers. Either way the survey shows real current
-                // work rather than a frozen list that ages badly.
-                val fetched = runCatching {
-                    if (probe.source == Source.ARXIV) {
-                        ArxivApi.probe(probe.category, probe.phrase, max = 1)
-                    } else {
-                        BioRxivApi.recent(
-                            server = probe.source,
-                            subjects = setOf(probe.category),
-                            days = 4,
-                            maxPages = 4,
-                        )
-                    }
-                }.getOrDefault(emptyList())
-
-                if (addToDeck(probe, fetched)) any = true
-                // The published rate limit is one request every three seconds.
-                delay(ArxivApi.SLEEP_MS)
-
-                // Stop early once onboarding is over, so the loader does not keep fetching
-                // into a screen nobody is looking at.
-                if (_state.value.onboarded) return@launch
-            }
-
-            // The reader is now several questions into the survey and the network is free.
-            // Fetching their actual feed here costs them nothing: it happens while they are
-            // reading, in time that was going to be spent anyway, and by the time they
-            // finish the digest is a re-rank rather than a wait on three servers.
-            //
-            // It also replaces the survey's second pass. That pass was another twelve
-            // requests and thirty-six seconds of rate limit to fetch, one at a time, papers
-            // that this single pull already brought back.
             val seeded = Topics.categoriesFor(prefs.seedTopics)
-            if (seeded.isNotEmpty()) {
-                runCatching { fetchInto(seeded) }
-                prefetched = seeded
+            if (seeded.isEmpty()) return@launch
+
+            // Whatever the warm-up already brought in, before waiting on anything.
+            fillDeck(probes)
+            // It is usually still running or just finished; either way it is fetching the
+            // same subjects, so join it rather than asking for them a second time.
+            feedWarmUp?.join()
+            fillDeck(probes)
+
+            val missing = seeded - prefs.fetchedCategories
+            if (missing.isNotEmpty()) {
+                runCatching { fetchInto(missing, onStored = { fillDeck(probes) }) }
             }
+            prefetched = seeded
             if (_state.value.onboarded) return@launch
 
-            // Top up the deck from what arrived, with no further requests.
-            for (probe in probes) {
-                if (_state.value.onboarded) return@launch
-                val pool = withContext(Dispatchers.IO) {
-                    db.papersInCategory(Source.qualify(probe.source, probe.category), limit = 40)
-                }
-                if (addToDeck(probe, pool)) any = true
-            }
-
+            fillDeck(probes)
             val cur = _state.value.survey
             _state.value = _state.value.copy(
-                survey = cur.copy(loading = false, failed = !any)
+                survey = cur.copy(loading = false, failed = cur.deck.isEmpty())
             )
         }
     }
 
-    /** Adds the first paper not already in the deck. Returns whether one was added. */
-    private suspend fun addToDeck(probe: Taste.Probe, candidates: List<Paper>): Boolean {
-        val alreadyHave = _state.value.survey.let { st ->
-            (st.deck.map { it.second.id } + st.liked.map { it.second.id }).toSet()
+    /**
+     * Draws a deck from what is stored, one paper per topic in turn.
+     *
+     * Round-robin rather than in order, so the questions alternate subject from the first
+     * card. A reader who chose four subjects and is shown four papers from the busiest one
+     * learns nothing about the other three, and neither does the model.
+     */
+    private suspend fun fillDeck(probes: List<Taste.Probe>) {
+        val current = _state.value.survey
+        if (current.deck.size >= SURVEY_CARDS) return
+
+        val pools = withContext(Dispatchers.IO) {
+            probes.map { probe ->
+                probe to db.papersInCategory(
+                    Source.qualify(probe.source, probe.category),
+                    limit = SURVEY_CARDS,
+                )
+            }
         }
-        val fresh = candidates.firstOrNull { it.id !in alreadyHave } ?: return false
-        withContext(Dispatchers.IO) { db.upsertPapers(listOf(fresh)) }
-        val cur = _state.value.survey
-        _state.value = _state.value.copy(survey = cur.copy(deck = cur.deck + (probe to fresh)))
-        return true
+
+        val seen = (current.deck.map { it.second.id } + current.liked.map { it.second.id })
+            .toMutableSet()
+        val deck = current.deck.toMutableList()
+        var depth = 0
+        while (deck.size < SURVEY_CARDS && pools.any { depth < it.second.size }) {
+            for ((probe, pool) in pools) {
+                if (deck.size >= SURVEY_CARDS) break
+                val paper = pool.getOrNull(depth) ?: continue
+                if (!seen.add(paper.id)) continue
+                deck += probe to paper
+            }
+            depth++
+        }
+        if (deck.size != current.deck.size) {
+            _state.value = _state.value.copy(
+                survey = _state.value.survey.copy(deck = deck)
+            )
+        }
     }
 
     /** Categories already pulled by the onboarding prefetch, so finishing does not repeat them. */
@@ -518,6 +563,36 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val cats = Topics.categoriesFor(keys)
         if (cats.isNotEmpty()) prefs.categories = cats
         _state.value = _state.value.copy(categories = cats, topics = keys)
+        if (!prefs.onboarded) warmFeed(cats)
+    }
+
+    /** Cancelled and restarted as the selection changes, so only the final choice is fetched. */
+    private var feedWarmUp: Job? = null
+
+    /** Written from the main thread, read from the import's IO loop. */
+    @Volatile
+    private var stopImportRequested = false
+
+    /**
+     * Starts pulling the feed while the reader is still choosing what to follow.
+     *
+     * Picking subjects takes ten or twenty seconds of expanding fields and reading names,
+     * and until now the app spent every one of them idle and then made the reader wait for
+     * a fetch it could have finished already. The survey draws from this, so by the time
+     * they ask for papers the papers are usually here.
+     *
+     * Debounced rather than fired on each tap: somebody ticking four subjects in quick
+     * succession should produce one request for four subjects, not four requests. Fetching
+     * a subject that is then unticked is no loss, since the papers are stored either way
+     * and cost nothing until a digest asks for them.
+     */
+    private fun warmFeed(categories: Set<String>) {
+        feedWarmUp?.cancel()
+        if (categories.isEmpty()) return
+        feedWarmUp = viewModelScope.launch {
+            delay(SELECTION_SETTLE_MS)
+            runCatching { fetchInto(categories) }
+        }
     }
 
     /** Finishes onboarding using what the survey learned. */
@@ -611,13 +686,28 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun fetchInto(
         subscribed: Set<String>,
         label: ((String) -> Unit)? = null,
+        /**
+         * Called after each server's papers are stored, before the next is asked.
+         *
+         * Lets a caller use what has arrived rather than waiting for the slowest server.
+         * arXiv answers one request in a second or two; bioRxiv pages and takes ten. A
+         * reader who follows both should be looking at arXiv papers during those ten.
+         */
+        onStored: (suspend () -> Unit)? = null,
     ): Int {
-        val papers = mutableListOf<Paper>()
+        var total = 0
+
+        suspend fun store(papers: List<Paper>) {
+            if (papers.isEmpty()) return
+            total += papers.size
+            withContext(Dispatchers.IO) { db.upsertPapers(papers) }
+            onStored?.invoke()
+        }
+
         val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
         if (arxivCats.isNotEmpty()) {
             label?.invoke("Fetching from arXiv")
-            papers += runCatching { ArxivApi.recent(arxivCats, max = 300) }
-                .getOrDefault(emptyList())
+            store(runCatching { ArxivApi.recent(arxivCats, max = 300) }.getOrDefault(emptyList()))
         }
         // Each server is optional and independent: somebody who only reads biology never
         // waits on arXiv, and a server being down costs that server's papers rather than
@@ -626,15 +716,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             val subjects = Topics.categoriesOf(server, subscribed)
             if (subjects.isEmpty()) continue
             label?.invoke("Fetching from ${Source.label(server)}")
-            papers += runCatching { BioRxivApi.recent(server, subjects) }
-                .getOrDefault(emptyList())
-        }
-        if (papers.isNotEmpty()) {
-            withContext(Dispatchers.IO) { db.upsertPapers(papers) }
+            store(runCatching { BioRxivApi.recent(server, subjects) }.getOrDefault(emptyList()))
         }
         prefs.lastFetchMillis = System.currentTimeMillis()
         prefs.fetchedCategories = prefs.fetchedCategories + subscribed
-        return papers.size
+        return total
     }
 
     private fun sync(force: Boolean, networkAllowed: Boolean = true) {
@@ -672,9 +758,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 if (shouldFetch) {
-                    val n = fetchInto(toFetch) { msg ->
-                        _state.value = _state.value.copy(loadingLabel = msg)
-                    }
+                    val n = fetchInto(
+                        subscribed = toFetch,
+                        label = { msg -> _state.value = _state.value.copy(loadingLabel = msg) },
+                    )
                     _state.value = _state.value.copy(
                         loadingLabel = "Got $n papers, checking what is popular"
                     )
@@ -872,10 +959,16 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * the ranker nothing at all.
      */
     fun importLibrary(text: String) {
+        if (_state.value.importing) return
+        stopImportRequested = false
         viewModelScope.launch {
-            _state.value = _state.value.copy(importSummary = null)
+            _state.value = _state.value.copy(
+                importSummary = null,
+                importResult = null,
+                importing = true,
+            )
             try {
-                val result = LibraryImport.run(text) { p ->
+                val result = LibraryImport.run(text, shouldStop = { stopImportRequested }) { p ->
                     _state.value = _state.value.copy(importProgress = p)
                 }
                 withContext(Dispatchers.IO) {
@@ -885,15 +978,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val reactions = db.allReactions()
                 _state.value = _state.value.copy(
                     importProgress = null,
+                    importResult = result,
+                    survey = _state.value.survey.copy(
+                        seeded = _state.value.survey.seeded + result.papers.size,
+                    ),
                     reactions = reactions,
                     evidence = db.evidence(),
                     ratedCount = evidenceCount(),
                     judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     importSummary = buildString {
-                        append("Matched ${result.papers.size} of ${result.total}.")
+                        append("Matched ${result.papers.size} of ${result.total}")
                         if (result.unmatched > 0) {
-                            append(" ${result.unmatched} had no arXiv record")
+                            append(", ${result.unmatched} had no arXiv record")
                         }
                         if (result.failed > 0) append(", ${result.failed} could not be checked")
                         append(".")
@@ -903,10 +1000,29 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     importProgress = null,
+                    // A failure still ends on the import screen, with a Continue button, so
+                    // it is read rather than glimpsed on the way past.
+                    importResult = LibraryImport.Result(emptyList(), 0, 0, 0),
                     importSummary = "Import failed: ${e.message}",
                 )
             }
         }
+    }
+
+    /**
+     * Asks the import to stop at the next entry.
+     *
+     * Not [kotlinx.coroutines.Job.cancel]: cancelling in the middle throws away every match
+     * found so far, and the reader stopping a ten minute job wants out of the waiting, not
+     * out of the results. The loop reads this between requests and returns what it has.
+     */
+    fun stopImport() {
+        stopImportRequested = true
+    }
+
+    /** Leaves the import screen once the reader has read the outcome. */
+    fun dismissImport() {
+        _state.value = _state.value.copy(importing = false, importResult = null)
     }
 
     /** The three library shelves, read together off the main thread. */

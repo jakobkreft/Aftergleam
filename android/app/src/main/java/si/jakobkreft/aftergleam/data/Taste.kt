@@ -22,10 +22,16 @@ object Taste {
      * Broad probes across the archive. Each is a category plus a search phrase, so the
      * survey draws real current papers rather than shipping a frozen list that ages badly.
      */
+    /**
+     * One survey question's subject: a topic's name, and where to find papers for it.
+     *
+     * It used to carry a search phrase as well, because each question was its own keyword
+     * request to arXiv. The deck is drawn from the feed the app fetches anyway now, so what
+     * is left is the label to show and the category to draw from.
+     */
     data class Probe(
         val label: String,
         val category: String,
-        val phrase: String,
         val source: String = Source.ARXIV,
     )
 
@@ -40,9 +46,7 @@ object Taste {
         if (chosen.isEmpty()) return PROBES.take(cap)
         // Round-robin over topics so the questions alternate subject from the start.
         val perTopic = chosen.map { t ->
-            t.categories.map { cat ->
-                Probe(t.label, cat, t.seed.split(" ").take(4).joinToString(" "), t.source)
-            }
+            t.categories.map { cat -> Probe(t.label, cat, t.source) }
         }
         val out = mutableListOf<Probe>()
         var i = 0
@@ -57,18 +61,18 @@ object Taste {
 
     /** Fallback set, used only if somebody reaches the survey having chosen nothing. */
     val PROBES: List<Probe> = listOf(
-        Probe("Language models", "cs.CL", "large language model reasoning"),
-        Probe("Image generation", "cs.CV", "diffusion model image generation"),
-        Probe("Vision and perception", "cs.CV", "object detection segmentation"),
-        Probe("Learning theory", "cs.LG", "generalisation bounds optimisation"),
-        Probe("Robotics and control", "cs.RO", "manipulation policy learning"),
-        Probe("Speech and audio", "eess.AS", "speech recognition synthesis"),
-        Probe("Security and privacy", "cs.CR", "privacy attack defence"),
-        Probe("Systems and efficiency", "cs.DC", "efficient inference serving"),
-        Probe("Graphs and networks", "cs.SI", "graph neural network"),
-        Probe("Neuroscience", "q-bio.NC", "neural coding brain"),
-        Probe("Statistics", "stat.ME", "bayesian inference estimation"),
-        Probe("Astronomy and physics", "astro-ph.IM", "survey data analysis pipeline"),
+        Probe("Language models", "cs.CL"),
+        Probe("Image generation", "cs.CV"),
+        Probe("Vision and perception", "cs.CV"),
+        Probe("Learning theory", "cs.LG"),
+        Probe("Robotics and control", "cs.RO"),
+        Probe("Speech and audio", "eess.AS"),
+        Probe("Security and privacy", "cs.CR"),
+        Probe("Systems and efficiency", "cs.DC"),
+        Probe("Graphs and networks", "cs.SI"),
+        Probe("Neuroscience", "q-bio.NC"),
+        Probe("Statistics", "stat.ME"),
+        Probe("Astronomy and physics", "astro-ph.IM"),
     )
 
     /**

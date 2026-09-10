@@ -49,6 +49,7 @@ import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.PastScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
 import si.jakobkreft.aftergleam.ui.FeedViewModel
+import si.jakobkreft.aftergleam.ui.ImportScreen
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
 import si.jakobkreft.aftergleam.ui.PdfReaderScreen
 import si.jakobkreft.aftergleam.ui.LibraryScreen
@@ -193,22 +194,45 @@ private fun App(vm: FeedViewModel = viewModel()) {
         paperSerif = state.paperSerif,
         interfaceSerif = state.interfaceSerif,
     ) {
+        // Declared above the import's early return: anything declared after it is unmounted
+        // while the import owns the screen, and coming back from a ten minute import to a
+        // closed settings screen is its own small loss of place.
+        var showTune by rememberSaveable { mutableStateOf(false) }
+
+        // Above everything, onboarding included. An import is minutes long and every other
+        // screen in the app has a way off it, so the only way to guarantee it is not walked
+        // away from by accident is for there to be nothing else on screen to touch.
+        if (state.importing) {
+            Scaffold { inner ->
+                Box(Modifier.padding(inner)) {
+                    ImportScreen(
+                        progress = state.importProgress,
+                        result = state.importResult,
+                        onStop = vm::stopImport,
+                        onDone = vm::dismissImport,
+                    )
+                }
+            }
+            return@AftergleamTheme
+        }
+
         if (!state.onboarded) {
             Scaffold { inner ->
                 Box(Modifier.padding(inner)) {
-                    OnboardingScreen(
-                        survey = state.survey,
-                        topics = state.topics,
-                        importProgress = state.importProgress,
-                        importSummary = state.importSummary,
-                        onTopics = vm::setTopics,
-                        onStart = vm::startSurvey,
-                        onAnswer = vm::answerSurvey,
-                        onBack = vm::undoSurveyAnswer,
-                        onFinish = vm::finishSurvey,
-                        onImport = { pickLibrary.launch(arrayOf("*/*")) },
-                        onSkip = vm::finishOnboarding,
-                    )
+                    screenState.SaveableStateProvider("onboarding") {
+                        OnboardingScreen(
+                            survey = state.survey,
+                            topics = state.topics,
+                            importSummary = state.importSummary,
+                            onTopics = vm::setTopics,
+                            onStart = vm::startSurvey,
+                            onAnswer = vm::answerSurvey,
+                            onBack = vm::undoSurveyAnswer,
+                            onFinish = vm::finishSurvey,
+                            onImport = { pickLibrary.launch(arrayOf("*/*")) },
+                            onSkip = vm::finishOnboarding,
+                        )
+                    }
                 }
             }
             return@AftergleamTheme
@@ -371,7 +395,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return@AftergleamTheme
         }
 
-        var showTune by rememberSaveable { mutableStateOf(false) }
         if (showTune) {
             BackHandler { showTune = false }
             Scaffold { inner ->
@@ -396,7 +419,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             topics = state.topics,
                             ratedCount = state.ratedCount,
                             judgedCount = state.judgedCount,
-                            importProgress = state.importProgress,
                             importSummary = state.importSummary,
                             onDigestSize = vm::setDigestSize,
                             onQuality = vm::setQualityWeight,
