@@ -17,7 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -29,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +92,7 @@ fun PaperCard(
             Text(
                 paper.displayTitle,
                 style = MaterialTheme.typography.titleMedium,
+                fontFamily = LocalPaperFont.current,
                 fontWeight = if (viewed) FontWeight.Normal else FontWeight.SemiBold,
                 color = if (viewed) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
@@ -101,6 +103,7 @@ fun PaperCard(
             Text(
                 paper.displayAbstract,
                 style = MaterialTheme.typography.bodySmall,
+                fontFamily = LocalPaperFont.current,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -140,9 +143,11 @@ fun PaperCard(
                 CardAction(Icons.Filled.Favorite, liked == true, "More like this") {
                     onSteer(if (liked == true) null else true)
                 }
-                CardAction(Icons.Filled.Star, saved, if (saved) "Saved" else "Save for later") {
-                    onSave()
-                }
+                CardAction(
+                    painterResource(si.jakobkreft.aftergleam.R.drawable.ic_bookmark),
+                    saved,
+                    if (saved) "Saved" else "Save for later",
+                ) { onSave() }
             }
         }
     }
@@ -171,6 +176,38 @@ private fun CardAction(
     active: Boolean,
     description: String,
     onClick: () -> Unit,
+) = CardActionBox(active, onClick) {
+    Icon(
+        icon,
+        contentDescription = description,
+        tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.outline,
+        modifier = Modifier.size(20.dp),
+    )
+}
+
+/** The same, for an icon that had to be drawn rather than imported. */
+@Composable
+private fun CardAction(
+    icon: Painter,
+    active: Boolean,
+    description: String,
+    onClick: () -> Unit,
+) = CardActionBox(active, onClick) {
+    Icon(
+        icon,
+        contentDescription = description,
+        tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.outline,
+        modifier = Modifier.size(20.dp),
+    )
+}
+
+@Composable
+private fun CardActionBox(
+    active: Boolean,
+    onClick: () -> Unit = {},
+    icon: @Composable () -> Unit,
 ) {
     Box(
         Modifier
@@ -181,14 +218,6 @@ private fun CardAction(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
-            Icon(
-                icon,
-                contentDescription = description,
-                tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) { icon() }
     }
 }

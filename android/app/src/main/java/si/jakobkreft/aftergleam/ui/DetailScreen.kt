@@ -93,6 +93,7 @@ fun DetailScreen(
             Text(
                 paper.displayTitle,
                 style = MaterialTheme.typography.titleLarge,
+                fontFamily = LocalPaperFont.current,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
@@ -127,7 +128,11 @@ fun DetailScreen(
             Spacer(Modifier.height(12.dp))
 
             // The whole abstract, not a preview. This is the point of the screen.
-            Text(paper.displayAbstract, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                paper.displayAbstract,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = LocalPaperFont.current,
+            )
             Spacer(Modifier.height(16.dp))
 
             InterestControl(confidence, liked, modelActive, onSteer)

@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.List
@@ -45,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import si.jakobkreft.aftergleam.ui.AftergleamTheme
 import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.PastScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
@@ -187,9 +186,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
         }.getOrNull()?.let { vm.importLibrary(it) }
     }
 
-    MaterialTheme(
-        colorScheme = if (dark) dynamicDarkColorScheme(context)
-        else dynamicLightColorScheme(context)
+    AftergleamTheme(
+        dark = dark,
+        dynamic = state.dynamicColour,
+        paperSerif = state.paperSerif,
+        interfaceSerif = state.interfaceSerif,
     ) {
         if (!state.onboarded) {
             Scaffold { inner ->
@@ -209,7 +210,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     )
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         // Keyed on what the shelves are actually made of, not on every reaction. Opening a
@@ -281,7 +282,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     }
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         val detail = state.detail
@@ -339,7 +340,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     )
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         // Below the detail screen in the overlay stack and above the tabs, so opening a
@@ -363,7 +364,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     }
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         val searchOpen = state.searchOpen
@@ -388,7 +389,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     }
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         var showTune by rememberSaveable { mutableStateOf(false) }
@@ -396,9 +397,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
             BackHandler { showTune = false }
             Scaffold { inner ->
                 Box(Modifier.padding(inner)) {
+                    // The header lives inside the screen now, so that back can leave a
+                    // settings page before it leaves settings.
                     Column {
-                        TextButton(onClick = { showTune = false }) { Text("Back") }
                         TuneScreen(
+                            onClose = { showTune = false },
                             digestSize = vm.currentDigestSize(),
                             quality = vm.currentQualityWeight(),
                             exploration = vm.currentExplorationRate(),
@@ -408,6 +411,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             reminderHour = vm.currentReminderHour(),
                             reminderEnabled = state.reminderEnabled,
                             theme = state.theme,
+                            paperSerif = state.paperSerif,
+                            interfaceSerif = state.interfaceSerif,
+                            dynamicColour = state.dynamicColour,
                             topics = state.topics,
                             ratedCount = state.ratedCount,
                             judgedCount = state.judgedCount,
@@ -418,6 +424,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onExploration = vm::setExplorationRate,
                             onDiversity = vm::setDiversity,
                             onTheme = vm::setTheme,
+                            onPaperSerif = vm::setPaperSerif,
+                            onInterfaceSerif = vm::setInterfaceSerif,
+                            onDynamicColour = vm::setDynamicColour,
                             onTopics = vm::setTopics,
                             versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
                             onDigestHour = { h ->
@@ -459,7 +468,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     }
                 }
             }
-            return@MaterialTheme
+            return@AftergleamTheme
         }
 
         LaunchedEffect(tab) {

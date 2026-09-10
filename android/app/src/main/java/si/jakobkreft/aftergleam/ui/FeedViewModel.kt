@@ -122,6 +122,9 @@ data class FeedState(
     val popular: List<Paper> = emptyList(),
     val searchOpen: Boolean = false,
     val theme: String = "system",
+    val paperSerif: Boolean = true,
+    val interfaceSerif: Boolean = false,
+    val dynamicColour: Boolean = false,
     /**
      * Notification settings live in state rather than being read once into the settings
      * screen, so that a switch the app refuses to turn on visibly does not turn on. Android
@@ -338,6 +341,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             notifyEnabled = prefs.notifyEnabled,
             reminderEnabled = prefs.reminderEnabled,
             reminderHour = prefs.reminderHour,
+            paperSerif = prefs.paperSerif,
+            interfaceSerif = prefs.interfaceSerif,
+            dynamicColour = prefs.dynamicColour,
         )
         if (prefs.onboarded) {
             // Before anything else, so a cold start with no fetch due still knows what the
@@ -970,6 +976,21 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun markNotificationsAsked() { prefs.notificationsAsked = true }
 
     fun notificationsAsked() = prefs.notificationsAsked
+    fun setPaperSerif(v: Boolean) {
+        prefs.paperSerif = v
+        _state.value = _state.value.copy(paperSerif = v)
+    }
+
+    fun setInterfaceSerif(v: Boolean) {
+        prefs.interfaceSerif = v
+        _state.value = _state.value.copy(interfaceSerif = v)
+    }
+
+    fun setDynamicColour(v: Boolean) {
+        prefs.dynamicColour = v
+        _state.value = _state.value.copy(dynamicColour = v)
+    }
+
     fun setTheme(mode: String) {
         prefs.theme = mode
         _state.value = _state.value.copy(theme = mode)

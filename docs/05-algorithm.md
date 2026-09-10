@@ -711,3 +711,71 @@ a promise of reading when there is real reading to hand. Decided once at launch 
 revisited, because moving somebody to another tab when a background job finishes would be
 worse than the wait it saves.
 
+## The app's own colours and letterforms
+
+Feasible as asked, and it fixed a crash on the way.
+
+**The app was calling `dynamicLightColorScheme` unconditionally with a minimum of Android 8.**
+Those APIs arrived in Android 12. Lint had been reporting it as an error the whole time and
+nothing was reading lint, so every device running Android 8 to 11 would have crashed at
+launch. Guarding dynamic colour behind the version check, which is required anyway once it
+becomes optional, removes it.
+
+**Colour.** Material You derives every surface from the wallpaper, which is a good default
+for a launcher and a poor one for a reader: the ground under a thousand words of abstract
+should not change because somebody swapped their wallpaper. The app now ships warm paper and
+green ink, taken from its own icon so the two are recognisably the same thing, with the
+reading ground lighter than the icon's cream because warmth that is pleasant at icon size is
+tiring at full-screen size. Dark is ink on warm charcoal rather than paper: a dark theme that
+tries to be paper comes out grey. Every foreground and background pair was checked against
+WCAG before it was written; all clear AA and most clear AAA.
+
+Wallpaper colours remain one switch away, and below Android 12 that switch is shown disabled
+rather than hidden, since its absence would look like a bug rather than a platform limit.
+
+**Type.** Papers are set in a serif and now so is this. The system serif is used rather than a
+bundled face: no download, no licence, no APK, and on Android it is Noto Serif. The whole type
+scale is mapped in one place so nothing is left behind in the default sans.
+
+**A consequence worth recording.** The app draws edge to edge, so the system's status bar sits
+on the app's own background, and nothing had ever told it which way to go. Against the new
+light palette the clock and battery came out white on cream. The theme now sets it.
+
+## Settings as an index
+
+Nine sections in one column, with eighty subject chips in the middle of them, meant that
+finding the reminder hour involved scrolling past every field of science. It is now seven
+pages behind an index that fits on one screen: subjects, appearance, ranking, notifications,
+your library, the model, about. One level, one piece of state, and the back gesture leaves the
+page before it leaves settings.
+
+The subject picker was also the last place still listing all eighty topics flat. It and
+onboarding now share one collapsible component rather than two copies of which only one had
+ever been fixed.
+
+## Three corrections to the theme
+
+**The dark accent was the one cold thing on the screen.** It was a 54% saturated mint, which
+against warm charcoal read as brighter than anything it labelled and belonged to a different
+palette from the ground under it. It is now a warm moss: the same green family as the light
+theme's ink, half the saturation, turned towards olive. Still 8.4:1 against the background,
+so nothing was traded for the calm.
+
+**Serif for the paper, sans for the app.** Setting everything in a serif was coherent but
+lost a distinction worth keeping: a journal sets its article in a serif and its running heads
+in something else, and that split marks where the app stops talking and the paper starts.
+Titles and abstracts now take their face from a composition local; everything else takes the
+theme's. Two switches rather than one, defaulting to serif papers in a sans app, because
+either half is a taste somebody might have.
+
+**A heart and a star mean the same thing.** Both are marks of approval, and neither says
+which one comes back later, so a reader had to remember which of the two was the bookmark. A
+bookmark says only "later" and says nothing about liking, which is exactly the split the app
+already makes between steering the model and keeping a paper. Drawn rather than imported:
+material-icons-core has no bookmark and the extended set is several thousand icons to gain
+one, which is a poor trade for an app that ships on F-Droid. The X and the heart stay.
+
+Refactoring the card actions to take either an imported icon or a drawn one dropped the click
+handler from the imported branch, which would have left the X and the heart inert. Caught by
+tapping them and looking at the ledger rather than by reading the diff.
+

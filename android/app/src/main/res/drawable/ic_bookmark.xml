@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Save for later.
+
+  A star was doing this job and a heart was doing "more like this", which in most apps mean
+  the same thing: both are marks of approval, and neither says which one comes back later.
+  A bookmark says only that, and says nothing about whether the reader liked it.
+
+  Drawn rather than imported: the project uses material-icons-core, which has no bookmark,
+  and the extended set is several thousand icons to gain one. Corners and notch are rounded
+  to sit beside the heart rather than against it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M8,3 h8 a3,3 0 0 1 3,3 v14.1 a1,1 0 0 1 -1.51,0.86 l-4.99,-2.96 a1,1 0 0 0 -1.02,0 l-4.99,2.96 A1,1 0 0 1 5,20.1 V6 a3,3 0 0 1 3,-3 z" />
+</vector>

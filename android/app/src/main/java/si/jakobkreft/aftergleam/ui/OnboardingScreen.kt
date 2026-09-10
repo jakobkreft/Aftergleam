@@ -187,62 +187,8 @@ private fun TopicPicker(
         )
         Spacer(Modifier.height(12.dp))
 
-        // Collapsed by default, which is the opposite of what a short list wants and the
-        // only workable thing for a long one. With nine fields and eighty topics, an
-        // expanded list buries biology and medicine under twenty computer science chips, so
-        // the reader who most needed to know they were there had to scroll past everything
-        // they did not want to find out. Closed, the first screen is the map: nine lines
-        // saying what this app covers.
-        var open by rememberSaveable { mutableStateOf(setOf<String>()) }
-
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Topics.FIELDS.forEach { field ->
-                val expanded = field.label in open
-                val chosen = field.topics.count { it.key in selected }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            open = if (expanded) open - field.label else open + field.label
-                        }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        field.label,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    // The count is what makes a closed section safe: a reader can see at a
-                    // glance that they have chosen something in there without opening it.
-                    Text(
-                        if (chosen > 0) "$chosen chosen" else "${field.topics.size}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (chosen > 0) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Icon(
-                        if (expanded) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse" else "Expand",
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
-                }
-                if (expanded) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        field.topics.forEach { t ->
-                            FilterChip(
-                                selected = t.key in selected,
-                                onClick = { onToggle(t.key) },
-                                label = { Text(t.label) },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            }
+            TopicFields(selected = selected, onToggle = onToggle)
             Spacer(Modifier.height(16.dp))
         }
 
@@ -336,13 +282,18 @@ private fun Question(
                 Text(
                     paper.displayTitle,
                     style = MaterialTheme.typography.titleMedium,
+                    fontFamily = LocalPaperFont.current,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(paper.displayCategories.joinToString(" "),
                     style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
-                Text(paper.displayAbstract, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    paper.displayAbstract,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = LocalPaperFont.current,
+                )
             }
         }
 

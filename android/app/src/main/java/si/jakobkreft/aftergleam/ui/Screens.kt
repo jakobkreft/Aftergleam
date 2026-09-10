@@ -231,6 +231,7 @@ private fun ResurfacedCard(
             Spacer(Modifier.height(6.dp))
             Text(
                 resurfaced.paper.displayTitle,
+                fontFamily = LocalPaperFont.current,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 3,

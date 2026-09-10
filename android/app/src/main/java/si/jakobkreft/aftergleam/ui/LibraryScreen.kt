@@ -145,6 +145,7 @@ private fun Shelf(
                         Text(
                             p.displayTitle,
                             style = MaterialTheme.typography.titleSmall,
+                            fontFamily = LocalPaperFont.current,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,

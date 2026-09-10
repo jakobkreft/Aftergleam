@@ -67,6 +67,37 @@ class Prefs(context: Context) {
      * asked" cannot be recovered from the permission state. It is also what stops the first
      * grant from re-enabling a reminder the reader has since switched off.
      */
+    /**
+     * Whether a paper's own title and abstract are set in a serif.
+     *
+     * On by default. This is an app for reading papers, and papers are set in a serif.
+     */
+    var paperSerif: Boolean
+        get() = sp.getBoolean("serif_font", true)
+        set(v) = sp.edit().putBoolean("serif_font", v).apply()
+
+    /**
+     * Whether the app around them is too.
+     *
+     * Off by default, which is the ordinary editorial arrangement: the article is set in a
+     * serif and the furniture around it is not. Setting buttons and tab labels in a serif
+     * as well is a taste some people have, so it is here, but it makes the app's own voice
+     * harder to tell apart from the paper's.
+     */
+    var interfaceSerif: Boolean
+        get() = sp.getBoolean("serif_interface", false)
+        set(v) = sp.edit().putBoolean("serif_interface", v).apply()
+
+    /**
+     * Whether to take colours from the wallpaper instead of the app's own.
+     *
+     * Off by default, which is the opposite of what the app used to do. Material You is a
+     * good default for a launcher and a poor one for a reading surface.
+     */
+    var dynamicColour: Boolean
+        get() = sp.getBoolean("dynamic_colour", false)
+        set(v) = sp.edit().putBoolean("dynamic_colour", v).apply()
+
     var notificationsAsked: Boolean
         get() = sp.getBoolean("notifications_asked", false)
         set(v) = sp.edit().putBoolean("notifications_asked", v).apply()
