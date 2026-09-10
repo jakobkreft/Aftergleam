@@ -89,7 +89,10 @@ fun DetailScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            TextButton(onClick = onBack) { Text("Back to digest") }
+            // Just "Back". This screen is reached from the digest, Explore, Popular, the
+            // library, a search and an earlier digest, and it said "Back to digest" from
+            // all six.
+            TextButton(onClick = onBack) { Text("Back") }
             Text(
                 paper.displayTitle,
                 style = MaterialTheme.typography.titleLarge,

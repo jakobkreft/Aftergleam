@@ -809,3 +809,33 @@ The store stays in the cache directory. That was a deliberate choice, recorded w
 made: the system can reclaim the space under pressure and the reader is never asked for a
 storage permission. What was missing was a way to reclaim it earlier than the system would.
 
+## A download that did not appear on the offline shelf
+
+Reported: downloading a paper opened from the library did not put it on the offline shelf,
+while downloading the same paper from the digest did.
+
+The shelf is rebuilt by an effect keyed on the tab and on two counts, and a finished download
+changes none of them. Coming from the digest works by accident: that route leaves the library
+tab and returns to it, and the tab changing is what rebuilds the shelf. Reaching the reader
+from inside the library never changes tab, so nothing rebuilt it.
+
+The key was narrowed deliberately, to stop the library reshuffling when a paper was merely
+opened, and this is what that narrowing cost. The fix is the one the delete already used: the
+download puts itself on the shelf the moment the file lands, rather than waiting for
+something else to notice. The shelf's contents also no longer depend on the paper having a
+reaction row, which was true of every download by accident rather than by design.
+
+**Two more found while going through the app afterwards.**
+
+The offline shelf came back in whatever order SQLite returned. On a screen whose job is
+reclaiming space the useful order is heaviest first, which is now what it does.
+
+The detail screen's back button said "Back to digest" from all six places that open it: the
+digest, Explore, Popular, the library, a search and an earlier digest. It says "Back".
+
+**And one thing that was not a bug.** A device search for "protein folding" returned a graph
+neural network paper under "already on your device", because the local search matches
+substrings and the abstract contains "unfolding". Recall matters more than precision for
+"where did I put that paper", and it was the only local match there was, so the ranking had
+nothing better to put first. Left alone.
+

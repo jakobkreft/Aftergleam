@@ -932,7 +932,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // Downloaded is a property of the cache, not of any table, so it is asked
                 // of the store directly rather than tracked in a column that could drift.
                 val downloaded = db.papersById(
-                    (reactions.keys + ratings.keys).filter { store.isCached(it) }
+                    (reactions.keys + ratings.keys + judged.keys).filter { store.isCached(it) }
                 )
                 val sizes = downloaded.associate { it.id to store.sizeOf(it.id) }
                 Shelves(saved, downloaded, rated, sizes)
@@ -1536,9 +1536,21 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // straight back out. The clock starts once the file is actually on screen.
                 readerDwell?.cancel()
                 readerDwell = startDwell(paper.id, Signal.DOWNLOADED, Dwell.READER_MILLIS)
+                // Put it on the offline shelf now, the same way deleting takes it off.
+                //
+                // The shelf is rebuilt when the library tab is entered, which is why this
+                // looked fine coming from the digest: that route leaves the tab and comes
+                // back. Reaching the reader from inside the library never changes tab, so
+                // nothing rebuilt it and a paper that had plainly just downloaded was not
+                // on the list of downloads.
+                val onShelf = _state.value.downloaded.any { it.id == paper.id }
                 _state.value = _state.value.copy(
                     readingFile = file,
                     evidence = db.evidence(),
+                    downloaded = if (onShelf) _state.value.downloaded
+                    else _state.value.downloaded + paper,
+                    downloadedBytes = _state.value.downloadedBytes +
+                        (paper.id to store.sizeOf(paper.id)),
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF"))

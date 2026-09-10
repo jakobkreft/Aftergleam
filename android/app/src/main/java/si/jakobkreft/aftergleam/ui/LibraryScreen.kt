@@ -105,7 +105,10 @@ fun LibraryScreen(
             // these files, and the answer belongs where the files are listed rather than
             // buried in settings.
             Shelf.DOWNLOADED -> Shelf(
-                papers = downloaded,
+                // Heaviest first. The order the papers arrive in is whatever SQLite
+                // returned, and on a screen whose job is reclaiming space the useful
+                // order is the one that puts the twenty-four megabyte paper at the top.
+                papers = downloaded.sortedByDescending { sizes[it.id] ?: 0L },
                 empty = "No PDFs downloaded. Open a paper and read it once, and it stays " +
                     "here for trains and planes.",
                 onOpen = onOpen,
