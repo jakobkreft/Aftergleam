@@ -68,7 +68,9 @@ fun PaperCard(
 ) {
     Card(
         Modifier.fillMaxWidth().clickable { onOpen() },
-        elevation = CardDefaults.cardElevation(defaultElevation = if (viewed) 0.dp else 2.dp),
+        // Read and unread are told apart by the surface and the title, not by a
+        // shadow that only one of them had.
+        elevation = flatCard(),
         colors = CardDefaults.cardColors(
             containerColor = if (viewed) MaterialTheme.colorScheme.surface
             else MaterialTheme.colorScheme.surfaceContainer

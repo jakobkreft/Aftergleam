@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -196,7 +197,16 @@ private fun Shelf(
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         header?.let { item { it() } }
         items(papers, key = { it.id }) { p ->
-            Card(Modifier.fillMaxWidth().clickable { onOpen(p) }) {
+            // The same surface and lift as a digest card. These were left on Material's
+            // default, which is a step lighter in light and a step darker in dark, so two
+            // lists of the same thing sat on visibly different paper.
+            Card(
+                Modifier.fillMaxWidth().clickable { onOpen(p) },
+                elevation = flatCard(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+            ) {
                 Row(
                     Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,

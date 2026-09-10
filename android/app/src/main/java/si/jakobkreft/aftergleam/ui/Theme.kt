@@ -2,7 +2,11 @@ package si.jakobkreft.aftergleam.ui
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CardElevation
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -16,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
 /**
@@ -130,6 +135,35 @@ private val Dark = darkColorScheme(
     scrim = Color(0xFF000000),
 )
 
+/**
+ * Rounder corners than Material's defaults.
+ *
+ * Cards are the app's main object and 12dp reads as a slightly older Android. Set on the
+ * theme rather than on each card so that the digest, the library, the skeletons and the
+ * earlier-digest list cannot drift apart, and so this is one number to change if it turns
+ * out to be worse.
+ */
+private val Rounded = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(30.dp),
+)
+
+/**
+ * Cards sit flat on the page.
+ *
+ * A drop shadow says "this is floating above the page", which is not true of a list of
+ * papers: they are the page. The surfaces are already a step apart from the background, and
+ * with rounder corners that separation is legible without a shadow under every card.
+ *
+ * One function rather than a number repeated at nine call sites, so that a card added later
+ * cannot quietly bring its shadow back.
+ */
+@Composable
+fun flatCard(): CardElevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+
 /** The whole type scale in one family, so nothing is left behind in the default sans. */
 private fun Typography.inFamily(family: FontFamily) = Typography(
     displayLarge = displayLarge.copy(fontFamily = family),
@@ -195,6 +229,7 @@ fun AftergleamTheme(
     MaterialTheme(
         colorScheme = colours,
         typography = if (interfaceSerif) base.inFamily(FontFamily.Serif) else base,
+        shapes = Rounded,
     ) {
         CompositionLocalProvider(
             LocalPaperFont provides

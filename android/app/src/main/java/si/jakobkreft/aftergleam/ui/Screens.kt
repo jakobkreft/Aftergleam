@@ -218,6 +218,7 @@ private fun ResurfacedCard(
 ) {
     Card(
         Modifier.fillMaxWidth(),
+        elevation = flatCard(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer
         ),
@@ -271,6 +272,7 @@ private fun CompactAction(label: String, onClick: () -> Unit) {
 private fun AwayCard(count: Int, onOpen: () -> Unit) {
     Card(
         Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        elevation = flatCard(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
@@ -329,6 +331,7 @@ private fun EndCard(
 private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
     Card(
         Modifier.fillMaxWidth(),
+        elevation = flatCard(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         ),

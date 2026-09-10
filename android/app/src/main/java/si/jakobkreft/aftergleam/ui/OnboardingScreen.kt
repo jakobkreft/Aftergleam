@@ -276,7 +276,7 @@ private fun Question(
         // The card takes the space that is left, so the buttons stay put.
         Card(
             Modifier.weight(1f).fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            elevation = flatCard(),
         ) {
             Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
                 Text(

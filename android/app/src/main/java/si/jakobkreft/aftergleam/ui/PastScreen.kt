@@ -81,6 +81,7 @@ private fun Index(
                 Spacer(Modifier.height(4.dp))
                 Card(
                     Modifier.fillMaxWidth().clickable(onClick = onOpenCatchUp),
+                    elevation = flatCard(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     ),
@@ -115,6 +116,7 @@ private fun Index(
             key = { it.day }) { d ->
             Card(
                 Modifier.fillMaxWidth().clickable { onOpenDay(d.day) },
+                elevation = flatCard(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer
                 ),

@@ -89,7 +89,7 @@ fun SkeletonCard() {
 private fun CardBody(alpha: Float) {
     Card(
         Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = flatCard(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
