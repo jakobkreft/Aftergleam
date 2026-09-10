@@ -43,6 +43,17 @@ import kotlin.math.roundToInt
 private fun formatSize(context: android.content.Context, bytes: Long): String =
     android.text.format.Formatter.formatShortFileSize(context, bytes)
 
+/** What a row says about its download: nothing, a size, or that one is on its way. */
+private fun downloadNote(
+    context: android.content.Context,
+    paper: Paper,
+    sizes: Map<String, Long>,
+    downloading: Set<String>,
+): String? = when {
+    paper.id in downloading -> "downloading…"
+    else -> sizes[paper.id]?.takeIf { it > 0 }?.let { formatSize(context, it) }
+}
+
 private enum class Shelf(val label: String) {
     SAVED("Saved"), DOWNLOADED("Offline"), RATED("Reacted to")
 }
@@ -64,8 +75,13 @@ fun LibraryScreen(
     onUnsave: (String) -> Unit,
     onSteer: (String, Boolean?) -> Unit,
     sizes: Map<String, Long>,
+    downloading: Set<String>,
+    message: String?,
     onDeleteDownload: (String) -> Unit,
     onDeleteAllDownloads: () -> Unit,
+    onDownload: (Paper) -> Unit,
+    onShare: (Paper) -> Unit,
+    onDismissMessage: () -> Unit,
 ) {
     var shelf by rememberSaveable { mutableStateOf(Shelf.SAVED) }
     var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }
@@ -87,7 +103,29 @@ fun LibraryScreen(
                 )
             }
         }
+        // Downloads started from a row happen out of sight, so this is where anything
+        // that went wrong with one gets said.
+        message?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onDismissMessage) { Text("Dismiss") }
+        }
         Spacer(Modifier.height(12.dp))
+
+        /** One menu for every row, told what is true of the paper rather than which shelf. */
+        val menu: @Composable (Paper) -> Unit = { p ->
+            PaperMenu(
+                paper = p,
+                saved = saved.any { it.id == p.id },
+                downloaded = downloaded.any { it.id == p.id },
+                downloading = p.id in downloading,
+                onSave = { onUnsave(p.id) },
+                onDownload = { onDownload(p) },
+                onDeleteDownload = { onDeleteDownload(p.id) },
+                onShare = { onShare(p) },
+            )
+        }
 
         when (shelf) {
             Shelf.SAVED -> Shelf(
@@ -95,11 +133,9 @@ fun LibraryScreen(
                 empty = "Nothing saved yet. Saving is separate from reacting: react to teach " +
                     "the model, save to come back to it.",
                 onOpen = onOpen,
-            ) { p ->
-                IconButton(onClick = { onUnsave(p.id) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Remove from saved")
-                }
-            }
+                meta = { p -> downloadNote(context, p, sizes, downloading) },
+                trailing = menu,
+            )
 
             // The only shelf that costs anything, so it is the only one that says what it
             // costs. A reader wondering why the app is taking up space is asking about
@@ -113,7 +149,7 @@ fun LibraryScreen(
                 empty = "No PDFs downloaded. Open a paper and read it once, and it stays " +
                     "here for trains and planes.",
                 onOpen = onOpen,
-                meta = { p -> sizes[p.id]?.takeIf { it > 0 }?.let { formatSize(context, it) } },
+                meta = { p -> downloadNote(context, p, sizes, downloading) },
                 header = {
                     Text(
                         "${downloaded.size} " +
@@ -146,29 +182,28 @@ fun LibraryScreen(
                     }
                     Spacer(Modifier.height(24.dp))
                 },
-            ) { p ->
-                IconButton(onClick = { onDeleteDownload(p.id) }) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete the download")
-                }
-            }
+                trailing = menu,
+            )
 
-            // The same two chips as everywhere else. This shelf used to carry a slider per
-            // paper, left over from the rating concept that was removed; a control that
-            // exists nowhere else is worse than no control.
+            // The two chips, not the menu. This shelf exists to change your mind, so the
+            // control for changing it is the row's own affordance rather than something
+            // behind a tap: it shows which way you went and moves in one press. The other
+            // three actions are a menu away on the shelves where they are the point.
             Shelf.RATED -> Shelf(
                 papers = rated.map { it.first },
                 empty = "Nothing yet. React to papers in the digest, or import a library, " +
                     "and they all show up here where you can change your mind.",
                 onOpen = onOpen,
+                meta = { p -> downloadNote(context, p, sizes, downloading) },
             ) { p ->
                 Row {
-                    androidx.compose.material3.FilterChip(
+                    FilterChip(
                         selected = likedFlag(p.id) == false,
                         onClick = { onSteer(p.id, if (likedFlag(p.id) == false) null else false) },
                         label = { Text("Less") },
                     )
                     Spacer(Modifier.width(6.dp))
-                    androidx.compose.material3.FilterChip(
+                    FilterChip(
                         selected = likedFlag(p.id) == true,
                         onClick = { onSteer(p.id, if (likedFlag(p.id) == true) null else true) },
                         label = { Text("More") },

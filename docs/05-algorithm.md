@@ -839,3 +839,38 @@ substrings and the abstract contains "unfolding". Recall matters more than preci
 "where did I put that paper", and it was the only local match there was, so the ranking had
 nothing better to put first. Left alone.
 
+## One menu per row, built from the paper
+
+The three library shelves had three different trailing controls: a bin meaning "unsave", a bin
+meaning "delete the file", and a pair of chips. Three affordances for the same kind of row, and
+one of them a bin that meant two different things depending on which chip was selected.
+
+**The menu is built from what is true of the paper, not from which shelf it is on.** That was
+the one departure from the request, which described a menu per shelf. A saved paper may also
+be downloaded and may also have been reacted to, so a per-shelf menu has to either leave out
+real options or offer ones that do not apply. Asking the paper gives one implementation that
+is correct on all three shelves and stays correct if a fourth appears:
+
+- Save for later, or remove from saved
+- More like this, less like this, and clear my reaction
+- Download for offline, delete download, or "downloading…" while one is in flight
+- Share
+
+**Steering stayed out of it.** The first version put more, less and clear in the menu too,
+which made a management menu the fourth place to judge a paper and the only one doing it
+without the paper in front of you. The reacted shelf keeps its two chips: that shelf exists
+to change your mind, so the control for it is the row's own affordance rather than something
+behind a tap, and it shows which way you went as well as moving in one press. The menu is
+three items, and none of them is an opinion.
+
+**What it fixes beyond tidiness.**
+
+Downloading was only possible by opening a paper and waiting for the reader to render it,
+which is a poor way to prepare for a flight. From a row a reader can line several up and leave
+them to it. No dwell timer is armed for these, unlike the reader's: fetching a file is not
+reading it, and the download signal is worth 0.7 precisely because it means somebody stayed.
+
+The share sheet's text was written inline at the detail screen's call site, and is now one
+function: a share that said something different depending on which screen you started from
+would be a small mystery nobody needs.
+

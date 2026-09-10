@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.ui.AftergleamTheme
 import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.PastScreen
@@ -313,29 +314,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                         },
                         onRead = { vm.openReader(detail) },
-                        onShare = {
-                            vm.share(detail.id)
-                            // Title plus link: what a colleague actually needs, and it
-                            // pastes usefully into any chat or mail client.
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, detail.displayTitle)
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    // The paper first, because that is what was asked for.
-                                    // Then one line saying what sent it and where to get
-                                    // it, which is the whole of the advertising: a colleague
-                                    // who wants the app can act on it, and one who does not
-                                    // has lost a line. It said "an offline arXiv reader",
-                                    // which stopped being true when bioRxiv and medRxiv
-                                    // arrived.
-                                    "${detail.displayTitle}\n${detail.absUrl}" +
-                                        "\n\nFound with Aftergleam, a privacy reader for " +
-                                        "arXiv scientific papers.",
-                                )
-                            }
-                            context.startActivity(Intent.createChooser(share, null))
-                        },
+                        onShare = { sharePaper(context, detail); vm.share(detail.id) },
                         onBack = vm::closeDetail,
                     )
                 }
@@ -569,12 +548,42 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onUnsave = vm::toggleSave,
                         onSteer = vm::steer,
                         sizes = state.downloadedBytes,
+                        downloading = state.downloading,
+                        message = state.libraryMessage,
                         onDeleteDownload = vm::deleteDownload,
                         onDeleteAllDownloads = vm::deleteAllDownloads,
+                        onDownload = vm::downloadInBackground,
+                        onShare = { p -> sharePaper(context, p); vm.share(p.id) },
+                        onDismissMessage = vm::clearLibraryMessage,
                     )
                 }
                 }
             }
         }
     }
+}
+
+/**
+ * Hands a paper to whatever the reader wants to send it with.
+ *
+ * One implementation, because it is now reachable from the detail screen and from the
+ * library's row menu, and a share sheet that says something different depending on which
+ * one you used would be a small mystery nobody needs.
+ *
+ * Title plus link is what a colleague actually needs, and it pastes usefully into any chat
+ * or mail client. Then one line saying what sent it and where to get it, which is the whole
+ * of the advertising: a colleague who wants the app can act on it, and one who does not has
+ * lost a line.
+ */
+private fun sharePaper(context: android.content.Context, paper: Paper) {
+    val share = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, paper.displayTitle)
+        putExtra(
+            Intent.EXTRA_TEXT,
+            "${paper.displayTitle}\n${paper.absUrl}" +
+                "\n\nFound with Aftergleam, a privacy reader for arXiv scientific papers.",
+        )
+    }
+    context.startActivity(Intent.createChooser(share, null))
 }

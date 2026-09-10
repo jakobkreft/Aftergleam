@@ -83,6 +83,10 @@ data class FeedState(
     val downloaded: List<Paper> = emptyList(),
     /** Bytes each downloaded paper occupies, so the reader can see what to reclaim. */
     val downloadedBytes: Map<String, Long> = emptyMap(),
+    /** Papers being fetched from the library rather than by opening the reader. */
+    val downloading: Set<String> = emptySet(),
+    /** A short line under the shelf chips, for the things that can go wrong out of sight. */
+    val libraryMessage: String? = null,
     val ratedPapers: List<Pair<Paper, Float>> = emptyList(),
     val evidence: Map<String, Evidence> = emptyMap(),
     val attention: Map<String, Int> = emptyMap(),
@@ -961,6 +965,49 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 downloadedBytes = _state.value.downloadedBytes - paperId,
             )
         }
+    }
+
+    /**
+     * Fetches a paper's PDF without opening it.
+     *
+     * The point of the offline shelf is a flight or a train, and preparing for one meant
+     * opening every paper in turn and waiting for each to render. From the library a reader
+     * can now line several up and leave them to it.
+     *
+     * No dwell timer is armed here, unlike the reader: fetching a file is not reading it,
+     * and the download signal is worth 0.7 precisely because it means somebody stayed.
+     */
+    fun downloadInBackground(paper: Paper) {
+        if (paper.id in _state.value.downloading) return
+        _state.value = _state.value.copy(
+            downloading = _state.value.downloading + paper.id,
+            libraryMessage = null,
+        )
+        viewModelScope.launch {
+            val store = PdfStore(getApplication())
+            try {
+                store.download(paper)
+                val onShelf = _state.value.downloaded.any { it.id == paper.id }
+                _state.value = _state.value.copy(
+                    downloaded = if (onShelf) _state.value.downloaded
+                    else _state.value.downloaded + paper,
+                    downloadedBytes = _state.value.downloadedBytes +
+                        (paper.id to store.sizeOf(paper.id)),
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    libraryMessage = humanError(e, "fetch that PDF")
+                )
+            } finally {
+                _state.value = _state.value.copy(
+                    downloading = _state.value.downloading - paper.id
+                )
+            }
+        }
+    }
+
+    fun clearLibraryMessage() {
+        _state.value = _state.value.copy(libraryMessage = null)
     }
 
     /** Removes every download. Deleting forty of them one at a time is not a feature. */
