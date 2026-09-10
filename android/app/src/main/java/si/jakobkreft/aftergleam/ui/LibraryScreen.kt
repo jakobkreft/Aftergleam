@@ -19,6 +19,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -35,6 +37,10 @@ import androidx.compose.ui.unit.dp
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
 import kotlin.math.roundToInt
+
+/** The system's own wording for file sizes, so the app agrees with Android's storage screen. */
+private fun formatSize(context: android.content.Context, bytes: Long): String =
+    android.text.format.Formatter.formatShortFileSize(context, bytes)
 
 private enum class Shelf(val label: String) {
     SAVED("Saved"), DOWNLOADED("Offline"), RATED("Reacted to")
@@ -56,8 +62,13 @@ fun LibraryScreen(
     onOpen: (Paper) -> Unit,
     onUnsave: (String) -> Unit,
     onSteer: (String, Boolean?) -> Unit,
+    sizes: Map<String, Long>,
+    onDeleteDownload: (String) -> Unit,
+    onDeleteAllDownloads: () -> Unit,
 ) {
     var shelf by rememberSaveable { mutableStateOf(Shelf.SAVED) }
+    var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(12.dp))
@@ -89,12 +100,53 @@ fun LibraryScreen(
                 }
             }
 
+            // The only shelf that costs anything, so it is the only one that says what it
+            // costs. A reader wondering why the app is taking up space is asking about
+            // these files, and the answer belongs where the files are listed rather than
+            // buried in settings.
             Shelf.DOWNLOADED -> Shelf(
                 papers = downloaded,
                 empty = "No PDFs downloaded. Open a paper and read it once, and it stays " +
                     "here for trains and planes.",
                 onOpen = onOpen,
-            )
+                meta = { p -> sizes[p.id]?.takeIf { it > 0 }?.let { formatSize(context, it) } },
+                header = {
+                    Text(
+                        "${downloaded.size} " +
+                            (if (downloaded.size == 1) "paper" else "papers") +
+                            " · " + formatSize(context, sizes.values.sum()),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                footer = {
+                    Spacer(Modifier.height(8.dp))
+                    // Confirmed in place, because on a train these are unreplaceable until
+                    // there is signal again, which is the situation they were kept for.
+                    if (!confirmDeleteAll) {
+                        TextButton(onClick = { confirmDeleteAll = true }) {
+                            Text("Delete all downloads")
+                        }
+                    } else {
+                        Text(
+                            "This removes the files only. Saves and reactions stay, and " +
+                                "any paper downloads again in a tap.",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Row {
+                            TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") }
+                            TextButton(onClick = {
+                                confirmDeleteAll = false; onDeleteAllDownloads()
+                            }) { Text("Delete ${downloaded.size}") }
+                        }
+                    }
+                    Spacer(Modifier.height(24.dp))
+                },
+            ) { p ->
+                IconButton(onClick = { onDeleteDownload(p.id) }) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete the download")
+                }
+            }
 
             // The same two chips as everywhere else. This shelf used to carry a slider per
             // paper, left over from the rating concept that was removed; a control that
@@ -128,6 +180,10 @@ private fun Shelf(
     papers: List<Paper>,
     empty: String,
     onOpen: (Paper) -> Unit,
+    /** An extra fact for the row's second line, such as what the download weighs. */
+    meta: ((Paper) -> String?)? = null,
+    header: @Composable (() -> Unit)? = null,
+    footer: @Composable (() -> Unit)? = null,
     trailing: @Composable ((Paper) -> Unit)? = null,
 ) {
     if (papers.isEmpty()) {
@@ -135,6 +191,7 @@ private fun Shelf(
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        header?.let { item { it() } }
         items(papers, key = { it.id }) { p ->
             Card(Modifier.fillMaxWidth().clickable { onOpen(p) }) {
                 Row(
@@ -151,7 +208,8 @@ private fun Shelf(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            listOfNotNull(p.published, Venue.of(p)).joinToString(" · "),
+                            listOfNotNull(p.published, Venue.of(p), meta?.invoke(p))
+                                .joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
@@ -159,5 +217,6 @@ private fun Shelf(
                 }
             }
         }
+        footer?.let { item { it() } }
     }
 }

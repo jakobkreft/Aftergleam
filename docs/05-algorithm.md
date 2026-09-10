@@ -779,3 +779,33 @@ Refactoring the card actions to take either an imported icon or a drawn one drop
 handler from the imported branch, which would have left the X and the heart inert. Caught by
 tapping them and looking at the ledger rather than by reading the diff.
 
+## Deleting a download
+
+The Offline shelf listed downloaded PDFs and offered nothing to do with them, which made it
+the only dead end in the library. The papers are three to thirty megabytes each, so a reader
+who uses the app for a year has a real question about storage and no way to ask it.
+
+**It belongs on that shelf and nowhere else.** A reader wondering what the app is costing
+them is asking about exactly the files that shelf lists, so the answer goes where the files
+are rather than in a settings page they would have to think to look in. The detail screen was
+the other candidate and was rejected: it is a screen for reading, and it would gain a button
+that is pressed once for every hundred times it is not.
+
+Four parts, each answering a question the reader actually has:
+
+- **A total at the top**, "8 papers · 74 MB", because "what is this costing me" is the
+  question that brings somebody here.
+- **A size on each row**, because deciding what to delete needs to know what each one weighs.
+- **A delete on each row**, matching the affordance the Saved shelf already uses.
+- **Delete all**, because reclaiming space one paper at a time is not a feature. Confirmed in
+  place, since these files are unreplaceable until there is signal again, which is the exact
+  situation they were kept for.
+
+**Deleting a download is not changing your mind.** The file goes and the save and the ledger
+stay, and the confirmation says so in as many words. That invariant is now a test rather than
+something to be careful about, because it is the one way this feature could quietly do harm.
+
+The store stays in the cache directory. That was a deliberate choice, recorded where it was
+made: the system can reclaim the space under pressure and the reader is never asked for a
+storage permission. What was missing was a way to reclaim it earlier than the system would.
+

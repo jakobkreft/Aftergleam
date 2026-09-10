@@ -81,6 +81,8 @@ data class FeedState(
     val importSummary: String? = null,
     val saved: List<Paper> = emptyList(),
     val downloaded: List<Paper> = emptyList(),
+    /** Bytes each downloaded paper occupies, so the reader can see what to reclaim. */
+    val downloadedBytes: Map<String, Long> = emptyMap(),
     val ratedPapers: List<Pair<Paper, Float>> = emptyList(),
     val evidence: Map<String, Evidence> = emptyMap(),
     val attention: Map<String, Int> = emptyMap(),
@@ -903,6 +905,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** The three library shelves, read together off the main thread. */
+    private data class Shelves(
+        val saved: List<Paper>,
+        val downloaded: List<Paper>,
+        val rated: List<Pair<Paper, Float>>,
+        val sizes: Map<String, Long>,
+    )
+
     /** Everything the user has accumulated: saved, downloaded, and rated. */
     fun loadLibrary() {
         viewModelScope.launch {
@@ -924,12 +934,42 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val downloaded = db.papersById(
                     (reactions.keys + ratings.keys).filter { store.isCached(it) }
                 )
-                Triple(saved, downloaded, rated)
+                val sizes = downloaded.associate { it.id to store.sizeOf(it.id) }
+                Shelves(saved, downloaded, rated, sizes)
             }
             _state.value = _state.value.copy(
-                saved = loaded.first,
-                downloaded = loaded.second,
-                ratedPapers = loaded.third,
+                saved = loaded.saved,
+                downloaded = loaded.downloaded,
+                ratedPapers = loaded.rated,
+                downloadedBytes = loaded.sizes,
+            )
+        }
+    }
+
+    /**
+     * Removes a downloaded PDF, and nothing else.
+     *
+     * A download is a cached copy of a paper, not an opinion about it, so reclaiming the
+     * space leaves saves and reactions where they are. The row goes from the shelf here
+     * rather than by reloading the library, so the list does not blink.
+     */
+    fun deleteDownload(paperId: String) {
+        viewModelScope.launch {
+            PdfStore(getApplication()).delete(paperId)
+            _state.value = _state.value.copy(
+                downloaded = _state.value.downloaded.filterNot { it.id == paperId },
+                downloadedBytes = _state.value.downloadedBytes - paperId,
+            )
+        }
+    }
+
+    /** Removes every download. Deleting forty of them one at a time is not a feature. */
+    fun deleteAllDownloads() {
+        viewModelScope.launch {
+            PdfStore(getApplication()).deleteAll()
+            _state.value = _state.value.copy(
+                downloaded = emptyList(),
+                downloadedBytes = emptyMap(),
             )
         }
     }

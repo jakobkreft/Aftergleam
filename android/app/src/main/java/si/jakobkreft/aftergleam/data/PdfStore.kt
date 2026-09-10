@@ -32,6 +32,37 @@ class PdfStore(private val context: Context) {
 
     fun isCached(paperId: String) = cachedFile(paperId).let { it.exists() && it.length() > 0 }
 
+    /** Bytes on disk for one paper, or zero if it is not downloaded. */
+    fun sizeOf(paperId: String): Long = cachedFile(paperId).let { if (it.exists()) it.length() else 0L }
+
+    /** Everything the store is holding, which is the number a reader wants to see. */
+    fun totalBytes(): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L
+
+    /**
+     * Removes one downloaded paper.
+     *
+     * The file only: a download is a cached copy, and a reader reclaiming space has not
+     * changed their mind about the paper. Saves and reactions are untouched.
+     *
+     * Releasing the renderer first is tidiness rather than necessity. Unlinking a file that
+     * is still open is safe, and the instance doing the deleting is usually not the one
+     * holding the document anyway, but leaving a renderer pointing at a file nobody can
+     * find again is the sort of thing that is fine until it is not.
+     */
+    suspend fun delete(paperId: String): Boolean {
+        val file = cachedFile(paperId)
+        if (openFile == file) release()
+        return withContext(Dispatchers.IO) { file.delete() }
+    }
+
+    /** Removes every download. Returns how many files went. */
+    suspend fun deleteAll(): Int {
+        release()
+        return withContext(Dispatchers.IO) {
+            dir.listFiles()?.count { it.delete() } ?: 0
+        }
+    }
+
     class DownloadError(message: String) : Exception(message)
 
     /**

@@ -568,6 +568,9 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onOpen = vm::openDetail,
                         onUnsave = vm::toggleSave,
                         onSteer = vm::steer,
+                        sizes = state.downloadedBytes,
+                        onDeleteDownload = vm::deleteDownload,
+                        onDeleteAllDownloads = vm::deleteAllDownloads,
                     )
                 }
                 }
