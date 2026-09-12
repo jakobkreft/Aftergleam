@@ -1001,3 +1001,60 @@ A contribution threshold was tried for the weak third term and rejected. The dec
 shared terms is too gentle to separate anything: measured over the top 25 cards of a real
 digest, the second term holds 77% of the first's weight and the third 59%, so any cutoff that
 removes a weak third term removes as many good ones.
+
+## Subjects nobody could choose
+
+An audit against what the three servers actually publish found categories no topic listed. A
+category no topic lists is never fetched, so for the reader those papers do not exist and
+nothing says so.
+
+**arXiv: 46 of 155 categories were unreachable.** Four of the 50 first flagged turned out to
+be alias pairs whose canonical form was already mapped, which a zero result for
+`cat:math.MP` against 666 for `cat:math-ph` makes obvious. The rest were real, and the
+largest were not small: math-ph 666 submissions in August 2026, cond-mat.mes-hall 557,
+astro-ph.IM 456, astro-ph.SR 440, cond-mat.stat-mech 431, astro-ph.EP 315, physics.comp-ph
+290, cs.CE 207, physics.app-ph 200, cond-mat.supr-con 184. Astrophysics had three of its six
+subfields and was missing the larger half. Most were added to the topic they belong to; four
+areas with no home at all got topics of their own: mathematical physics, applied and
+computational physics, instrumentation and detectors, and physics, society and history.
+
+Deliberately still unmapped are the "General", "Other" and "Popular" catch-alls, which exist
+to hold what the moderators could not place and are not a subject anyone follows.
+
+**medRxiv: five subjects unreachable** (pathology, primary care research, nutrition,
+pharmacology and therapeutics, palliative medicine) and **bioRxiv one** (paleontology, which
+published nothing in the whole June to August sample, which is exactly why it stayed
+invisible).
+
+**Physiotherapy existed but could not be followed.** "rehabilitation medicine and physical
+therapy" was one of eighteen subjects inside a single "Clinical specialties" topic whose seed
+vocabulary was surgical: "patients procedure postoperative outcomes". A physiotherapist could
+reach their own field only by subscribing to seventeen other specialties and being ranked
+against operative language. That bucket is now five topics: rehabilitation and physiotherapy,
+surgery and perioperative care, women's and children's health, emergency and intensive and
+palliative care, and what is left. Checked on the device: choosing it alone fetches five
+medRxiv papers on exoskeletons in physiotherapy, rehabilitation wearables and exercise
+interventions.
+
+`TopicCoverageTest` holds each server's subject list and fails when one is unreachable, with
+an explicit list of the exclusions and why. Writing it immediately caught three faults in the
+change it was meant to guard: paleontology missing, "pain medicine" listed under two topics
+at once, and one assertion comparing a list to a set.
+
+### Fields with no source at all
+
+Chemistry, law, psychology, social science and education are not on arXiv, bioRxiv or
+medRxiv, so no amount of taxonomy work reaches them. Two APIs would.
+
+- **OSF**, one API across 32 preprint servers. Live ones measured by publications since
+  2026-08-01: PsyArXiv 1702, SocArXiv 848, EdArXiv 233, Law Archive 55, MetaArXiv 41. Several
+  others are dormant, having moved to their own platforms: SportRxiv last published in 2021,
+  engrXiv 2022, EarthArXiv 2020, AgriXiv 2020. PsyArXiv alone is larger than most fields the
+  app already carries.
+- **ChemRxiv via Crossref.** ChemRxiv's own API sits behind a Cloudflare challenge and
+  returns 403 to a plain client, which an Android app cannot honestly work around. Its DOIs
+  are registered under prefix 10.26434 and Crossref serves them openly with abstracts: 547
+  posted in the first twelve days of September 2026. Crossref carries no subject field for
+  them, so chemistry would arrive as one pool and the ranker would have to separate it, which
+  is what the seed vocabularies already do.
+
