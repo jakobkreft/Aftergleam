@@ -13,9 +13,11 @@ import si.jakobkreft.aftergleam.data.Source
 /**
  * Talks to OSF and Crossref for real.
  *
- * Skipped when there is no network, so it never fails a build for being offline. It is here
- * because a parser written against two sample records is a guess about a format: the fields
- * that matter are the ones that are missing on the thousandth record, not the first.
+ * Skipped when there is no network, and skipped when a server does not answer, so it never
+ * fails a build for someone else's outage. OSF earns that: across one afternoon it returned
+ * 200s in seven seconds, 200s in twenty-seven, and a 500. What it asserts is the part that is
+ * ours, that a record which does arrive is parsed into something the ranker can use, because
+ * a parser written against two sample records is a guess about a format.
  *
  * Run with: ./gradlew testDebugUnitTest --tests '*NewSourceLive*'
  *
@@ -33,15 +35,29 @@ class NewSourceLiveTest {
             java.net.Socket("api.osf.io", 443).use { true }
     }.getOrDefault(false)
 
+    /**
+     * Runs a fetch, or skips the test when the server did not answer.
+     *
+     * The APIs throw when a first page fails, which is what lets the app tell an outage from
+     * a quiet day. Here that same signal means there is nothing to check.
+     */
+    private inline fun <T> orSkip(what: String, block: () -> T): T {
+        val result = runCatching(block)
+        assumeTrue("$what did not answer: ${result.exceptionOrNull()}", result.isSuccess)
+        return result.getOrThrow()
+    }
+
     @Test
     fun `psyarxiv returns usable papers`() = runBlocking {
         assumeTrue("offline", online())
-        val papers = OsfApi.recent(
-            Source.PSYARXIV,
-            setOf("cognitive psychology", "clinical psychology", "social and behavioral sciences"),
-            days = 14,
-            maxPages = 1,
-        )
+        val papers = orSkip("PsyArXiv") {
+            OsfApi.recent(
+                Source.PSYARXIV,
+                setOf("cognitive psychology", "clinical psychology", "social and behavioral sciences"),
+                days = 14,
+                maxPages = 1,
+            )
+        }
         println("psyarxiv: ${papers.size} papers")
         papers.take(3).forEach { println("   ${it.title.take(70)}  [${it.categories}]") }
         assert(papers.isNotEmpty()) { "no papers came back" }
@@ -58,12 +74,14 @@ class NewSourceLiveTest {
     @Test
     fun `law archive returns usable papers`() = runBlocking {
         assumeTrue("offline", online())
-        val papers = OsfApi.recent(
-            Source.LAWARCHIVE,
-            setOf("law", "constitutional law", "criminal law"),
-            days = 60,
-            maxPages = 1,
-        )
+        val papers = orSkip("Law Archive") {
+            OsfApi.recent(
+                Source.LAWARCHIVE,
+                setOf("law", "constitutional law", "criminal law"),
+                days = 60,
+                maxPages = 1,
+            )
+        }
         println("lawarchive: ${papers.size} papers")
         papers.take(3).forEach { println("   ${it.title.take(70)}") }
         assert(papers.isNotEmpty()) { "no papers came back" }
@@ -72,7 +90,7 @@ class NewSourceLiveTest {
     @Test
     fun `chemrxiv returns usable papers with plain text abstracts`() = runBlocking {
         assumeTrue("offline", online())
-        val papers = ChemRxivApi.recent(setOf(ChemRxivApi.CATEGORY), days = 5)
+        val papers = orSkip("ChemRxiv") { ChemRxivApi.recent(setOf(ChemRxivApi.CATEGORY), days = 5) }
         println("chemrxiv: ${papers.size} papers")
         papers.take(3).forEach { println("   ${it.title.take(70)}") }
         assert(papers.isNotEmpty()) { "no papers came back" }

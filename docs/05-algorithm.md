@@ -1119,3 +1119,54 @@ six letters, and ranked together the physiology topics came first, above the top
 called physiotherapy. A literal match now outranks a prefix match, and `TopicSearchTest` holds
 that case along with the words readers actually type.
 
+## What a field with four papers a day exposed
+
+Everything here was built against arXiv subjects that publish hundreds a day, where a pool is
+always larger than a screen. Following law alone breaks that assumption in five places, and
+four of them were real faults rather than wording.
+
+**The digest filled itself with papers nobody asked for.** The candidate pool is everything
+recently fetched, and the bridge fetches outside the reader's fields on purpose, so those
+papers sit in the same table as the rest. Every slot drew from all of it. For a broad reader
+that was invisible: eighty outside papers among a thousand subscribed ones rank low and rarely
+surface. For a law reader it was the entire morning, twenty five cards of cs.CY, cs.AI and
+q-fin, and not one of them law. Papers from unsubscribed categories are now candidates for the
+one bridge slot and nothing else, and a short day stays short: four papers the reader chose
+beat twenty five they did not.
+
+**The survey ate the day's supply.** It draws from the same papers the first digest will, and
+it took all twelve it was sized for. Two law topics produce about six papers a fortnight, so
+the survey asked about all six, every one became finished business, and "Show me today" opened
+on an empty digest. It now leaves five behind when there are that few, never going below the
+three keepers that switch ranking on. A field posting more than a handful a day is unaffected.
+
+**A server that failed was reported as a quiet day.** Every API returned an empty list for both
+"nothing new" and "did not answer", so an OSF timeout reached the reader as "Nothing new
+today. arXiv does not announce at weekends or on US holidays" — on a profile with no arXiv in
+it, about a server that had simply not replied. A first page that fails now throws, the fetcher
+records which servers failed, and the screen says "Could not check" and names them. When the
+fetch did work, the message names the reader's own servers rather than arXiv's calendar.
+
+**Popular is empty for most of the world, permanently.** It ranks by upvotes on the Hugging
+Face daily list and by conference acceptances. Both cover arXiv, the daily list leans heavily
+to machine learning, and OSF and ChemRxiv publish neither. "This fills in once a digest has
+been fetched" was false in a way the reader could disprove by waiting. The three cases are now
+distinguished, and the one that will never fill says so. It does not fall back to showing the
+list itself: filling a lawyer's screen with the day's most upvoted machine learning papers is
+the thing this app exists to stop doing.
+
+**Explore offered a button that could not work.** It shows what did not fit in the digest, and
+in a narrow field the digest takes everything, so it rendered its "deliberately less sure of
+itself" header over nothing above a More papers button that returned the same nothing however
+often it was pressed. A short page now ends with a sentence instead of a button, the empty case
+explains that nothing is being withheld, and a tab known to be empty is no longer re-ranked
+against eight hundred candidates on every visit.
+
+Both empty screens offer the one setting that changes the answer, and a deep link into Subjects
+returns to where it came from rather than to a settings index the reader never opened.
+
+OSF's unreliability is worth recording: across one afternoon the same request returned a 200 in
+7s, a 200 in 27s, and a 500. Its read timeout is 60s because a 30s one turned the slow half of
+that range into silent emptiness. The live tests skip when a server does not answer, so they
+check our parsing rather than somebody else's uptime.
+

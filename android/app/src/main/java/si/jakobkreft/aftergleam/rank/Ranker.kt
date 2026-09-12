@@ -454,6 +454,21 @@ class Ranker(private val weights: Weights = Weights()) {
     ): List<Scored> {
         if (scored.size <= size) return scored
 
+        // Papers from categories the reader never chose are candidates for exactly one slot,
+        // the bridge, and for nothing else.
+        //
+        // The candidate pool is everything recently fetched, and the bridge fetches outside
+        // the reader's fields on purpose, so those papers sit in the same table as the rest.
+        // Every slot used to draw from all of it. For a reader with broad subjects that was
+        // invisible, because eighty outside papers among a thousand subscribed ones rank low
+        // and rarely surface. For a reader who follows law it was the whole digest: four law
+        // papers existed, and the morning was twenty five cards of cs.CY, cs.AI and q-fin,
+        // none of which they had asked for and none of which was law.
+        val inScope =
+            if (subscribed.isEmpty()) scored
+            else scored.filter { s -> s.paper.categories.any { it in subscribed } }
+        val outside = scored.filter { s -> s.paper.categories.none { it in subscribed } }
+
         val picked = LinkedHashMap<String, Scored>()
         // With no trained model every relevance is zero, so an "exploration" card would
         // be a random paper wearing a label that claims the model is learning from it.
@@ -471,8 +486,7 @@ class Ranker(private val weights: Weights = Weights()) {
         // paper into an ordinary slot and leave the bridge step with nothing to offer. A
         // reserved slot is the only way to guarantee the feature actually appears.
         if (nBridge > 0) {
-            scored.firstOrNull { it.paper.categories.none { c -> c in subscribed } }
-                ?.let { picked[it.paper.id] = it.copy(slot = Slot.BRIDGE) }
+            outside.firstOrNull()?.let { picked[it.paper.id] = it.copy(slot = Slot.BRIDGE) }
         }
 
         // Slots are shared out across topics before any paper is chosen.
@@ -483,12 +497,12 @@ class Ranker(private val weights: Weights = Weights()) {
         // bandit decides how much of the morning each area gets, and the width of its
         // posterior does the exploring, so an area nothing is known about is tried because it
         // is unknown rather than because a slider said to.
-        val remaining = scored.filter { it.paper.id !in picked }
+        val remaining = inScope.filter { it.paper.id !in picked }
         val allocated = allocateByTopic(remaining, nRelevance, model, random, topicHistory)
         allocated.forEach { picked[it.paper.id] = it }
 
         // Uncertainty sampling: relevance nearest 0.5 is where a label teaches the most.
-        scored.asSequence()
+        inScope.asSequence()
             .filter { it.paper.id !in picked }
             .sortedBy { kotlin.math.abs(it.relevance - 0.5f) }
             .take(nExplore * 3)
@@ -496,8 +510,9 @@ class Ranker(private val weights: Weights = Weights()) {
             .take(nExplore)
             .forEach { picked[it.paper.id] = it.copy(slot = Slot.EXPLORATION) }
 
-        // Backfill if a slot found no candidate, so the digest is always `size` long.
-        for (s in scored) {
+        // Backfill if a slot found no candidate. Only from the reader's own subjects, so a
+        // short day stays short: four papers they chose beat twenty five they did not.
+        for (s in inScope) {
             if (picked.size >= size) break
             picked.putIfAbsent(s.paper.id, s)
         }

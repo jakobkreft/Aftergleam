@@ -61,7 +61,8 @@ object ChemRxivApi {
             "&select=" + enc("DOI,title,abstract,author,posted") +
             "&mailto=" + enc(CONTACT)
 
-        val body = get(url) ?: return@withContext emptyList()
+        val body = get(url)
+            ?: throw java.io.IOException("ChemRxiv did not answer")
         val items = runCatching { JSONObject(body) }.getOrNull()
             ?.optJSONObject("message")?.optJSONArray("items")
             ?: return@withContext emptyList()

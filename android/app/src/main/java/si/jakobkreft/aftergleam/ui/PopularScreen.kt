@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -36,17 +37,52 @@ fun PopularScreen(
     onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
+    onBrowseSubjects: () -> Unit,
 ) {
     if (state.popular.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
-            Text("Nothing to show yet", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "This fills in once a digest has been fetched. It ranks by upvotes on the " +
-                    "Hugging Face daily list and by conference acceptances, with no " +
-                    "personalisation at all.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            when (state.popularStatus) {
+                PopularStatus.NO_SIGNAL -> {
+                    Text(
+                        "No ranking for your subjects",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "This page ranks by upvotes on the Hugging Face daily list and by " +
+                            "conference acceptances. Both cover arXiv, and the daily list " +
+                            "leans heavily towards machine learning. Nothing in your " +
+                            "subjects is measured by either, so this will stay empty rather " +
+                            "than fill in later.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // Deliberately not a fallback to the list itself. Showing a lawyer the
+                    // day's most upvoted machine learning papers would fill the screen with
+                    // the one thing this app exists to stop doing.
+                    Text(
+                        "Your digest is unaffected: it ranks on what you read, not on what " +
+                            "is popular.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedButton(onClick = onBrowseSubjects) { Text("Choose more subjects") }
+                }
+
+                PopularStatus.LOADING, PopularStatus.NO_PAPERS -> {
+                    Text("Nothing to show yet", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "This fills in once a digest has been fetched. It ranks by upvotes " +
+                            "on the Hugging Face daily list and by conference acceptances, " +
+                            "with no personalisation at all.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                PopularStatus.READY -> Unit
+            }
         }
         return
     }

@@ -24,6 +24,11 @@ object Fetcher {
      * @param store called with each server's papers as they land, so the feed can fill in
      *   rather than waiting for the slowest server
      */
+    /** What one run of [fetch] managed, so the caller can tell silence from failure. */
+    data class Outcome(val stored: Int, val failed: List<String>) {
+        val allFailed: Boolean get() = failed.isNotEmpty() && stored == 0
+    }
+
     suspend fun fetch(
         subscribed: Set<String>,
         arxivMax: Int = 300,
@@ -37,11 +42,30 @@ object Fetcher {
         osfPages: Int = 4,
         label: (suspend (String) -> Unit)? = null,
         store: suspend (List<Paper>) -> Unit,
-    ) {
+    ): Outcome {
+        var stored = 0
+        val failed = mutableListOf<String>()
+
+        /**
+         * Runs one server's fetch and records whether it answered.
+         *
+         * A server that times out returns an empty list, exactly like a server with nothing
+         * new. Told apart here, because the screen that reports it says two very different
+         * things: "nothing was announced today" is a fact about the archive, and a reader who
+         * follows law was shown it after the Law Archive simply failed to answer.
+         */
+        suspend fun ask(server: String, block: suspend () -> List<Paper>) {
+            label?.invoke("Fetching from ${Source.label(server)}")
+            val result = runCatching { block() }
+            val papers = result.getOrDefault(emptyList())
+            if (result.isFailure) failed += Source.label(server)
+            stored += papers.size
+            store(papers)
+        }
+
         val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
         if (arxivCats.isNotEmpty()) {
-            label?.invoke("Fetching from arXiv")
-            store(runCatching { ArxivApi.recent(arxivCats, max = arxivMax) }.getOrDefault(emptyList()))
+            ask(Source.ARXIV) { ArxivApi.recent(arxivCats, max = arxivMax) }
         }
 
         // Each server is optional and independent: a server being down costs that server's
@@ -49,27 +73,23 @@ object Fetcher {
         for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
             val subjects = Topics.categoriesOf(server, subscribed)
             if (subjects.isEmpty()) continue
-            label?.invoke("Fetching from ${Source.label(server)}")
-            store(runCatching { BioRxivApi.recent(server, subjects) }.getOrDefault(emptyList()))
+            ask(server) { BioRxivApi.recent(server, subjects) }
         }
 
         for (server in OSF) {
             val subjects = Topics.categoriesOf(server, subscribed)
             if (subjects.isEmpty()) continue
-            label?.invoke("Fetching from ${Source.label(server)}")
-            store(
-                // OSF keeps its own window: see OsfApi.recent. The shared `days` is sized
-                // for servers that post daily, and the Law Archive does not.
-                runCatching { OsfApi.recent(server, subjects, maxPages = osfPages) }
-                    .getOrDefault(emptyList())
-            )
+            // OSF keeps its own window: see OsfApi.recent. The shared `days` is sized for
+            // servers that post daily, and the Law Archive does not.
+            ask(server) { OsfApi.recent(server, subjects, maxPages = osfPages) }
         }
 
         val chem = Topics.categoriesOf(Source.CHEMRXIV, subscribed)
         if (chem.isNotEmpty()) {
-            label?.invoke("Fetching from ChemRxiv")
-            store(runCatching { ChemRxivApi.recent(chem, days = days) }.getOrDefault(emptyList()))
+            ask(Source.CHEMRXIV) { ChemRxivApi.recent(chem, days = days) }
         }
+
+        return Outcome(stored, failed)
     }
 
     /** Which servers a subscription would actually reach. Used by tests and diagnostics. */

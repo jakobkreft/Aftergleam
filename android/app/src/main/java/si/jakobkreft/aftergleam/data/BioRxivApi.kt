@@ -58,7 +58,10 @@ object BioRxivApi {
         var page = 0
         while (cursor < total && page < maxPages) {
             val body = get("https://api.biorxiv.org/details/$server/$from/$to/$cursor")
-                ?: break
+                // The first page failing is the server being unreachable, which is a
+                // different thing to say than "nothing was posted".
+                ?: if (page == 0) throw java.io.IOException("${Source.label(server)} did not answer")
+                else break
             val root = runCatching { JSONObject(body) }.getOrNull() ?: break
             total = root.optJSONArray("messages")
                 ?.optJSONObject(0)?.optString("total")?.toIntOrNull() ?: 0

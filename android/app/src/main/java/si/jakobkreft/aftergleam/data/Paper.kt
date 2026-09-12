@@ -132,6 +132,19 @@ data class Paper(
      */
     val readableInApp: Boolean get() = source != Source.CHEMRXIV
 
+    /**
+     * The identifier as its own archive writes it.
+     *
+     * The stored id carries the server, so that ids from seven archives cannot collide, and
+     * a detail screen printed that prefix straight out: "lawarchive:4vpd7_v1", which is the
+     * app's bookkeeping rather than anything the reader can look up. OSF calls it 4vpd7, and
+     * bioRxiv's is a DOI that reads better without the version suffix it uses internally.
+     */
+    val displayId: String get() = when (source) {
+        in Source.OSF_SERVERS -> id.substringAfter(':').substringBefore("_v")
+        else -> id
+    }
+
     /** Named only when it is not arXiv, so the common case carries no extra noise. */
     val sourceLabel: String? get() =
         if (source == Source.ARXIV) null else Source.label(source)

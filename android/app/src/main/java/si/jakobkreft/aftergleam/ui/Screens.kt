@@ -73,15 +73,37 @@ fun FeedScreen(
         state.error != null ->
             Message("Could not reach arXiv", state.error, "Try again", onRefresh)
 
-        // An empty feed is normal, not a failure: arXiv does not announce at weekends or
-        // on US holidays, so say that rather than showing an error.
-        state.emptyDay -> Message(
-            "Nothing new today",
-            "arXiv does not announce at weekends or on US holidays. Your next digest " +
-                "will pick up where this leaves off.",
-            "Check again",
-            onRefresh,
-        )
+        // An empty feed is usually normal rather than a failure, so it does not show an
+        // error. It has to name the right reason, though. This said "arXiv does not announce
+        // at weekends" to a reader who follows law and nothing else, on a day when the Law
+        // Archive had simply not answered: two claims in one sentence, both false, and both
+        // disprovable by the reader.
+        state.emptyDay -> {
+            val servers = state.activeSources
+            Message(
+                if (state.fetchFailures.isEmpty()) "Nothing new today" else "Could not check",
+                when {
+                    state.fetchFailures.isNotEmpty() ->
+                        "${state.fetchFailures.joinToString(" and ")} did not answer, so " +
+                            "there is nothing to show yet. This is usually temporary."
+
+                    // The weekend rule is arXiv's, and only arXiv's.
+                    servers == listOf("arXiv") ->
+                        "arXiv does not announce at weekends or on US holidays. Your next " +
+                            "digest will pick up where this leaves off."
+
+                    servers.isNotEmpty() ->
+                        "Nothing new in your subjects on ${servers.joinToString(" or ")}. " +
+                            "Smaller fields post a few papers a week rather than a few a day."
+
+                    else ->
+                        "Nothing new in your subjects yet. Your next digest will pick up " +
+                            "where this leaves off."
+                },
+                "Check again",
+                onRefresh,
+            )
+        }
 
         // Pull to refresh, because every other feed on the phone has it and its absence
         // reads as the screen being stuck.

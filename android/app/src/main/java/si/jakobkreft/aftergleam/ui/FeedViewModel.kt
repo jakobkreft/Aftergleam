@@ -64,6 +64,15 @@ data class FeedState(
     val reactions: Map<String, Reaction> = emptyMap(),
     val error: String? = null,
     val emptyDay: Boolean = false,
+    /**
+     * Servers that did not answer during the last fetch.
+     *
+     * Empty means the fetch worked and the day really is quiet. Non-empty means the screen
+     * must not call it a quiet day, because it does not know.
+     */
+    val fetchFailures: List<String> = emptyList(),
+    /** The servers this reader's subjects actually use, for saying whose quiet day it is. */
+    val activeSources: List<String> = emptyList(),
     val categories: Set<String> = emptySet(),
     val onboarded: Boolean = false,
     /** Papers carrying any signal at all. What the model actually learns from. */
@@ -137,6 +146,16 @@ data class FeedState(
     val explore: List<Scored> = emptyList(),
     val exploreLoading: Boolean = false,
     val popular: List<Paper> = emptyList(),
+    /** Why Popular has nothing in it, which is not always the same reason. */
+    val popularStatus: PopularStatus = PopularStatus.LOADING,
+    /**
+     * True when Explore has nothing left to offer beyond today's digest.
+     *
+     * Without it the "More papers" button stayed on screen after the last card, doing
+     * nothing when tapped, and every visit to the tab re-ranked eight hundred candidates to
+     * arrive at the same empty list.
+     */
+    val exploreExhausted: Boolean = false,
     val searchOpen: Boolean = false,
     val theme: String = "system",
     val paperSerif: Boolean = true,
@@ -221,6 +240,36 @@ data class SurveyState(
     val enough: Boolean get() = liked.size + seeded >= Ranker.MIN_RATINGS
 }
 
+/**
+ * The three ways Popular can be empty, which need three different things said about them.
+ *
+ * "This fills in once a digest has been fetched" was printed for all of them. For a reader
+ * who follows law that sentence is simply false: the digest had been fetched, it worked, and
+ * Popular will still be empty tomorrow, because the signal it ranks by does not cover their
+ * field. A screen that explains its emptiness with something the reader can disprove is
+ * worse than one that says nothing.
+ */
+enum class PopularStatus {
+    LOADING,
+
+    /** Ranked papers are on screen. */
+    READY,
+
+    /** Nothing has been fetched yet, so the old sentence was the true one. */
+    NO_PAPERS,
+
+    /**
+     * Papers are here, and not one of them carries a signal this surface can rank by.
+     *
+     * Popular is upvotes on the Hugging Face daily list, which covers arXiv and leans
+     * heavily towards machine learning, plus conference acceptances read off arXiv comments
+     * and bioRxiv's journal field. OSF and ChemRxiv publish neither, and neither does most
+     * of arXiv outside the machine learning corner. For those readers this is permanent, and
+     * saying so is the only useful thing the screen can do.
+     */
+    NO_SIGNAL,
+}
+
 class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
@@ -234,6 +283,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
          * reader can stop at any point and the answers so far still count.
          */
         const val SURVEY_CARDS = 12
+
+        /**
+         * Papers the survey leaves for the first digest, when there are that few to begin
+         * with. Ignored by any field that posts more than a handful a day, which is all of
+         * the ones the survey was originally sized against.
+         */
+        const val SURVEY_RESERVE = 5
 
         /** How long a subject selection must hold still before it is worth fetching. */
         const val SELECTION_SETTLE_MS = 1_200L
@@ -490,10 +546,25 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val seen = (current.deck.map { it.second.id } + current.liked.map { it.second.id })
             .toMutableSet()
         val deck = current.deck.toMutableList()
+
+        // How many cards this deck is allowed to grow to.
+        //
+        // The survey draws from the same papers the first digest will. In a field that posts
+        // hundreds a day that costs nothing, and it was the only case this was ever built
+        // for. A reader who follows law has about six papers a fortnight: the survey asked
+        // about all six, every one became finished business, and "Show me today" opened on
+        // an empty digest on the reader's first morning. The survey needs three keepers to
+        // switch ranking on, and beyond that it can afford to leave the rest alone.
+        val available = pools.flatMap { it.second }.distinctBy { it.id }.size
+        val cap = minOf(
+            SURVEY_CARDS,
+            maxOf(Ranker.MIN_RATINGS, available - SURVEY_RESERVE),
+        )
+
         var depth = 0
-        while (deck.size < SURVEY_CARDS && pools.any { depth < it.second.size }) {
+        while (deck.size < cap && pools.any { depth < it.second.size }) {
             for ((probe, pool) in pools) {
-                if (deck.size >= SURVEY_CARDS) break
+                if (deck.size >= cap) break
                 val paper = pool.getOrNull(depth) ?: continue
                 if (!seen.add(paper.id)) continue
                 deck += probe to paper
@@ -705,7 +776,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             onStored?.invoke()
         }
 
-        Fetcher.fetch(subscribed, label = { label?.invoke(it) }) { store(it) }
+        val outcome = Fetcher.fetch(subscribed, label = { label?.invoke(it) }) { store(it) }
+        // Recorded so an empty digest can say which of the two it is: a quiet day, or a
+        // server that did not answer. They look identical from here otherwise.
+        _state.value = _state.value.copy(
+            fetchFailures = outcome.failed,
+            activeSources = Fetcher.serversFor(subscribed).map { Source.label(it) }.sorted(),
+        )
         prefs.lastFetchMillis = System.currentTimeMillis()
         prefs.fetchedCategories = prefs.fetchedCategories + subscribed
         return total
@@ -829,6 +906,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             loading = false,
             cards = cards,
+            // The digest just changed, so what is left over has changed with it. Dropping
+            // both lets Explore look again; without this, a tab that had run out stayed run
+            // out even after a fetch brought new papers in.
+            explore = emptyList(),
+            exploreExhausted = false,
             reactions = reactions,
             emptyDay = cards.isEmpty(),
             // `rated` includes the seed documents built from the chosen subjects, which the
@@ -1438,6 +1520,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun loadExplore(more: Boolean = false) {
         if (_state.value.exploreLoading) return
+        // Nothing has changed since the last look, so ranking eight hundred candidates again
+        // would spend seconds to rebuild the same empty list.
+        if (more && _state.value.exploreExhausted) return
         val cats = _state.value.categories.toList()
         if (cats.isEmpty()) return
         _state.value = _state.value.copy(exploreLoading = true)
@@ -1474,6 +1559,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(
                 exploreLoading = false,
                 explore = if (more) _state.value.explore + cards else cards,
+                // A page that came back short is the last page. Asking again returns the
+                // same nothing, and the button that asks should stop being offered.
+                exploreExhausted = cards.size < EXPLORE_PAGE,
             )
         }
     }
@@ -1487,9 +1575,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun loadPopular() {
         viewModelScope.launch {
-            val papers = withContext(Dispatchers.IO) {
+            val (papers, status) = withContext(Dispatchers.IO) {
                 val attention = _state.value.attention
-                db.recentPapers(limit = 600)
+                val pool = db.recentPapers(limit = 600)
+                val ranked = pool
                     .map { p ->
                         p to (Attention.score(attention[p.id] ?: 0) * 2f + Venue.score(p))
                     }
@@ -1497,8 +1586,16 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     .sortedByDescending { it.second }
                     .take(60)
                     .map { it.first }
+                // Told apart rather than lumped together: whether anything has been fetched
+                // at all is the difference between "wait" and "this will never fill".
+                val status = when {
+                    ranked.isNotEmpty() -> PopularStatus.READY
+                    pool.isEmpty() -> PopularStatus.NO_PAPERS
+                    else -> PopularStatus.NO_SIGNAL
+                }
+                ranked to status
             }
-            _state.value = _state.value.copy(popular = papers)
+            _state.value = _state.value.copy(popular = papers, popularStatus = status)
         }
     }
 

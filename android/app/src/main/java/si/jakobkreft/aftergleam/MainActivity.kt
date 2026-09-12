@@ -198,6 +198,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
         // while the import owns the screen, and coming back from a ten minute import to a
         // closed settings screen is its own small loss of place.
         var showTune by rememberSaveable { mutableStateOf(false) }
+        // Which settings page to land on. Popular and Explore can both run out of papers
+        // through no fault of the reader, and the fix for both is in Subjects.
+        var tuneStart by rememberSaveable { mutableStateOf<String?>(null) }
+        val browseSubjects = { tuneStart = "SUBJECTS"; showTune = true }
 
         // Above everything, onboarding included. An import is minutes long and every other
         // screen in the app has a way off it, so the only way to guarantee it is not walked
@@ -403,7 +407,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     // settings page before it leaves settings.
                     Column {
                         TuneScreen(
-                            onClose = { showTune = false },
+                            startPage = tuneStart,
+                            onClose = { showTune = false; tuneStart = null },
                             digestSize = vm.currentDigestSize(),
                             quality = vm.currentQualityWeight(),
                             exploration = vm.currentExplorationRate(),
@@ -464,7 +469,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onRestore = { restoreBackup.launch(arrayOf("*/*")) },
                             backupSummary = state.backupSummary,
                             onReset = vm::resetModel,
-                            onApply = { vm.rerank(); showTune = false },
+                            onApply = { vm.rerank(); showTune = false; tuneStart = null },
                         )
                     }
                 }
@@ -474,7 +479,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
 
         LaunchedEffect(tab) {
             when (tab) {
-                Tab.EXPLORE -> if (state.explore.isEmpty()) vm.loadExplore()
+                // Not retried while it is known to be empty: ranking eight hundred
+                // candidates on every visit to rebuild the same empty list is seconds spent
+                // to learn nothing. A rebuilt digest clears the flag.
+                Tab.EXPLORE -> if (state.explore.isEmpty() && !state.exploreExhausted) {
+                    vm.loadExplore()
+                }
                 // Both are precomputed once the digest lands, so this is only the fallback
                 // for a tab reached before that finished.
                 Tab.POPULAR -> if (state.popular.isEmpty()) vm.loadPopular()
@@ -554,12 +564,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onSave = vm::toggleSave,
                         onOpen = vm::openDetail,
                         onMore = { vm.loadExplore(more = true) },
+                        onBrowseSubjects = browseSubjects,
                     )
                     Tab.POPULAR -> PopularScreen(
                         state = state,
                         onSteer = vm::steer,
                         onSave = vm::toggleSave,
                         onOpen = vm::openDetail,
+                        onBrowseSubjects = browseSubjects,
                     )
                     Tab.LIBRARY -> LibraryScreen(
                         saved = state.saved,

@@ -237,7 +237,7 @@ private fun Question(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(paper.displayCategories.joinToString(" "),
+                Text(paper.displayCategories.joinToString(", "),
                     style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -271,6 +271,29 @@ private fun Question(
 
 @Composable
 private fun Finished(survey: SurveyState, onFinish: () -> Unit) {
+    // Nothing was ever asked, so there is no score to report. A law reader saw "You kept 0
+    // of 0. That is a thin start", which reads as a judgement on answers they never gave:
+    // the survey draws its cards from papers already on the device, and a field the app had
+    // not fetched yet has none to draw.
+    if (survey.seen == 0) {
+        Text("Nothing to ask about yet", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (survey.seeded > 0)
+                "Your subjects had no papers on the device to ask you about, so the survey " +
+                    "was skipped. The ${survey.seeded} from your library are enough to start."
+            else
+                "Your subjects had no papers on the device to ask you about, so the survey " +
+                    "was skipped. Smaller fields post a few papers a week, and the first " +
+                    "digest will fetch them. Rate a few there and the ranking starts from " +
+                    "the same place.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) { Text("Show me today") }
+        return
+    }
+
     Text("Ready", style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(8.dp))
     Text(

@@ -72,7 +72,10 @@ object OsfApi {
         provider: String,
         subjects: Set<String>,
         days: Long = 14,
-        maxPages: Int = 4,
+        // Two pages is a hundred records, newest first, which is several days of the busiest
+        // server. Four pages bought little and cost up to a hundred seconds at the slow end
+        // of the latency above.
+        maxPages: Int = 2,
         today: LocalDate = LocalDate.now(),
     ): List<Paper> = withContext(Dispatchers.IO) {
         if (subjects.isEmpty()) return@withContext emptyList()
@@ -87,7 +90,12 @@ object OsfApi {
                 "&filter%5Bdate_published%5D%5Bgte%5D=" + enc(since) +
                 "&page%5Bsize%5D=$PAGE&page=$page" +
                 "&fields%5Bpreprints%5D=" + enc(FIELDS)
-            val body = get(url) ?: break
+            val body = get(url)
+                // Distinguished from "this server has nothing": returning an empty list for
+                // both is what let a timed out Law Archive be reported to the reader as a
+                // quiet day. Later pages may stop quietly, since by then there is real data.
+                ?: if (page == 1) throw java.io.IOException("${Source.label(provider)} did not answer")
+                else break
             val root = runCatching { JSONObject(body) }.getOrNull() ?: break
             val items = root.optJSONArray("data") ?: break
             if (items.length() == 0) break
@@ -181,7 +189,12 @@ object OsfApi {
             setRequestProperty("User-Agent", UA)
             setRequestProperty("Accept", "application/json")
             connectTimeout = 20_000
-            readTimeout = 30_000
+            // Generous, because OSF is genuinely slow and erratic with it: the same request
+            // for fifty records measured 12.8s once and 26.5s an hour later. At a thirty
+            // second read timeout the slow half of that range returns null, and null here
+            // is indistinguishable from a server with no papers, so psychology and law would
+            // quietly empty out for reasons nobody could see.
+            readTimeout = 60_000
         }
         try {
             if (conn.responseCode != 200) null

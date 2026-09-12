@@ -66,6 +66,8 @@ private enum class Page(val title: String, val summary: String) {
 
 @Composable
 fun TuneScreen(
+    /** Opens straight at this page, for the screens that send the reader here to fix something. */
+    startPage: String? = null,
     digestSize: Int,
     quality: Float,
     exploration: Float,
@@ -105,9 +107,18 @@ fun TuneScreen(
     onApply: () -> Unit,
     onClose: () -> Unit,
 ) {
-    var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    var page by rememberSaveable {
+        mutableStateOf(Page.entries.firstOrNull { it.name == startPage })
+    }
     // Deeper than the overlay's own handler, so it wins: back leaves the page first.
-    BackHandler(enabled = page != null) { page = null }
+    //
+    // Unless this page was opened directly from somewhere else, in which case back returns
+    // there. A reader sent here from Explore to widen their subjects never saw the settings
+    // index, and being dropped on it by the back gesture is being moved somewhere they have
+    // not been.
+    BackHandler(enabled = page != null) {
+        if (startPage != null && page?.name == startPage) onClose() else page = null
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {

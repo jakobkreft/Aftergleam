@@ -18,9 +18,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,12 +46,39 @@ fun ExploreScreen(
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
     onMore: () -> Unit,
+    onBrowseSubjects: () -> Unit,
 ) {
     // The same placeholder cards the digest uses. A bare spinner on an empty screen reads
     // as "something is wrong" rather than "something is coming", and this surface waits
     // longer than the digest does because it ranks eight hundred candidates.
     if (state.explore.isEmpty() && state.exploreLoading) {
         DigestSkeleton("Looking wider than your digest")
+        return
+    }
+
+    // Explore is what did not make today's digest. In a narrow subject the digest takes
+    // everything there is, and the screen used to answer that by showing its "deliberately
+    // less sure of itself" header over nothing, above a More papers button that could only
+    // ever return the same nothing.
+    if (state.explore.isEmpty()) {
+        Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+            Text("Today's digest has all of it", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "This page shows the papers your subjects produced that did not fit in the " +
+                    "digest. Right now there are none left over, which means nothing is " +
+                    "being kept from you.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "It fills up on its own as more papers arrive in the subjects you follow.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(onClick = onBrowseSubjects) { Text("Choose more subjects") }
+        }
         return
     }
 
@@ -86,10 +115,19 @@ fun ExploreScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     CircularProgressIndicator()
                 }
-            } else {
+            } else if (!state.exploreExhausted) {
                 Button(onClick = onMore, modifier = Modifier.fillMaxWidth()) {
                     Text("More papers")
                 }
+            } else {
+                // The end of the list, said once, rather than a button that does nothing.
+                Text(
+                    "That is everything outside today's digest.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
             }
             Spacer(Modifier.height(24.dp))
         }
