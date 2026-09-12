@@ -30,7 +30,7 @@ class PdfStoreTest {
     private fun store() = PdfStore(ctx).also { runBlocking { it.deleteAll() } }
 
     private fun fakeDownload(store: PdfStore, id: String, bytes: Int) {
-        store.cachedFile(id).writeBytes(ByteArray(bytes))
+        store.fileFor(id).writeBytes(ByteArray(bytes))
     }
 
     @Test
@@ -102,5 +102,48 @@ class PdfStoreTest {
         assertEquals(4096L, s.sizeOf(doi))
         runBlocking { s.delete(doi) }
         assertFalse(s.isCached(doi))
+    }
+
+    @Test
+    fun `a download is recognised by its bytes, not its name`() {
+        val s = store()
+        val real = s.fileFor("pdf-paper")
+        real.writeBytes("%PDF-1.7\nbody".toByteArray())
+        assertTrue("a real PDF must be renderable", s.looksLikePdf(real))
+
+        // The Law Archive case: a .docx that the app used to save under a .pdf name and
+        // then hand to PdfRenderer, which opened nothing and reported nothing.
+        val word = s.fileFor("word-paper", "pdf")
+        word.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00))
+        assertTrue("a zip container is not a PDF whatever it is called", !s.looksLikePdf(word))
+    }
+
+    @Test
+    fun `a cached download is found whatever extension it has`() {
+        val s = store()
+        s.fileFor("osf-paper", "docx").writeBytes(ByteArray(120))
+        assertTrue("a downloaded paper counts as downloaded", s.isCached("osf-paper"))
+        assertEquals(120L, s.sizeOf("osf-paper"))
+        assertEquals("docx", s.cachedFile("osf-paper")?.extension)
+    }
+
+    @Test
+    fun `deleting works for a download that is not a PDF`() {
+        val s = store()
+        s.fileFor("osf-paper", "docx").writeBytes(ByteArray(120))
+        runBlocking { s.delete("osf-paper") }
+        assertTrue("the file should be gone", !s.isCached("osf-paper"))
+    }
+
+    @Test
+    fun `each format is offered to apps under its own media type`() {
+        val s = store()
+        assertEquals("application/pdf", s.mimeOf(s.fileFor("a", "pdf")))
+        assertEquals(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            s.mimeOf(s.fileFor("b", "docx")),
+        )
+        // Unknown formats still open, with the chooser deciding.
+        assertEquals("*/*", s.mimeOf(s.fileFor("c", "qqq")))
     }
 }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the downloads directory is shared, and only for handing one file to a reader app.
+  A download that is not a PDF cannot be rendered here, and a file URI cannot be passed to
+  another app at all, so it goes out as a content URI scoped to this one folder.
+-->
+<paths>
+    <cache-path name="downloads" path="pdf/" />
+</paths>

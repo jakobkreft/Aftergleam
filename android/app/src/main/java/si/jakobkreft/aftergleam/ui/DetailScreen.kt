@@ -6,6 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -21,6 +25,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +47,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +72,7 @@ import kotlin.math.roundToInt
  * control is the same one as on the card, and the PDF opens below rather than throwing the
  * user into a browser and losing their place in the digest.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(
     paper: Paper,
@@ -83,18 +97,46 @@ fun DetailScreen(
     // would close the PDF the reader had open.
     var showPdf by rememberSaveable(paper.id) { mutableStateOf(store.isCached(paper.id)) }
 
+    // What opening this paper means, decided once. The title and the button at the foot do
+    // the same thing, and a reader who taps a title expects to be reading, not to find out
+    // that the tappable part was somewhere else.
+    val open: () -> Unit = { if (paper.readableInApp) onRead() else onOpenExternal(paper.absUrl) }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            // Just "Back". This screen is reached from the digest, Explore, Popular, the
-            // library, a search and an earlier digest, and it said "Back to digest" from
-            // all six.
-            TextButton(onClick = onBack) { Text("Back") }
+            // Back on the left, the three judgements on the right.
+            //
+            // They already sit on every card and at the foot of this screen, but this is
+            // where the reader is when they have actually read the abstract and formed the
+            // opinion, and the abstract can be long enough that the controls below it are
+            // several scrolls away. The same three icons in the same order as the cards, so
+            // there is nothing new to learn.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Just "Back". This screen is reached from the digest, Explore, Popular, the
+                // library, a search and an earlier digest, and it said "Back to digest" from
+                // all six.
+                TextButton(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                DetailAction(Icons.Filled.Clear, liked == false, "Less like this") {
+                    onSteer(if (liked == false) null else false)
+                }
+                DetailAction(Icons.Filled.Favorite, liked == true, "More like this") {
+                    onSteer(if (liked == true) null else true)
+                }
+                DetailAction(
+                    painterResource(si.jakobkreft.aftergleam.R.drawable.ic_bookmark),
+                    reaction.saved,
+                    if (reaction.saved) "Saved" else "Save for later",
+                    onSave,
+                )
+            }
             Text(
                 paper.displayTitle,
+                modifier = Modifier.clickable(onClick = open),
                 style = MaterialTheme.typography.titleLarge,
                 fontFamily = LocalPaperFont.current,
                 fontWeight = FontWeight.SemiBold,
@@ -143,36 +185,96 @@ fun DetailScreen(
 
             InterestControl(confidence, liked, modelActive, onSteer)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // FlowRow, not Row. Three buttons whose widths depend on the source name and on
+            // the reader's font size do not fit every phone: on a narrower screen the last
+            // one was squeezed until its label broke across two lines and read "Sh-are". A
+            // button that will not fit now moves to the next line instead, and no label is
+            // ever allowed to break inside a word.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 OutlinedButton(onClick = onSave) {
-                    Text(if (reaction.saved) "Saved" else "Save for later")
+                    ButtonLabel(if (reaction.saved) "Saved" else "Save for later")
                 }
                 OutlinedButton(onClick = { onOpenExternal(paper.absUrl) }) {
-                    Text("On " + Source.label(paper.source))
+                    ButtonLabel("On " + Source.label(paper.source))
                 }
-                OutlinedButton(onClick = onShare) { Text("Share") }
+                OutlinedButton(onClick = onShare) { ButtonLabel("Share") }
             }
             Spacer(Modifier.height(12.dp))
 
-            val cached = store.isCached(paper.id)
-            Button(
-                onClick = { if (paper.readableInApp) onRead() else onOpenExternal(paper.absUrl) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
+            val downloaded = store.cachedFile(paper.id)
+            // Once the file is here its type is known, so the button can say what pressing
+            // it will actually do. A Word document labelled "Read" leads to a screen whose
+            // only purpose is to explain that it cannot be read here.
+            val needsAnotherApp = downloaded != null && !store.looksLikePdf(downloaded)
+            Button(onClick = open, modifier = Modifier.fillMaxWidth()) {
+                ButtonLabel(
                     when {
                         !paper.readableInApp -> "Read on " + Source.label(paper.source)
-                        cached -> "Read"
+                        needsAnotherApp -> "Open with another app"
+                        downloaded != null -> "Read"
                         else -> "Download and read"
                     }
                 )
             }
-            if (!cached && paper.readableInApp) {
+            if (downloaded == null && paper.readableInApp) {
                 Text(
                     "Downloads once and stays available offline.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
+    }
+}
+
+/** A button label that never breaks inside a word, whatever the screen or the font scale. */
+@Composable
+private fun ButtonLabel(text: String) {
+    Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+}
+
+/**
+ * One of the three judgements, in the header.
+ *
+ * Deliberately the same icons, order and active colouring as the cards use, because they are
+ * the same three actions and a second visual language for them would only be a second thing
+ * to learn.
+ */
+@Composable
+private fun DetailAction(
+    icon: ImageVector,
+    active: Boolean,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+/** The same, for an icon that had to be drawn rather than imported. */
+@Composable
+private fun DetailAction(
+    icon: Painter,
+    active: Boolean,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }

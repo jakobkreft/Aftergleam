@@ -28,12 +28,37 @@ class PdfStore(private val context: Context) {
 
     private val dir = File(context.cacheDir, "pdf").apply { mkdirs() }
 
-    fun cachedFile(paperId: String): File = File(dir, paperId.replace('/', '_') + ".pdf")
+    /**
+     * The cache name for a paper, without an extension.
+     *
+     * The extension is not decided here because it is not known until the bytes arrive. A
+     * preprint server hands over whatever the author uploaded, and the Law Archive really
+     * does serve Word documents: one paper downloaded as a .docx, was saved as a .pdf
+     * because that is what the app called every download, and the reader then sat on a
+     * spinner forever because PdfRenderer could not open it and nothing said so.
+     */
+    private fun base(paperId: String) = paperId.replace('/', '_')
 
-    fun isCached(paperId: String) = cachedFile(paperId).let { it.exists() && it.length() > 0 }
+    /**
+     * Where a download for this paper would live, whether or not it is there yet.
+     *
+     * Separate from [cachedFile], which answers the different question of what is actually
+     * on disk. Callers that want to read a download want that one.
+     */
+    fun fileFor(paperId: String, extension: String = "pdf"): File =
+        File(dir, base(paperId) + "." + extension)
+
+    /** The downloaded file for a paper, whatever type it turned out to be, or null. */
+    fun cachedFile(paperId: String): File? {
+        val stem = base(paperId)
+        return dir.listFiles()
+            ?.firstOrNull { it.name.substringBeforeLast('.') == stem && it.length() > 0 }
+    }
+
+    fun isCached(paperId: String) = cachedFile(paperId) != null
 
     /** Bytes on disk for one paper, or zero if it is not downloaded. */
-    fun sizeOf(paperId: String): Long = cachedFile(paperId).let { if (it.exists()) it.length() else 0L }
+    fun sizeOf(paperId: String): Long = cachedFile(paperId)?.length() ?: 0L
 
     /** Everything the store is holding, which is the number a reader wants to see. */
     fun totalBytes(): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L
@@ -50,7 +75,7 @@ class PdfStore(private val context: Context) {
      * find again is the sort of thing that is fine until it is not.
      */
     suspend fun delete(paperId: String): Boolean {
-        val file = cachedFile(paperId)
+        val file = cachedFile(paperId) ?: return false
         if (openFile == file) release()
         return withContext(Dispatchers.IO) { file.delete() }
     }
@@ -72,8 +97,7 @@ class PdfStore(private val context: Context) {
      * and the paper is the only thing that knows which server it came from.
      */
     suspend fun download(paper: Paper): File = withContext(Dispatchers.IO) {
-        val target = cachedFile(paper.id)
-        if (target.exists() && target.length() > 0) return@withContext target
+        cachedFile(paper.id)?.let { return@withContext it }
 
         val url = paper.pdfUrl
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -90,8 +114,17 @@ class PdfStore(private val context: Context) {
             }
             // Write to a temporary name first, so an interrupted download cannot leave a
             // truncated file that later looks cached and renders as a corrupt document.
-            val partial = File(dir, target.name + ".part")
+            val partial = File(dir, base(paper.id) + ".part")
             conn.inputStream.use { input -> partial.outputStream().use { input.copyTo(it) } }
+
+            // What arrived, rather than what was asked for. The server's own name for the
+            // file is the best evidence, and the first bytes are the tiebreak: a PDF starts
+            // "%PDF" and the Office formats are zip archives starting "PK".
+            val named = conn.getHeaderField("Content-Disposition")
+                ?.let { Regex("""filename="?([^";]+)""").find(it)?.groupValues?.get(1) }
+            val ext = extensionFor(named, partial)
+            val target = fileFor(paper.id, ext)
+            target.delete()
             if (!partial.renameTo(target)) {
                 partial.delete()
                 throw DownloadError("Could not save the download")
@@ -100,6 +133,42 @@ class PdfStore(private val context: Context) {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /**
+     * The extension a downloaded file should carry.
+     *
+     * Trusts the sniffed bytes over the server's filename, because the extension decides
+     * whether the app tries to render the file and which app it is offered to if it cannot.
+     */
+    private fun extensionFor(filename: String?, file: File): String {
+        if (looksLikePdf(file)) return "pdf"
+        val fromName = filename?.substringAfterLast('.', "")?.lowercase()
+        return if (!fromName.isNullOrBlank() && fromName.length <= 5) fromName else "bin"
+    }
+
+    /** True when the file really is a PDF, whatever it is called. */
+    fun looksLikePdf(file: File): Boolean = runCatching {
+        file.inputStream().use { input ->
+            val head = ByteArray(5)
+            if (input.read(head) < 5) return@use false
+            String(head, Charsets.US_ASCII) == "%PDF-"
+        }
+    }.getOrDefault(false)
+
+    /** A guess at the media type, for handing the file to an app that can read it. */
+    fun mimeOf(file: File): String = when (file.extension.lowercase()) {
+        "pdf" -> "application/pdf"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "doc" -> "application/msword"
+        "odt" -> "application/vnd.oasis.opendocument.text"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "txt" -> "text/plain"
+        "rtf" -> "application/rtf"
+        "epub" -> "application/epub+zip"
+        "zip" -> "application/zip"
+        else -> "*/*"
     }
 
     // One open renderer per file, reused across pages.

@@ -10,6 +10,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -291,6 +296,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             Text(state.readingError!!)
                             TextButton(onClick = vm::closeReader) { Text("Back") }
                         }
+
+                        // Downloaded, but not something this reader can draw. Saying so and
+                        // offering it to an app that can is the whole of the fix: the file
+                        // is on the device either way.
+                        state.readingUnsupported != null -> UnsupportedFile(
+                            file = state.readingUnsupported!!,
+                            onBack = vm::closeReader,
+                        )
                         file == null -> Box(
                             Modifier.fillMaxSize(),
                             contentAlignment = androidx.compose.ui.Alignment.Center,
@@ -609,6 +622,60 @@ private fun App(vm: FeedViewModel = viewModel()) {
  * of the advertising: a colleague who wants the app can act on it, and one who does not has
  * lost a line.
  */
+/**
+ * A download the in-app reader cannot render.
+ *
+ * Preprint servers hand over whatever the author uploaded, and the Law Archive serves Word
+ * documents often enough that this is ordinary rather than exceptional. So it reads as a
+ * fact about the file rather than as a failure, and offers the one useful action. Before
+ * this the reader sat on "Fetching the PDF" forever, because a file that PdfRenderer cannot
+ * open reports no pages and nothing told the difference between that and a slow download.
+ */
+@Composable
+private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) }
+    val kind = when (file.extension.lowercase()) {
+        "docx", "doc", "odt", "rtf" -> "a Word document"
+        "pptx", "ppt" -> "a slide deck"
+        "xlsx", "xls" -> "a spreadsheet"
+        "zip" -> "an archive"
+        else -> "a ${file.extension.uppercase()} file"
+    }
+    Column(
+        Modifier.fillMaxSize().padding(28.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("Not a PDF", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "The author uploaded $kind, so it cannot be shown here. It is downloaded, and " +
+                "any app that reads that format can open it.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context, context.packageName + ".files", file,
+                )
+                val view = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, store.mimeOf(file))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                // A chooser rather than a direct launch: on a phone with nothing installed
+                // for the format, startActivity throws and the button looks broken.
+                runCatching {
+                    context.startActivity(Intent.createChooser(view, "Open with"))
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Open with another app") }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+    }
+}
+
 private fun sharePaper(context: android.content.Context, paper: Paper) {
     val share = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"

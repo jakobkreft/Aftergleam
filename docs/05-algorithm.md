@@ -1170,3 +1170,45 @@ OSF's unreliability is worth recording: across one afternoon the same request re
 that range into silent emptiness. The live tests skip when a server does not answer, so they
 check our parsing rather than somebody else's uptime.
 
+## Not every preprint is a PDF
+
+A Law Archive paper downloaded, and the reader showed "Fetching the PDF" and never stopped.
+The file was a .docx. Preprint servers hand over whatever the author uploaded, and OSF serves
+Word documents often enough that this is ordinary rather than exceptional.
+
+Everything downloaded was named `.pdf`, because that is what the app called every download.
+PdfRenderer opened the .docx, failed, and reported no pages, which is indistinguishable from a
+document still arriving. So the spinner was correct about what it knew and wrong about
+everything else.
+
+Downloads are now identified by their bytes rather than by what was asked for: a PDF starts
+`%PDF-`, the Office formats are zip containers starting `PK`, and the server's own
+Content-Disposition filename supplies the extension. The cache keeps the real extension, which
+is also what decides the media type when the file is handed to another app.
+
+A file the reader cannot draw now says so and offers it to an app that can, through a
+FileProvider, since a `file://` URI cannot be passed to another app at all. It goes out via a
+chooser rather than a direct launch, because on a phone with nothing installed for the format
+`startActivity` throws and the button looks broken. Once the file is on the device its type is
+known, so the button says "Open with another app" rather than "Read" and the explanation
+screen is never reached.
+
+Nothing else changes for those papers: they are downloaded, they are on the offline shelf, they
+rank the same. Only the rendering is beyond us.
+
+## Three details on the abstract screen
+
+**"Sh-are".** The three actions sat in a fixed `Row`, and their widths depend on the source
+name and on the reader's font scale. On a narrower screen the last was squeezed until its label
+broke across two lines. They are in a `FlowRow` now, so a button that will not fit moves to the
+next line, and no label may break inside a word.
+
+**The judgements moved to the header as well.** They already sat on every card and at the foot
+of this screen, but this is where the reader is when they have actually read the abstract and
+formed the opinion, and an abstract can be long enough that the foot is several scrolls away.
+The same three icons in the same order as the cards, so there is nothing new to learn.
+
+**The title opens the paper.** It is the most obvious thing on the screen to press and it did
+nothing. It does exactly what the button at the foot does, decided in one place so the two
+cannot drift apart.
+

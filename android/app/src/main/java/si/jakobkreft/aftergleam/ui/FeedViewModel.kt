@@ -175,6 +175,14 @@ data class FeedState(
     val reading: Paper? = null,
     val readingFile: java.io.File? = null,
     val readingError: String? = null,
+    /**
+     * A download the in-app reader cannot render, waiting to be handed to another app.
+     *
+     * Preprint servers serve whatever the author uploaded, and the Law Archive really does
+     * serve Word documents. That one arrived as a .docx, and because the reader only knew
+     * how to show PDFs it showed its loading state and never stopped.
+     */
+    val readingUnsupported: java.io.File? = null,
     val readingPage: Int = 0,
 ) {
     /**
@@ -1767,6 +1775,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             reading = paper,
             readingFile = null,
             readingError = null,
+            readingUnsupported = null,
             readingPage = prefs.lastPage(paper.id),
         )
         viewModelScope.launch {
@@ -1785,8 +1794,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // nothing rebuilt it and a paper that had plainly just downloaded was not
                 // on the list of downloads.
                 val onShelf = _state.value.downloaded.any { it.id == paper.id }
+                // Checked by its bytes rather than its name. Rendering is the only thing
+                // that cannot cope; the paper is still downloaded, still on the offline
+                // shelf, and still readable in whatever app owns that format.
+                val renderable = store.looksLikePdf(file)
                 _state.value = _state.value.copy(
-                    readingFile = file,
+                    readingFile = if (renderable) file else null,
+                    readingUnsupported = if (renderable) null else file,
                     evidence = db.evidence(),
                     downloaded = if (onShelf) _state.value.downloaded
                     else _state.value.downloaded + paper,
@@ -1802,7 +1816,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun closeReader() {
         readerDwell?.cancel()
         readerDwell = null
-        _state.value = _state.value.copy(reading = null, readingFile = null, readingError = null)
+        _state.value = _state.value.copy(
+            reading = null, readingFile = null, readingError = null, readingUnsupported = null,
+        )
     }
 
     /** Where the reader stopped, so a long paper reopens where it was left. */
