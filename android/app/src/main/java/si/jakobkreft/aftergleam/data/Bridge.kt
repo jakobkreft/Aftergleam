@@ -56,6 +56,20 @@ object Bridge {
         "q-bio.NC" to listOf("cs.NE", "cs.LG", "physics.bio-ph"),
         "math.OC" to listOf("cs.LG", "math.NA", "eess.SY"),
         "astro-ph.GA" to listOf("astro-ph.IM", "physics.data-an", "cs.LG"),
+
+        // The servers with no arXiv, wired in the same way and for the same reason. A
+        // cognitive scientist reading q-bio.NC and a psychologist reading PsyArXiv are
+        // working on the same questions in two archives that never mention each other.
+        "physics.chem-ph" to listOf("chemrxiv:chemistry", "cond-mat.mtrl-sci"),
+        "cond-mat.mtrl-sci" to listOf("chemrxiv:chemistry", "physics.app-ph"),
+        "q-bio.BM" to listOf("chemrxiv:chemistry", "biorxiv:biophysics"),
+        "chemrxiv:chemistry" to listOf("physics.chem-ph", "cond-mat.mtrl-sci", "q-bio.BM"),
+        "psyarxiv:cognitive psychology" to listOf("q-bio.NC", "cs.CL", "cs.HC"),
+        "psyarxiv:clinical psychology" to
+            listOf("medrxiv:psychiatry and clinical psychology", "medrxiv:neurology"),
+        "socarxiv:sociology" to listOf("cs.SI", "econ.GN", "physics.soc-ph"),
+        "edarxiv:education" to listOf("cs.CY", "psyarxiv:developmental psychology"),
+        "lawarchive:law" to listOf("cs.CY", "econ.GN"),
     )
 
     /** A short, non-empty list of categories to fetch a bridge pool from. */

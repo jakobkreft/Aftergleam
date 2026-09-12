@@ -152,10 +152,19 @@ fun DetailScreen(
             Spacer(Modifier.height(12.dp))
 
             val cached = store.isCached(paper.id)
-            Button(onClick = onRead, modifier = Modifier.fillMaxWidth()) {
-                Text(if (cached) "Read" else "Download and read")
+            Button(
+                onClick = { if (paper.readableInApp) onRead() else onOpenExternal(paper.absUrl) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    when {
+                        !paper.readableInApp -> "Read on " + Source.label(paper.source)
+                        cached -> "Read"
+                        else -> "Download and read"
+                    }
+                )
             }
-            if (!cached) {
+            if (!cached && paper.readableInApp) {
                 Text(
                     "Downloads once and stays available offline.",
                     style = MaterialTheme.typography.labelSmall,

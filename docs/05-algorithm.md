@@ -1058,3 +1058,64 @@ medRxiv, so no amount of taxonomy work reaches them. Two APIs would.
   them, so chemistry would arrive as one pool and the ranker would have to separate it, which
   is what the seed vocabularies already do.
 
+## Five fields that had no source
+
+Chemistry, psychology, social science, education and law are not on arXiv, bioRxiv or
+medRxiv. No amount of taxonomy work reaches them, so two APIs were added.
+
+**OSF Preprints** serves thirty-two preprint servers through one endpoint, which is the whole
+reason it is worth doing: four fields for one integration. Only the live ones are wired up.
+Measured by publications since 2026-08-01: PsyArXiv 1702, SocArXiv 848, EdArXiv 233, Law
+Archive 55. SportRxiv last published in 2021, engrXiv in 2022, EarthArXiv and AgriXiv in
+2020; pointing the app at those would be offering a subject that never updates. Records carry
+a hierarchical subject taxonomy, so a topic subscribes to the leaf, "Cognitive Psychology" or
+"Criminal Law", exactly as it does to a bioRxiv subject.
+
+**ChemRxiv through Crossref.** Its own API answers a plain client with a Cloudflare challenge
+and a 403. Crossref is the route that is meant to be used: every ChemRxiv preprint is
+registered under DOI prefix 10.26434 and Crossref serves the records openly, with abstracts.
+Crossref carries no subject for them, so chemistry arrives as one pool and the five chemistry
+topics share one category; their seed vocabularies are what separate organic from analytical,
+which is the same mechanism that already orders a digest. Abstracts arrive as JATS XML and
+are stripped, because markup left in becomes a model feature, as "matches textbf, reasoning,
+tasks" demonstrated once already.
+
+### Three things measurement changed
+
+**Nobody waits on a server they did not ask for.** Seven servers now, and no reader wants all
+seven. `Fetcher` asks a server only when the reader's own categories name one of its subjects,
+which falls out of `Topics.categoriesOf` returning an empty set for the rest. `FetcherTest`
+pins it: a computer scientist wakes arXiv alone, a lawyer wakes the Law Archive alone.
+
+**OSF costs payload, not requests.** Fifty records take 25s, a hundred take 55s, and asking
+for only the six fields the app reads halves it to 13s. Embedding contributors, which is the
+only way to get author names, costs more than everything else combined: 13s for ten records,
+27s for twenty-five, and a timeout past sixty for fifty. Authors were dropped. Nothing in the
+ranking reads an author and the byline already omits a missing one, so an OSF card reads
+"PsyArXiv · perception" where an arXiv card reads "Park et al. · cs.LG".
+
+**One window does not fit servers two orders of magnitude apart.** PsyArXiv posts around forty
+a working day and the Law Archive around nine a week. The three day window that serves the
+others returned 35 psychology papers and zero law papers, which on screen is indistinguishable
+from a server with nothing to say. OSF uses fourteen days. Results come back newest first and
+the page cap bounds the volume, so the wider window costs the busy servers nothing.
+
+ChemRxiv PDFs cannot be fetched at all: the DOI resolves to chemrxiv.org, which is the same
+Cloudflare wall. Those papers say "Read on ChemRxiv" and open a browser, which can pass the
+challenge, rather than offering a download button that always fails.
+
+## A hundred and fourteen topics needs a search box
+
+Fourteen fields is past the point where scrolling finds your own subject, and the reader who
+most needs the list is the one who does not know which field the app filed them under.
+
+The search reads topic labels, field labels, the archive codes and the seed vocabularies, so
+the word typed does not have to be one of the app's names for anything: "superconductivity"
+finds condensed matter, "qubit" finds quantum physics, "galaxy" finds astrophysics. Matching
+allows a six letter prefix, because the seeds say "superconducting" and nobody types that.
+
+That prefix rule immediately created its own bug. "physiotherapy" and "physiology" agree for
+six letters, and ranked together the physiology topics came first, above the topic actually
+called physiotherapy. A literal match now outranks a prefix match, and `TopicSearchTest` holds
+that case along with the words readers actually type.
+

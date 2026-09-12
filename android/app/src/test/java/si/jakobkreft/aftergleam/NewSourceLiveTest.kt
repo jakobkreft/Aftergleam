@@ -1,0 +1,99 @@
+package si.jakobkreft.aftergleam
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import si.jakobkreft.aftergleam.data.ChemRxivApi
+import si.jakobkreft.aftergleam.data.OsfApi
+import si.jakobkreft.aftergleam.data.Source
+
+/**
+ * Talks to OSF and Crossref for real.
+ *
+ * Skipped when there is no network, so it never fails a build for being offline. It is here
+ * because a parser written against two sample records is a guess about a format: the fields
+ * that matter are the ones that are missing on the thousandth record, not the first.
+ *
+ * Run with: ./gradlew testDebugUnitTest --tests '*NewSourceLive*'
+ *
+ * Robolectric because the parsers use org.json, which on a plain JVM is the Android stub
+ * whose every method throws. The first run of this test reported zero papers from both OSF
+ * servers, which looked exactly like a broken parser and was the stub being caught by the
+ * parser's own runCatching.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class NewSourceLiveTest {
+
+    private fun online(): Boolean = runCatching {
+        java.net.InetAddress.getByName("api.osf.io").isReachable(3_000) ||
+            java.net.Socket("api.osf.io", 443).use { true }
+    }.getOrDefault(false)
+
+    @Test
+    fun `psyarxiv returns usable papers`() = runBlocking {
+        assumeTrue("offline", online())
+        val papers = OsfApi.recent(
+            Source.PSYARXIV,
+            setOf("cognitive psychology", "clinical psychology", "social and behavioral sciences"),
+            days = 14,
+            maxPages = 1,
+        )
+        println("psyarxiv: ${papers.size} papers")
+        papers.take(3).forEach { println("   ${it.title.take(70)}  [${it.categories}]") }
+        assert(papers.isNotEmpty()) { "no papers came back" }
+        assert(papers.all { it.abstract.isNotBlank() }) { "a paper arrived with no abstract" }
+        assert(papers.all { it.source == Source.PSYARXIV }) { "wrong source stamped" }
+        assert(papers.all { it.categories.all { c -> c.startsWith("psyarxiv:") } }) {
+            "categories must stay qualified or they collide with arXiv's"
+        }
+        assert(papers.all { it.published.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }) {
+            "dates are not ISO: " + papers.map { it.published }.distinct().take(3)
+        }
+    }
+
+    @Test
+    fun `law archive returns usable papers`() = runBlocking {
+        assumeTrue("offline", online())
+        val papers = OsfApi.recent(
+            Source.LAWARCHIVE,
+            setOf("law", "constitutional law", "criminal law"),
+            days = 60,
+            maxPages = 1,
+        )
+        println("lawarchive: ${papers.size} papers")
+        papers.take(3).forEach { println("   ${it.title.take(70)}") }
+        assert(papers.isNotEmpty()) { "no papers came back" }
+    }
+
+    @Test
+    fun `chemrxiv returns usable papers with plain text abstracts`() = runBlocking {
+        assumeTrue("offline", online())
+        val papers = ChemRxivApi.recent(setOf(ChemRxivApi.CATEGORY), days = 5)
+        println("chemrxiv: ${papers.size} papers")
+        papers.take(3).forEach { println("   ${it.title.take(70)}") }
+        assert(papers.isNotEmpty()) { "no papers came back" }
+        assert(papers.all { it.abstract.isNotBlank() }) { "a paper arrived with no abstract" }
+        // The whole reason the abstract is cleaned: markup left in becomes a model feature.
+        val tag = Regex("<[a-zA-Z/][^>]*>")
+        assert(papers.none { tag.containsMatchIn(it.abstract) }) {
+            "markup survived into an abstract: " +
+                papers.first { tag.containsMatchIn(it.abstract) }.abstract.take(120)
+        }
+        assert(papers.all { it.authors.isNotEmpty() }) { "authors were dropped" }
+    }
+
+    @Test
+    fun `jats stripping leaves readable prose`() {
+        val cleaned = ChemRxivApi.stripJats(
+            "<jats:p>The quintet-to-singlet   process in [Fe(tpy)<jats:sub>2</jats:sub>]" +
+                "<jats:sup>2+</jats:sup> is studied &amp; compared.</jats:p>"
+        )
+        assert(cleaned == "The quintet-to-singlet process in [Fe(tpy) 2 ] 2+ is studied & compared.") {
+            "got: $cleaned"
+        }
+    }
+}

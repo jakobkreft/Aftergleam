@@ -22,9 +22,25 @@ object Source {
     const val BIORXIV = "biorxiv"
     const val MEDRXIV = "medrxiv"
 
+    // OSF hosts these; one API serves all of them. See OsfApi for which are still live.
+    const val PSYARXIV = "psyarxiv"
+    const val SOCARXIV = "socarxiv"
+    const val EDARXIV = "edarxiv"
+    const val LAWARCHIVE = "lawarchive"
+
+    const val CHEMRXIV = "chemrxiv"
+
+    /** The OSF-hosted servers, which share one API and one URL shape. */
+    val OSF_SERVERS = setOf(PSYARXIV, SOCARXIV, EDARXIV, LAWARCHIVE)
+
     fun label(source: String): String = when (source) {
         BIORXIV -> "bioRxiv"
         MEDRXIV -> "medRxiv"
+        PSYARXIV -> "PsyArXiv"
+        SOCARXIV -> "SocArXiv"
+        EDARXIV -> "EdArXiv"
+        LAWARCHIVE -> "Law Archive"
+        CHEMRXIV -> "ChemRxiv"
         else -> "arXiv"
     }
 
@@ -92,13 +108,29 @@ data class Paper(
     val absUrl: String get() = when (source) {
         Source.BIORXIV -> "https://www.biorxiv.org/content/$id"
         Source.MEDRXIV -> "https://www.medrxiv.org/content/$id"
+        // The id carries its provider so ids stay unique across servers; the guid is the
+        // part OSF knows about.
+        in Source.OSF_SERVERS -> "https://osf.io/${id.substringAfter(':')}"
+        Source.CHEMRXIV -> "https://doi.org/$id"
         else -> "https://arxiv.org/abs/$id"
     }
 
     val pdfUrl: String get() = when (source) {
         Source.BIORXIV, Source.MEDRXIV -> "$absUrl.full.pdf"
+        in Source.OSF_SERVERS -> "https://osf.io/download/${id.substringAfter(':')}/"
         else -> "https://arxiv.org/pdf/$id"
     }
+
+    /**
+     * Whether the in-app reader can actually get the PDF.
+     *
+     * False for ChemRxiv: its DOI resolves to chemrxiv.org, which answers anything that is
+     * not a browser with a Cloudflare challenge. Offering "Download and read" there would be
+     * offering a button that always fails, so those papers say "Read on ChemRxiv" and hand
+     * the reader to a browser, which can pass the challenge. Everything the app is actually
+     * for, the ranking, the abstract, the library, works the same either way.
+     */
+    val readableInApp: Boolean get() = source != Source.CHEMRXIV
 
     /** Named only when it is not arXiv, so the common case carries no extra noise. */
     val sourceLabel: String? get() =

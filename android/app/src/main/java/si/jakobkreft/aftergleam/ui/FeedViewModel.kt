@@ -26,6 +26,7 @@ import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Evidence
 import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
+import si.jakobkreft.aftergleam.data.Fetcher
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.PdfStore
@@ -704,20 +705,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             onStored?.invoke()
         }
 
-        val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
-        if (arxivCats.isNotEmpty()) {
-            label?.invoke("Fetching from arXiv")
-            store(runCatching { ArxivApi.recent(arxivCats, max = 300) }.getOrDefault(emptyList()))
-        }
-        // Each server is optional and independent: somebody who only reads biology never
-        // waits on arXiv, and a server being down costs that server's papers rather than
-        // the whole morning.
-        for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
-            val subjects = Topics.categoriesOf(server, subscribed)
-            if (subjects.isEmpty()) continue
-            label?.invoke("Fetching from ${Source.label(server)}")
-            store(runCatching { BioRxivApi.recent(server, subjects) }.getOrDefault(emptyList()))
-        }
+        Fetcher.fetch(subscribed, label = { label?.invoke(it) }) { store(it) }
         prefs.lastFetchMillis = System.currentTimeMillis()
         prefs.fetchedCategories = prefs.fetchedCategories + subscribed
         return total
@@ -787,18 +775,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     )
                     if (outside.isNotEmpty()) {
                         val across = mutableListOf<Paper>()
-                        val outsideArxiv = Topics.categoriesOf(Source.ARXIV, outside.toSet())
-                        if (outsideArxiv.isNotEmpty()) {
-                            across += runCatching { ArxivApi.recent(outsideArxiv.toList(), max = 80) }
-                                .getOrDefault(emptyList())
-                        }
-                        for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
-                            val subjects = Topics.categoriesOf(server, outside.toSet())
-                            if (subjects.isEmpty()) continue
-                            across += runCatching {
-                                BioRxivApi.recent(server, subjects, days = 2, maxPages = 4)
-                            }.getOrDefault(emptyList())
-                        }
+                        // A smaller ask than the daily fetch: this is one card's worth of
+                        // somewhere else, not a second digest.
+                        Fetcher.fetch(
+                            outside.toSet(), arxivMax = 80, days = 2, osfPages = 1,
+                        ) { across += it }
                         if (across.isNotEmpty()) {
                             withContext(Dispatchers.IO) { db.upsertPapers(across) }
                         }

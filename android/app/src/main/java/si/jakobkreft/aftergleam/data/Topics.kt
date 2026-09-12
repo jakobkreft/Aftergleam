@@ -312,9 +312,226 @@ object Topics {
                 listOf("q-fin.MF", "q-fin.PR", "q-fin.RM", "q-fin.CP"),
                 "stochastic volatility option pricing martingale hedging risk measure derivative model"),
         )),
+        Field("Psychology, from PsyArXiv", listOf(
+            Topic("psy-cog", "Cognitive psychology",
+                listOf("cognitive psychology", "cognitive neuroscience",
+                       "judgment and decision making", "social cognition", "attention",
+                       "memory", "perception", "learning"),
+                "participants task response accuracy memory attention reaction time condition "
+                    + "experiment stimuli cognitive processing bias",
+                Source.PSYARXIV),
+            Topic("psy-clin", "Clinical and mental health",
+                listOf("clinical psychology", "psychiatry", "clinical neuroscience",
+                       "health psychology", "counseling psychology"),
+                "patients symptoms depression anxiety treatment therapy intervention outcome "
+                    + "diagnosis severity scale wellbeing clinical sample",
+                Source.PSYARXIV),
+            Topic("psy-social", "Social and personality",
+                listOf("social and personality psychology", "self and social identity",
+                       "individual differences", "emotion", "social and behavioral sciences",
+                       "personality"),
+                "people attitudes behaviour group identity emotion traits survey sample "
+                    + "association self report motivation",
+                Source.PSYARXIV),
+            Topic("psy-dev", "Developmental psychology",
+                listOf("developmental psychology", "child psychology"),
+                "children infants age development parents longitudinal language acquisition "
+                    + "school years caregivers growth",
+                Source.PSYARXIV),
+            Topic("psy-methods", "Methods and meta-science",
+                listOf("quantitative methods", "quantitative psychology", "meta-science",
+                       "psychology, other"),
+                "replication preregistration effect size power sample bayesian estimate "
+                    + "measurement reliability model fit open data",
+                Source.PSYARXIV),
+        )),
+        Field("Social science, from SocArXiv", listOf(
+            Topic("soc-socio", "Sociology",
+                listOf("sociology", "social and behavioral sciences", "economic sociology",
+                       "medical sociology", "organizations, occupations, and work",
+                       "inequality and stratification", "family, life course, and society"),
+                "social inequality class households labour survey respondents institutions "
+                    + "stratification mobility work organisations",
+                Source.SOCARXIV),
+            Topic("soc-policy", "Policy and public affairs",
+                listOf("public affairs, public policy and public administration",
+                       "science and technology policy", "international relations",
+                       "urban studies and planning", "political science", "law and politics"),
+                "policy government states governance reform programme implementation public "
+                    + "administration cities planning",
+                Source.SOCARXIV),
+            Topic("soc-sts", "Science and technology studies",
+                listOf("science and technology studies",
+                       "communication, information technologies, and media sociology",
+                       "environmental studies"),
+                "science knowledge expertise technology infrastructure media platforms "
+                    + "communication practices controversy environment",
+                Source.SOCARXIV),
+            Topic("soc-methods", "Social methods and statistics",
+                listOf("social statistics", "models and methods", "demography, population, and ecology"),
+                "model estimates regression survey sample measurement data population "
+                    + "longitudinal cohort demographic method",
+                Source.SOCARXIV),
+        )),
+        Field("Education, from EdArXiv", listOf(
+            Topic("edu-teaching", "Teaching and curriculum",
+                listOf("curriculum and instruction", "educational methods",
+                       "teacher education and professional development",
+                       "instructional media design", "elementary education",
+                       "secondary education"),
+                "students teachers classroom lesson curriculum instruction learning outcomes "
+                    + "school practice intervention pedagogy",
+                Source.EDARXIV),
+            Topic("edu-assessment", "Assessment and education research",
+                listOf("educational assessment, evaluation, and research", "education",
+                       "educational psychology"),
+                "achievement assessment test scores measurement validity motivation learning "
+                    + "effects sample schools evaluation",
+                Source.EDARXIV),
+            Topic("edu-higher", "Higher and adult education",
+                listOf("higher education", "higher education and teaching",
+                       "adult and continuing education", "online and distance education",
+                       "vocational education"),
+                "university students courses degree faculty enrolment online learning adult "
+                    + "learners training programme retention",
+                Source.EDARXIV),
+            Topic("edu-subject", "Subject teaching",
+                listOf("science and mathematics education", "language and literacy education",
+                       "bilingual, multilingual, and multicultural education"),
+                "mathematics science reading literacy language learners conceptual "
+                    + "understanding misconceptions tasks instruction",
+                Source.EDARXIV),
+        )),
+        Field("Law, from Law Archive", listOf(
+            Topic("law-public", "Public and constitutional law",
+                listOf("law", "constitutional law", "administrative law",
+                       "public law and legal theory", "law and politics",
+                       "courts", "judges"),
+                "court constitutional statute rights doctrine legislature judicial review "
+                    + "state authority regulation jurisdiction",
+                Source.LAWARCHIVE),
+            Topic("law-criminal", "Criminal and civil law",
+                listOf("criminal law", "criminal procedure", "civil law", "evidence",
+                       "civil procedure", "family law"),
+                "defendant sentencing offence prosecution evidence procedure liability "
+                    + "damages claim trial punishment",
+                Source.LAWARCHIVE),
+            Topic("law-business", "Business and economic law",
+                listOf("business organizations law", "law and economics",
+                       "consumer protection law", "gaming law", "tax law",
+                       "banking and finance law", "antitrust and trade regulation"),
+                "firms contracts shareholders market regulation competition tax consumers "
+                    + "liability corporate governance costs",
+                Source.LAWARCHIVE),
+            Topic("law-international", "International and comparative law",
+                listOf("international law", "comparative and foreign law",
+                       "human rights law", "immigration law"),
+                "treaty states international jurisdiction human rights comparative "
+                    + "convention tribunal sovereignty cross border",
+                Source.LAWARCHIVE),
+            Topic("law-tech", "Technology, health and society",
+                listOf("science and technology law", "health law and policy",
+                       "privacy law", "intellectual property law", "environmental law"),
+                "data privacy platforms algorithms patents copyright health policy consent "
+                    + "regulation technology liability",
+                Source.LAWARCHIVE),
+        )),
+        Field("Chemistry, from ChemRxiv", listOf(
+            Topic("chem-organic", "Organic chemistry and synthesis",
+                listOf(ChemRxivApi.CATEGORY),
+                "synthesis reaction catalyst yield substrate selectivity ligand asymmetric "
+                    + "total synthesis mechanism functional group",
+                Source.CHEMRXIV),
+            Topic("chem-physical", "Physical and computational chemistry",
+                listOf(ChemRxivApi.CATEGORY),
+                "density functional calculations energies excited states dynamics simulation "
+                    + "spectroscopy potential surface kinetics quantum chemical",
+                Source.CHEMRXIV),
+            Topic("chem-materials", "Materials and nanochemistry",
+                listOf(ChemRxivApi.CATEGORY),
+                "nanoparticles framework porous electrode battery film polymer surface "
+                    + "crystal structure conductivity composite",
+                Source.CHEMRXIV),
+            Topic("chem-analytical", "Analytical chemistry",
+                listOf(ChemRxivApi.CATEGORY),
+                "detection sensor chromatography mass spectrometry quantification samples "
+                    + "calibration limit of detection assay separation",
+                Source.CHEMRXIV),
+            Topic("chem-bio", "Biological and medicinal chemistry",
+                listOf(ChemRxivApi.CATEGORY),
+                "inhibitor binding affinity protein target compounds docking drug activity "
+                    + "peptide enzyme selectivity",
+                Source.CHEMRXIV),
+        )),
     )
 
     fun topic(key: String): Topic? = FIELDS.flatMap { it.topics }.firstOrNull { it.key == key }
+
+    /** A topic with the field it came from, so a search result keeps its context. */
+    data class Match(val field: String, val topic: Topic)
+
+    /**
+     * Finds topics by name, by field, by the archive codes behind them, or by the words the
+     * abstracts use.
+     *
+     * Fourteen fields and a hundred and fourteen topics is past the point where scrolling is
+     * a reasonable way to find your own subject, and the reader who most needs the list is
+     * the one who does not already know which field the app filed them under. Searching the
+     * seed vocabulary as well as the label is what makes that work: "superconductivity"
+     * finds condensed matter, "physiotherapy" finds rehabilitation, "qubit" finds quantum,
+     * and none of those words is a topic name.
+     *
+     * Every word in the query has to match something, so a second word narrows rather than
+     * widens. Label matches rank above field matches above vocabulary matches, because
+     * somebody typing "law" wants the law topics before they want a paper that mentions it.
+     */
+    fun search(query: String): List<Match> {
+        val words = query.lowercase().split(' ', ',').filter { it.isNotBlank() }
+        if (words.isEmpty()) return emptyList()
+
+        val out = mutableListOf<Pair<Int, Match>>()
+        for (field in FIELDS) {
+            for (t in field.topics) {
+                val label = t.label.lowercase()
+                val fieldLabel = field.label.lowercase()
+                val cats = t.categories.joinToString(" ").lowercase()
+                val seed = t.seed.lowercase()
+                val haystack = "$label $fieldLabel $cats $seed"
+                if (!words.all { matches(it, haystack) }) continue
+                // The word itself beats a word that merely begins the same way. Typing
+                // "physiotherapy" matched "physiology" on a six letter prefix and, ranked
+                // together, put it above the topic actually called physiotherapy.
+                val rank = when {
+                    words.all { it in label } -> 0
+                    words.all { matches(it, label) } -> 1
+                    words.all { it in "$label $fieldLabel" } -> 2
+                    words.all { matches(it, "$label $fieldLabel") } -> 3
+                    words.all { matches(it, "$label $fieldLabel $cats") } -> 4
+                    else -> 5
+                }
+                out += rank to Match(field.label, t)
+            }
+        }
+        return out.sortedBy { it.first }.map { it.second }
+    }
+
+    /**
+     * Whether a typed word is in this text, allowing for the ending being different.
+     *
+     * Plain substring matching is too literal for a search box. Nobody looking for
+     * superconductivity types "superconducting", which is the word the seed happens to use,
+     * and a search that answers nothing reads as a subject the app does not carry. Sharing a
+     * six letter prefix is enough to connect the two, and a wrong guess here costs one extra
+     * row in a list rather than a wrong caption on a paper.
+     */
+    private fun matches(word: String, text: String): Boolean {
+        if (word in text) return true
+        if (word.length < PREFIX) return false
+        val stem = word.take(PREFIX)
+        return text.split(' ', '-', '.', ',', ':').any { it.length >= PREFIX && it.startsWith(stem) }
+    }
+
+    private const val PREFIX = 6
 
     fun categoriesFor(keys: Set<String>): Set<String> =
         keys.mapNotNull { topic(it) }.flatMap { it.qualified }.toSet()

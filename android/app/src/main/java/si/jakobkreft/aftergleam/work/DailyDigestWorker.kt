@@ -50,15 +50,7 @@ class DailyDigestWorker(
 
         return try {
             val papers = mutableListOf<si.jakobkreft.aftergleam.data.Paper>()
-            val arxivCats = Topics.categoriesOf(Source.ARXIV, subscribed).toList()
-            if (arxivCats.isNotEmpty()) papers += ArxivApi.recent(arxivCats, max = 300)
-            for (server in listOf(Source.BIORXIV, Source.MEDRXIV)) {
-                val subjects = Topics.categoriesOf(server, subscribed)
-                if (subjects.isNotEmpty()) {
-                    papers += runCatching { BioRxivApi.recent(server, subjects) }
-                        .getOrDefault(emptyList())
-                }
-            }
+            si.jakobkreft.aftergleam.data.Fetcher.fetch(subscribed) { papers += it }
             val db = Db(applicationContext)
             db.upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
