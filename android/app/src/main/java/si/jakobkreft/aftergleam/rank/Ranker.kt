@@ -18,6 +18,13 @@ data class Scored(
     val relevance: Float,
     val slot: Slot,
     val reasonTerms: List<String> = emptyList(),
+    /**
+     * This paper's TF-IDF vector, kept so the reason can be worked out after selection.
+     *
+     * Not persisted and not part of what a card means; it is the scoring pass handing the
+     * explanation pass something it already computed rather than transforming the text twice.
+     */
+    val vec: SparseVec? = null,
     /** Set when this card was rebuilt from storage; shown verbatim if present. */
     val storedReason: String? = null,
     /** True when venue or freshness, not predicted interest, put this card here. */
@@ -44,7 +51,7 @@ data class Scored(
             // of their categories. Saying which category it is happens to be more useful too.
             reasonTerms.isEmpty() ->
                 "recent in " + Source.display(paper.primaryCategory).ifBlank { "your feed" }
-            else -> "matches " + distinctTerms(reasonTerms).joinToString(", ")
+            else -> "matches " + distinctTerms(reasonTerms).take(3).joinToString(", ")
         }
     }
 
@@ -55,11 +62,29 @@ data class Scored(
      * the one line the card gives the explanation.
      */
     private fun distinctTerms(terms: List<String>): List<String> {
-        val out = mutableListOf<String>()
+        // A word standing in for the phrase it came from says less than the phrase does. The
+        // vectoriser scores "shot" and "few_shot" separately and the bare word often wins,
+        // so the pass below would print "shot" and then discard "few shot" as a repeat. A
+        // digest really did explain a card with "datasets, language, shot". Where the list
+        // already holds a phrase containing the word, the phrase is shown in its place.
+        val phraseFor = HashMap<String, String>()
         for (raw in terms) {
+            if ('_' !in raw) continue
+            for (w in raw.split('_')) phraseFor.putIfAbsent(w, raw)
+        }
+
+        val out = mutableListOf<String>()
+        val shown = mutableListOf<String>()
+        for (term in terms) {
+            val raw = if ('_' in term) term else phraseFor[term] ?: term
             val words = raw.split('_')
-            if (words.any { w -> out.any { shown -> w in shown.split(' ') } }) continue
+            // Singular and plural are separate features to the vectoriser and both can score,
+            // so a chip read "matches layers, layer, update" and another "trajectory,
+            // trajectories, call". They are one word to a reader, and the card gives the
+            // explanation one line.
+            if (words.any { w -> shown.any { samePlural(w, it) } }) continue
             out += words.joinToString(" ")
+            shown += words
         }
         // Prefer terms that say what the paper is about. A real digest produced "matches
         // layers, arbitrarily, terms", where two words in three describe no subject at all.
@@ -67,8 +92,31 @@ data class Scored(
         // right to weight them, and dropping them from the vocabulary would change the
         // ranking to fix a caption. If filtering leaves nothing, the unfiltered list is
         // still better than an empty chip.
-        val topical = out.filter { term -> term.split(' ').none { it in FILLER } }
+        //
+        // A term is empty only when every word in it is. Dropping any term that merely
+        // contains a filler word costs the phrases worth keeping, "optimal transport",
+        // "state space", "image quality", while this rule still discards the boilerplate
+        // that is filler end to end: "state art", "novel framework", "high quality".
+        val topical = out.filter { term -> term.split(' ').any { it !in FILLER } }
         return topical.ifEmpty { out }
+    }
+
+    /**
+     * Whether two words are the same word, one of them pluralised.
+     *
+     * A pairwise test rather than a stem, because stemming a word on its own has to guess:
+     * "bias" would reduce to "bia" while "biases" reduces to "bias", and the two would still
+     * both be printed, which is the whole complaint. Comparing the pair needs no guess.
+     * Deliberately not a full stemmer either, which merges words that differ: "generate" and
+     * "general" agree for six letters.
+     */
+    private fun samePlural(a: String, b: String): Boolean {
+        if (a == b) return true
+        val (short, long) = if (a.length < b.length) a to b else b to a
+        if (short.length < 3) return false
+        return long == short + "s" ||
+            long == short + "es" ||
+            (short.endsWith("y") && long == short.dropLast(1) + "ies")
     }
 
     /**
@@ -88,6 +136,52 @@ data class Scored(
         "achieve", "achieves", "achieved", "provide", "provides", "present", "presents",
         "introduce", "introduces", "consider", "considered", "given", "well", "may", "often",
         "furthermore", "moreover", "additionally", "respectively", "via", "towards", "toward",
+
+        // Qualifiers. They grade a thing without naming one, and because they are graded
+        // rather than common they survive TF-IDF: "principal" occurs in 0.7% of abstracts
+        // and "status" in 0.3%, against 6.1% for "diffusion", so no frequency rule reaches
+        // them. Only as whole terms; "optimal transport" and "state space" are subjects.
+        "best", "better", "known", "unknown", "specific", "general", "generic", "simple",
+        "complex", "efficient", "effective", "robust", "standard", "common", "typical",
+        "similar", "related", "important", "main", "key", "single", "multiple", "further",
+        "overall", "global", "globally", "local", "locally", "direct", "directly", "strong",
+        "strongly", "weak", "weakly", "full", "partial", "optimal", "principal", "special",
+        "high", "low", "state", "art", "quality", "able", "large", "small", "long", "short",
+
+        // Kept in the model's vocabulary on purpose: "not" and "without" carry method
+        // meaning, and the vectoriser's list stays short for that reason. They still name
+        // no subject, which is the whole point of this list being a separate one.
+        "not", "nor", "plus", "without",
+
+        // Things that happen in every paper.
+        "experienced", "maintaining", "adding", "obtained", "observed", "applied",
+        "applying", "allows", "allowing", "enables", "enabling", "requires", "requiring",
+        "leads", "leading", "yields", "yielding", "remains", "remaining", "distinguishing",
+        "reducing", "improving", "improved", "improves", "achieve", "challenge",
+
+        // Nouns that name no subject.
+        "status", "role", "idea", "ideas", "number", "numbers", "way", "ways", "case",
+        "cases", "part", "parts", "level", "levels", "order", "form", "forms", "notion",
+        "aspect", "aspects", "factor", "factors", "framework", "frameworks", "setting",
+        "settings", "context", "condition", "conditions", "property", "properties", "value",
+        "values", "type", "types", "set", "sets", "point", "points", "data", "shared",
+
+        // Seen in a real digest after the change above, all in the third slot where the
+        // weakest shared term lands. As whole terms only: "fixed point", "closed form",
+        // "maximum likelihood" and "constant factor" are subjects and survive.
+        "defined", "argue", "argues", "perspective", "partially", "fixed", "current",
+        "call", "called", "reaching", "generate", "generates", "closed", "constant",
+        "maximum", "minimum", "satisfy", "satisfies", "perform", "performs", "dominant",
+        "rapid", "concerns", "resulting", "unseen", "varied", "need", "needs", "issues",
+        "issue", "contrast", "relative", "generalize", "generalise", "followed", "matters",
+        "traditional", "making", "made",
+
+        // Connectives and counters that only ever arrived by accident.
+        "thereby", "where", "when", "while", "whereas", "hence", "therefore", "whether",
+        "though", "although", "since", "because", "finally", "first", "second", "third",
+        "next", "last", "many", "much", "most", "more", "less", "least", "both", "either",
+        "neither", "each", "every", "some", "any", "other", "others", "another", "one",
+        "two", "three",
     )
 }
 
@@ -166,10 +260,6 @@ class Ranker(private val weights: Weights = Weights()) {
             val rel = if (model != null && vec != null) {
                 Sampling.shrink(model.clf.predict(vec), evidenceCount)
             } else 0f
-            val terms = if (model != null && vec != null) {
-                model.clf.topContributors(vec).mapNotNull { model.vec.termAt(it) }
-            } else emptyList()
-
             val venue = Venue.score(paper)
             val fresh = recency(paper, today)
             // Attention is what the field is reading today, on the timescale where venue
@@ -199,12 +289,32 @@ class Ranker(private val weights: Weights = Weights()) {
                 score = score,
                 relevance = rel,
                 slot = Slot.RELEVANCE,
-                reasonTerms = terms,
+                vec = vec,
                 placedByQuality = hasModel && venue > 0f && weights.quality * venue * rel > weights.recency * fresh,
             )
         }.sortedByDescending { it.score }
 
-        return compose(scored, subscribed, size, random, hasModel, model, topicHistory)
+        val chosen = compose(scored, subscribed, size, random, hasModel, model, topicHistory)
+        return explain(chosen, rated, model)
+    }
+
+    /**
+     * Attaches each card's reason once the digest is settled.
+     *
+     * Done here rather than during scoring because it costs one merge per card per kept
+     * paper, and only the twenty five cards that survive selection are ever explained. On
+     * the old path the equivalent work ran for every candidate, several hundred of which
+     * are thrown away.
+     */
+    private fun explain(cards: List<Scored>, rated: List<RatedDoc>, model: Model?): List<Scored> {
+        if (model == null) return cards
+        val references = Explain.references(rated, model.vec)
+        if (references.isEmpty()) return cards
+        return cards.map { card ->
+            val v = card.vec ?: return@map card
+            val match = Explain.match(v, references, model.vec) ?: return@map card
+            card.copy(reasonTerms = match.terms)
+        }
     }
 
     /**

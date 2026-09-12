@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
+import si.jakobkreft.aftergleam.rank.Explain
 import si.jakobkreft.aftergleam.rank.LogReg
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Ranker
@@ -136,9 +137,12 @@ class RankCoreTest {
         assertTrue("on-topic $onTopic should beat off-topic $offTopic", onTopic > offTopic)
         assertTrue("on-topic should exceed 0.5, was $onTopic", onTopic > 0.5f)
 
-        val terms = clf.topContributors(vec.transform("360 degree panorama diffusion outpainting"))
-            .mapNotNull { vec.termAt(it) }
-        assertTrue("expected a readable reason, got $terms", terms.isNotEmpty())
+        // The reason is read off the reader's own papers, not off the classifier's weights.
+        val references = pos.map { vec.transform(it) }
+        val match = Explain.match(
+            vec.transform("360 degree panorama diffusion outpainting"), references, vec,
+        )
+        assertTrue("expected a readable reason, got $match", match!!.terms.isNotEmpty())
     }
 
     @Test

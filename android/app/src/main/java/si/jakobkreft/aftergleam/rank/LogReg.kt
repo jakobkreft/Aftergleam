@@ -1,7 +1,6 @@
 package si.jakobkreft.aftergleam.rank
 
 import kotlin.math.exp
-import kotlin.math.abs
 
 /**
  * Logistic regression over sparse vectors, trained by gradient descent with L2.
@@ -83,16 +82,4 @@ class LogReg(
 
     fun predict(v: SparseVec): Float = 1f / (1f + exp(-(bias + v.dot(weights))))
 
-    /**
-     * The features that pushed this document's score up the most, for the "why" chip.
-     * P3 says the model must be legible, and with TF-IDF that is literally free: the
-     * explanation is a list of words the user can read.
-     */
-    fun topContributors(v: SparseVec, n: Int = 3): List<Int> =
-        (0 until v.size)
-            .map { v.indices[it] to weights[v.indices[it]] * v.values[it] }
-            .filter { it.second > 0f }
-            .sortedByDescending { abs(it.second) }
-            .take(n)
-            .map { it.first }
 }

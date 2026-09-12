@@ -919,3 +919,85 @@ The importer moved to the subject screen, which is where it belongs: importing a
 answering the survey are the same question asked two ways, and it was a technical aside in
 the middle of a promise.
 
+## The "why" chip was explaining the wrong thing
+
+A digest captioned five cards "matches status, train", "matches best, independent, training",
+"matches optimal, thereby, known", "matches learning, principal, where". Half those words name
+no subject, and a chip that claims a match it cannot support is worse than no chip.
+
+The chip printed the classifier's top-weighted features for the document. That is the wrong
+quantity. The model is fitted on a few dozen positives against sampled negatives over a
+vocabulary of thousands, so the weights are badly underdetermined: a word appearing in two
+liked abstracts and no sampled negative earns a large positive weight whatever it means. When
+a paper genuinely matches, real topic words outweigh the noise and the chip reads well, which
+is why this was invisible for a reader with a coherent library. When it does not match, there
+is nothing real to report and the chip prints the noise.
+
+Three obvious repairs were tried against 32,584 arXiv abstracts and all three failed.
+
+- **Filter by how common a word is.** The offenders are rare. "status" occurs in 0.3% of
+  abstracts and "principal" in 0.7%, against 6.1% for "diffusion" and 4.9% for "transformer".
+  No frequency threshold separates them.
+- **Prefer two-word terms.** Abstract boilerplate is mostly two-word. It produced "state art",
+  "results demonstrate", "end end".
+- **Require a term to recur across the reader's liked papers.** Worst of the three. A reader
+  with varied taste has only generic language in common, so it selects for "role", "many",
+  "finally" and drops "scene graph" and "point cloud".
+
+What works is asking a different question. Take the paper the reader kept that this one most
+resembles, and name the words that make the two alike. Those words are the overlap of two
+specific documents, so they describe a subject rather than an artefact of the fit, and the
+same measurement says how strong the resemblance is. It turned "transition, adding, mutation"
+into "species, mutations, populations" and "i2p, autoencoder, one one" into "sparse,
+autoencoder, diffusion".
+
+Only papers scoring 0.6 or better count as references, which is saved, liked, downloaded,
+shared or actually read. A paper merely opened scores 0.25, and citing it as a reason would be
+the caption overstating its evidence again.
+
+Below 0.06 overlap a card says nothing rather than guessing, and falls back to naming its
+category. The floor is calibrated against the distribution over 600 random candidates, where
+the lower quartile is 0.062, while cards that reach the digest score 0.12 to 0.20. Across five
+digests built from a real 38 paper library, 0 of 25 cards per digest were silenced by it and
+the lowest scoring card shown was 0.088.
+
+The filler list grew and its rule changed. It used to drop any term containing a filler word,
+which cost the phrases worth keeping: "optimal transport", "state space", "image quality". A
+term is now dropped only when every word in it is filler, which still discards the boilerplate
+that is filler end to end.
+
+`LogReg.topContributors` is gone. Nothing explains itself from the weights any more, and the
+reason is computed once for the cards that reach the digest rather than for every candidate
+that was going to be thrown away.
+
+### What the rebuilt digest then showed
+
+Reading real chips off the device found four more faults, each its own kind.
+
+**Function words were features.** A card read "matches cluster, defined, them" and another
+"matches gap, constant, there". "them" and "there" are not vocabulary, they are grammar, and
+leaving them in gave the classifier something to overfit. They are now in the vectoriser's
+stoplist along with the rest of the closed class, which is a change to the model and was
+measured as one: leave-one-out over a real 38 paper library scored an identical hit@10 on four
+seeds, one of which improved from 36 to 37 of 38. Hyphen fragments went the same way, since
+splitting "non-linear" had been putting a bare "non" on a card.
+
+**"not" stayed in, and is filtered from captions instead.** The vectoriser's list is short
+because negation carries method meaning, and that is still right. A word can belong in the
+model and not in a caption, which is the reason the two lists are separate.
+
+**A word stood in for the phrase it came from.** A chip read "datasets, language, shot",
+because the vectoriser scores "shot" and "few_shot" separately, the bare word often wins, and
+the phrase was then discarded as a repeat of a word already shown. Where the list holds a
+phrase containing the word, the phrase is now shown in its place.
+
+**Singular and plural were printed as two reasons.** "matches layers, layer, update", and
+"trajectory, trajectories, call". They are one word to a reader and the card gives the
+explanation one line. Compared pairwise rather than stemmed: stemming has to guess at a word
+on its own, and would reduce "bias" to "bia" while reducing "biases" to "bias", leaving both
+on the card.
+
+A contribution threshold was tried for the weak third term and rejected. The decay across
+shared terms is too gentle to separate anything: measured over the top 25 cards of a real
+digest, the second term holds 77% of the first's weight and the third 59%, so any cutoff that
+removes a weak third term removes as many good ones.
