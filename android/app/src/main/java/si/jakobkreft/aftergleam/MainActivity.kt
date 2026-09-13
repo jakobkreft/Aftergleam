@@ -40,6 +40,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -102,12 +104,26 @@ private fun App(vm: FeedViewModel = viewModel()) {
         "dark" -> true
         else -> isSystemInDarkTheme()
     }
-    // rememberSaveable: a rotation recreates the activity, and plain remember would drop the
-    // reader back on Today from whichever tab they were using.
-    var tab by rememberSaveable {
+    /**
+     * Which of the four screens is showing, as a pager rather than a plain selection.
+     *
+     * The bottom bar was the only way across, which on a phone is the one navigation people
+     * do not use: every other feed on the device is swiped. The pager is the state and the
+     * bar reads from it, rather than the two keeping separate ideas of where the reader is.
+     *
+     * Its state is saved across rotation the way the plain selection was, so a rotation no
+     * longer drops the reader back on Today from whichever tab they were using.
+     */
+    val pager = androidx.compose.foundation.pager.rememberPagerState(
         // Landing on the one screen that is ready, rather than on placeholder cards.
-        mutableStateOf(if (vm.openOnPopular) Tab.POPULAR else Tab.TODAY)
-    }
+        initialPage = if (vm.openOnPopular) Tab.POPULAR.ordinal else Tab.TODAY.ordinal,
+        pageCount = { Tab.entries.size },
+    )
+    // currentPage rather than settledPage: it flips once a swipe is more than half way, so
+    // the title, the bar and any loading a screen needs all start while the finger is still
+    // moving, and the page has something on it by the time it arrives.
+    val tab = Tab.entries[pager.currentPage]
+    val pagerScope = rememberCoroutineScope()
 
     /**
      * Keeps each screen's scroll position while it is off the composition.
@@ -529,7 +545,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     Tab.entries.forEach { t ->
                         NavigationBarItem(
                             selected = tab == t,
-                            onClick = { tab = t },
+                            // Animated rather than jumped to, so tapping a tab and swiping
+                            // to it arrive the same way and the bar reads as the same
+                            // control as the gesture.
+                            onClick = {
+                                pagerScope.launch { pager.animateScrollToPage(t.ordinal) }
+                            },
                             icon = {
                                 if (t == Tab.EXPLORE) {
                                     Icon(
@@ -558,9 +579,19 @@ private fun App(vm: FeedViewModel = viewModel()) {
             val openExternal: (String) -> Unit = { url ->
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
-            Box(Modifier.padding(inner)) {
-                screenState.SaveableStateProvider(tab.name) {
-                when (tab) {
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = pager,
+                modifier = Modifier.padding(inner),
+                // Keyed by the screen rather than by position, so a page keeps its identity
+                // and its saved scroll however the reader arrived at it.
+                key = { Tab.entries[it].name },
+            ) { page ->
+                // The page being drawn, which during a swipe is not the one selected. Reading
+                // `tab` here would draw the same screen on every page and the swipe would
+                // look like the content sliding onto itself.
+                val pageTab = Tab.entries[page]
+                screenState.SaveableStateProvider(pageTab.name) {
+                when (pageTab) {
                     Tab.TODAY -> FeedScreen(
                         state = state,
                         onSteer = vm::steer,

@@ -126,7 +126,7 @@ private fun Index(
                         fontWeight = FontWeight.SemiBold)
                     Text(
                         buildString {
-                            append("${d.papers} papers")
+                            append("${d.papers} " + if (d.papers == 1) "paper" else "papers")
                             if (d.reacted > 0) append(" · you reacted to ${d.reacted}")
                         },
                         style = MaterialTheme.typography.labelSmall,

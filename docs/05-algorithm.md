@@ -1212,3 +1212,30 @@ The same three icons in the same order as the cards, so there is nothing new to 
 nothing. It does exactly what the button at the foot does, decided in one place so the two
 cannot drift apart.
 
+## Swiping between the four screens
+
+The bottom bar was the only way across, which on a phone is the one navigation people do not
+use: every other feed on the device is swiped. The four screens are a `HorizontalPager` now,
+in the order the bar already showed them.
+
+The pager is the state rather than a second copy of it. The bar reads the current page and
+tapping it animates the pager there, so a tap and a swipe arrive the same way and the two
+cannot hold different ideas of where the reader is. The page being drawn is not the page
+selected while a swipe is in flight, so each page renders from its own index; reading the
+selected tab inside the pager would draw the same screen on all four and the swipe would look
+like the content sliding onto itself.
+
+`currentPage` rather than `settledPage` decides the title and any loading a screen needs, so
+those start once a swipe is more than half way and the page has something on it by the time it
+arrives. Each page keeps its own scroll through the `SaveableStateHolder` that was already
+there for opening a paper, so swiping away from a half-read list and back returns to where it
+was rather than to the top.
+
+Checked on the device: all four transitions in both directions, stopping at the ends; the bar
+and the title following a swipe; a scrolled Explore still scrolled after swiping to Popular and
+back; each tab's content still loading when swiped to rather than tapped; and a paper opened
+from a swiped-to tab returning to that tab.
+
+There are no horizontally scrolling surfaces inside any of the four, which is the usual thing
+that fights a pager, so nothing needed a nested-scroll arrangement.
+

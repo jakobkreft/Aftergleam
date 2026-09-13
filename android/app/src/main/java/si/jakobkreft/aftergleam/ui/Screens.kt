@@ -120,7 +120,10 @@ fun FeedScreen(
             item {
                 Column {
                     Text(
-                        "Today, ${state.cards.size} papers",
+                        // A narrow field really does produce one paper some days, and the
+                        // header said "Today, 1 papers".
+                        "Today, ${state.cards.size} " +
+                            if (state.cards.size == 1) "paper" else "papers",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
