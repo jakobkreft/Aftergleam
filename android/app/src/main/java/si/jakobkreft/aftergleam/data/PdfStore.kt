@@ -101,7 +101,7 @@ class PdfStore(private val context: Context) {
 
         val url = paper.pdfUrl
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)")
+            setRequestProperty("User-Agent", Http.USER_AGENT)
             instanceFollowRedirects = true
             connectTimeout = 20_000
             readTimeout = 60_000

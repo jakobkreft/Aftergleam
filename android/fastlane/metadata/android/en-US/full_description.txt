@@ -1,0 +1,27 @@
+Hundreds of new research papers appear every day. Aftergleam reads them and shows you the few worth your time.
+
+It learns what you like from how you react to papers. The model is trained on your phone. There is no account, no server of our own, no analytics and no ads.
+
+<b>Sources</b>
+* arXiv: physics, mathematics, computer science, statistics, economics and more
+* bioRxiv and medRxiv: biology and medicine
+* PsyArXiv, SocArXiv and EdArXiv: psychology, social science and education
+* Law Archive: law
+* ChemRxiv: chemistry
+
+Only the servers your subjects need are contacted.
+
+<b>Features</b>
+* A short daily digest, ranked for you
+* Explore, for papers just outside your usual reading
+* Popular, for what other people are reading
+* Each paper says why it was picked
+* Read PDFs in the app and keep them offline
+* Save papers, search, and import a BibTeX or RIS library from Zotero
+* Export and restore your reading history as a plain file
+* Light and dark themes, with an optional serif font for papers
+
+<b>Privacy</b>
+Your reading history and the model stay on your device. To fetch papers, the app has to ask the preprint servers for them, so those servers see the requests it makes. The privacy policy lists exactly what is sent.
+
+Aftergleam is free software under the GNU General Public License, version 3 or later.

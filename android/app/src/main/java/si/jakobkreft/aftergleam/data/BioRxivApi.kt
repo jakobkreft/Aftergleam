@@ -29,7 +29,6 @@ import java.time.LocalDate
  */
 object BioRxivApi {
 
-    private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
     /** The API pages in fixed blocks of thirty; the size is not a parameter. */
     private const val PAGE = 30
@@ -123,7 +122,7 @@ object BioRxivApi {
 
     private fun get(url: String): String? = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", UA)
+            setRequestProperty("User-Agent", Http.USER_AGENT)
             setRequestProperty("Accept", "application/json")
             connectTimeout = 20_000
             readTimeout = 30_000

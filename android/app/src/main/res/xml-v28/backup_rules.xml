@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 9 to 11. One set of rules covers both cloud backup and device transfer, and
+  requireFlags limits these includes to the transfer, so a cloud backup receives nothing.
+-->
+<full-backup-content>
+    <include domain="database" path="." requireFlags="deviceToDeviceTransfer" />
+    <include domain="sharedpref" path="." requireFlags="deviceToDeviceTransfer" />
+</full-backup-content>

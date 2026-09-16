@@ -20,7 +20,6 @@ import java.net.URL
 object ArxivApi {
 
     private const val ENDPOINT = "https://export.arxiv.org/api/query"
-    private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
     /** arXiv asks for one request every three seconds, single connection. */
     const val SLEEP_MS = 3_000L
@@ -85,7 +84,7 @@ object ArxivApi {
         while (attempt < 3) {
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    setRequestProperty("User-Agent", UA)
+                    setRequestProperty("User-Agent", Http.USER_AGENT)
                     connectTimeout = 20_000
                     readTimeout = 40_000
                 }

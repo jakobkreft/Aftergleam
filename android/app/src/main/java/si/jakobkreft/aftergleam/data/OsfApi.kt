@@ -29,7 +29,6 @@ import java.time.LocalDate
  */
 object OsfApi {
 
-    private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
     /** The servers that still publish. See the note above on the ones that do not. */
     const val PSYARXIV = "psyarxiv"
@@ -186,7 +185,7 @@ object OsfApi {
 
     private fun get(url: String): String? = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", UA)
+            setRequestProperty("User-Agent", Http.USER_AGENT)
             setRequestProperty("Accept", "application/json")
             connectTimeout = 20_000
             // Generous, because OSF is genuinely slow and erratic with it: the same request

@@ -28,7 +28,6 @@ import java.time.LocalDate
  */
 object ChemRxivApi {
 
-    private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
     /** ChemRxiv's DOI prefix at Crossref. */
     private const val PREFIX = "10.26434"
@@ -43,9 +42,10 @@ object ChemRxivApi {
 
     /**
      * Crossref asks that automated clients identify themselves, and rewards it with the
-     * faster pool. This is the project rather than any person.
+     * faster pool. This is the project's address, not the reader's: nothing about who is
+     * using the app goes with it.
      */
-    private const val CONTACT = "aftergleam@jakobkreft.si"
+    private const val CONTACT = "user@aftergleam.app"
 
     suspend fun recent(
         subjects: Set<String>,
@@ -140,7 +140,7 @@ object ChemRxivApi {
 
     private fun get(url: String): String? = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", "$UA mailto:$CONTACT")
+            setRequestProperty("User-Agent", "${Http.USER_AGENT} mailto:$CONTACT")
             setRequestProperty("Accept", "application/json")
             connectTimeout = 20_000
             readTimeout = 30_000

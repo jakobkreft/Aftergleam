@@ -22,6 +22,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -105,6 +107,8 @@ fun TuneScreen(
     backupSummary: String?,
     onReset: () -> Unit,
     onApply: () -> Unit,
+    /** Opens a web address in the browser, for the About page's links. */
+    onOpenUrl: (String) -> Unit = {},
     onClose: () -> Unit,
 ) {
     var page by rememberSaveable {
@@ -152,7 +156,7 @@ fun TuneScreen(
                 onPickLibrary, onExport, onRestore,
             )
             Page.MODEL -> ModelPage(ratedCount, judgedCount, onReset)
-            Page.ABOUT -> AboutPage(versionName)
+            Page.ABOUT -> AboutPage(versionName, onOpenUrl)
         }
     }
 }
@@ -498,23 +502,41 @@ private fun ModelPage(ratedCount: Int, judgedCount: Int, onReset: () -> Unit) = 
     Spacer(Modifier.height(32.dp))
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AboutPage(versionName: String) = PageBody {
+private fun AboutPage(versionName: String, onOpenUrl: (String) -> Unit) = PageBody {
     Text("Aftergleam $versionName", style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(10.dp))
     Text(
-        "Papers come from arXiv, bioRxiv and medRxiv, whichever subjects you chose. arXiv " +
-            "asks for one request every three seconds; the app stays well inside that. " +
-            "Popularity counts come from the Hugging Face daily papers list, fetched whole " +
-            "so it says nothing about you. Ranking, your reactions and everything you read " +
-            "stay on this device.",
+        "Papers come from arXiv, bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv, Law Archive " +
+            "and ChemRxiv, and only from the ones your subjects need. Popularity counts come " +
+            "from the Hugging Face daily papers list, fetched whole so it says nothing about " +
+            "you. Ranking, your reactions and everything you read stay on this device.",
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(10.dp))
+    // arXiv's API terms ask for this acknowledgement in these words.
     Text(
-        "Thanks to arXiv for its open access interoperability, and to bioRxiv and medRxiv " +
-            "for a public API that asks nothing of the reader.",
+        "Thank you to arXiv for use of its open access interoperability. Thanks also to " +
+            "bioRxiv and medRxiv, to the Center for Open Science for OSF, and to Crossref, " +
+            "for public APIs that ask nothing of the reader.",
         style = MaterialTheme.typography.bodySmall,
     )
+    Spacer(Modifier.height(16.dp))
+    Text(
+        "Aftergleam is free software under the GNU General Public License, version 3 or " +
+            "later. It comes with no warranty.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { onOpenUrl(REPO) }) { Text("Source code") }
+        OutlinedButton(onClick = { onOpenUrl("$REPO/blob/main/PRIVACY.md") }) {
+            Text("Privacy policy")
+        }
+        OutlinedButton(onClick = { onOpenUrl("$REPO/blob/main/LICENSE") }) { Text("License") }
+    }
     Spacer(Modifier.height(32.dp))
 }
+
+private const val REPO = "https://github.com/jakobkreft/aftergleam"

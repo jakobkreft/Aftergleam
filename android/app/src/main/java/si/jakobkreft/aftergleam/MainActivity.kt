@@ -504,6 +504,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onRestore = { restoreBackup.launch(arrayOf("*/*")) },
                             backupSummary = state.backupSummary,
                             onReset = vm::resetModel,
+                            onOpenUrl = { url ->
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                }
+                            },
                             onApply = { vm.rerank(); showTune = false; tuneStart = null },
                         )
                     }

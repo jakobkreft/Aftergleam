@@ -27,14 +27,13 @@ import java.net.URL
 object Attention {
 
     private const val ENDPOINT = "https://huggingface.co/api/daily_papers"
-    private const val UA = "Aftergleam/0.1 (+https://github.com/jakobkreft/aftergleam)"
 
     /** arXiv id to upvote count. Empty on any failure, by design. */
     suspend fun fetch(limit: Int = 100): Map<String, Int> = withContext(Dispatchers.IO) {
         try {
             val conn = (URL("$ENDPOINT?limit=$limit").openConnection() as HttpURLConnection)
                 .apply {
-                    setRequestProperty("User-Agent", UA)
+                    setRequestProperty("User-Agent", Http.USER_AGENT)
                     connectTimeout = 15_000
                     readTimeout = 20_000
                 }

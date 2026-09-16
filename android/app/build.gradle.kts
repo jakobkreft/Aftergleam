@@ -15,8 +15,34 @@ android {
         versionName = "0.1.0"
     }
 
+    /**
+     * Release signing, read from the environment or from ~/.gradle/gradle.properties.
+     *
+     * Never from the repository. With nothing configured the release build is simply left
+     * unsigned, which is what F-Droid wants: it builds from source and signs with its own key.
+     *
+     *   AFTERGLEAM_KEYSTORE           or  aftergleam.keystore
+     *   AFTERGLEAM_KEYSTORE_PASSWORD  or  aftergleam.keystorePassword
+     *   AFTERGLEAM_KEY_ALIAS          or  aftergleam.keyAlias
+     *   AFTERGLEAM_KEY_PASSWORD       or  aftergleam.keyPassword
+     */
+    fun secret(env: String, prop: String): String? =
+        System.getenv(env) ?: providers.gradleProperty(prop).orNull
+
+    signingConfigs {
+        create("release") {
+            secret("AFTERGLEAM_KEYSTORE", "aftergleam.keystore")?.let { path ->
+                storeFile = file(path)
+                storePassword = secret("AFTERGLEAM_KEYSTORE_PASSWORD", "aftergleam.keystorePassword")
+                keyAlias = secret("AFTERGLEAM_KEY_ALIAS", "aftergleam.keyAlias")
+                keyPassword = secret("AFTERGLEAM_KEY_PASSWORD", "aftergleam.keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

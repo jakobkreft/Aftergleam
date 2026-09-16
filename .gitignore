@@ -17,3 +17,20 @@ android/build/
 android/app/build/
 android/local.properties
 android/.kotlin/
+
+# IDE state. Local to one machine: recent files, run targets and absolute paths.
+.idea/
+android/.idea/
+*.iml
+
+# Release artifacts and signing material. Signing reads its settings from the environment
+# or from ~/.gradle/gradle.properties, never from the repository.
+android/app/release/
+*.aab
+*.apk
+*.jks
+*.keystore
+keystore.properties
+
+.DS_Store
+

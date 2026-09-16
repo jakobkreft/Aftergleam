@@ -1,7 +1,7 @@
 # Findings — verified against live APIs, 2026-09-08
 
-Every number here came from a live call made today. Raw probe scripts and JSON are in the
-session scratchpad; the reproducible versions live in `prototype/aftergleam/`.
+Every number here came from a live call made today. The reproducible versions of the probes
+live in `prototype/aftergleam/`.
 
 ---
 

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 8.0 and 8.1. The platform cannot tell a device transfer from a cloud backup here, so
+  the only way to keep reading history out of the cloud is to back up nothing. On these
+  versions a new phone is set up with the app's own export and restore instead.
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>
