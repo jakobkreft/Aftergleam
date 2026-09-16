@@ -1239,3 +1239,44 @@ from a swiped-to tab returning to that tab.
 There are no horizontally scrolling surfaces inside any of the four, which is the usual thing
 that fights a pager, so nothing needed a nested-scroll arrangement.
 
+## What the reader can do with a downloaded PDF
+
+An overflow menu rather than a row of icons. The bar already carries a back button, the paper's
+title and the zoom control, and the title is the part that suffers: one line, ellipsised before
+anything is added to it. Three more icons would leave it showing about two words. It is also
+the shape the library rows already use for the same problem.
+
+Three items, chosen because they are things the app could not otherwise do.
+
+- **Share this PDF** sends the file. This is a different act from the Share on the abstract
+  screen, which sends a title and a link, and neither substitutes for the other when the person
+  receiving it is standing next to you with no signal.
+- **Open with another app** is how a reader gets annotation and text selection, which this
+  renderer deliberately does not have.
+- **On <source>** goes to the paper's own page. That is the only honest reading of "open
+  location": the file itself lives in the app's private cache, where no file manager on the
+  device can reach it, so there is no location to open.
+
+The shared file is a copy named after the paper. The cache names files by paper id, which is
+right for the cache and wrong for a recipient: the first share arrived as
+"lawarchive:4vpd7_v1.pdf", and the colon in it is not a legal filename character on Windows or
+on a FAT card, so saving the attachment fails rather than merely looking odd. The share
+directory holds one file at a time rather than growing a copy per share.
+
+The menu opens under its own button. Emitted as a sibling of the reader bar's other children
+it anchored to the row rather than to the control, and dropped down against the far left of the
+screen; both now sit in one Box.
+
+## Onboarding headlines that say the thing
+
+The three headlines were written as promises, which reads well and leaves the reader to work
+out what was meant. "The day's research, without the rest of it" cannot be resolved until the
+body has been read, and "Read it here, and keep it" leans on two pronouns with nothing yet to
+refer back to. A headline has about a second to land, for somebody who does not yet know what
+the app is.
+
+Each one now names what it is talking about: hundreds of papers a day and a personalised
+selection, learning your interests on your device, reading here and saving offline. The bodies
+were already plain and mostly stand. Where a headline now carries a fact the body no longer
+repeats it: the first body used to open by counting the papers a second time.
+

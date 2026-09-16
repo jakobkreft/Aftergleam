@@ -146,4 +146,37 @@ class PdfStoreTest {
         // Unknown formats still open, with the chooser deciding.
         assertEquals("*/*", s.mimeOf(s.fileFor("c", "qqq")))
     }
+
+    @Test
+    fun `a shared copy is named after the paper, not after the cache`() {
+        val s = store()
+        val src = s.fileFor("lawarchive:4vpd7_v1")
+        src.writeBytes("%PDF-1.7 body".toByteArray())
+        val copy = s.shareableCopy(src, "Sentencing Disparity in Hong Kong's Corruption Regime")
+
+        assertEquals("Sentencing Disparity in Hong Kong's Corruption Regime.pdf", copy.name)
+        assertEquals(src.length(), copy.length())
+        // The colon in a cache name is not a legal filename on Windows or on a FAT card, so
+        // a recipient could not save the attachment at all.
+        assertTrue("no punctuation that breaks a filesystem", !copy.name.contains(":"))
+        assertTrue("the cached original keeps the name the cache finds it by", src.exists())
+    }
+
+    @Test
+    fun `sharing twice does not accumulate copies`() {
+        val s = store()
+        val src = s.fileFor("paper-1")
+        src.writeBytes("%PDF-1.7 body".toByteArray())
+        s.shareableCopy(src, "First title")
+        val second = s.shareableCopy(src, "Second title")
+        assertEquals(listOf(second.name), second.parentFile!!.list()!!.toList())
+    }
+
+    @Test
+    fun `a paper with an unusable title still produces a filename`() {
+        val s = store()
+        val src = s.fileFor("paper-2")
+        src.writeBytes("%PDF-1.7 body".toByteArray())
+        assertEquals("paper.pdf", s.shareableCopy(src, "???").name)
+    }
 }

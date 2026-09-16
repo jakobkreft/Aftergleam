@@ -156,6 +156,33 @@ class PdfStore(private val context: Context) {
         }
     }.getOrDefault(false)
 
+    /**
+     * A copy of a download named after the paper, for sending to somebody else.
+     *
+     * The cache names files by paper id, which is right for the cache and wrong for a
+     * recipient: a PDF shared from here arrived as "lawarchive:4vpd7_v1.pdf". That is the
+     * app's bookkeeping, and the colon in it is not a legal filename character on Windows or
+     * on a FAT card, so saving the attachment fails rather than merely looking odd.
+     *
+     * A copy rather than a rename, because the cached file has to keep the name the cache
+     * can find it by. The share directory is emptied first, so it holds one file at a time
+     * instead of growing a copy per share.
+     */
+    fun shareableCopy(file: File, title: String): File {
+        val out = File(context.cacheDir, "share").apply { mkdirs() }
+        out.listFiles()?.forEach { it.delete() }
+        val stem = title.take(80)
+            // Apostrophes are legal in a filename everywhere and dropping them turned
+            // "Hong Kong's" into "Hong Kong s".
+            .replace(Regex("""[^A-Za-z0-9 '.,()-]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .ifBlank { "paper" }
+        val copy = File(out, "$stem.${file.extension}")
+        file.copyTo(copy, overwrite = true)
+        return copy
+    }
+
     /** A guess at the media type, for handing the file to an app that can read it. */
     fun mimeOf(file: File): String = when (file.extension.lowercase()) {
         "pdf" -> "application/pdf"

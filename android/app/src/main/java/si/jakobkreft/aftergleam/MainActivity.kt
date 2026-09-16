@@ -336,6 +336,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             initialPage = state.readingPage,
                             onPageChanged = { vm.rememberPage(reading.id, it) },
                             onBack = vm::closeReader,
+                            sourceName = si.jakobkreft.aftergleam.data.Source.label(reading.source),
+                            onOpenSource = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(reading.absUrl))
+                                )
+                            },
                         )
                     }
                 }

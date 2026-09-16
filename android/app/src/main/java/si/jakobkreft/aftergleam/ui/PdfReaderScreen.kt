@@ -26,6 +26,12 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.filled.MoreVert
+import android.content.Intent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -105,6 +111,9 @@ fun PdfReaderScreen(
     initialPage: Int,
     onPageChanged: (Int) -> Unit,
     onBack: () -> Unit,
+    /** Where the paper came from, for the one menu item that leaves the app. */
+    sourceName: String,
+    onOpenSource: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
@@ -156,6 +165,7 @@ fun PdfReaderScreen(
                     zoom = ZOOM_STEPS.firstOrNull { it > step } ?: ZOOM_STEPS.first()
                     scope.launch { hScroll.scrollTo(0) }
                 }) { Text(if (step >= ZOOM_STEPS.last()) "Fit" else "Zoom") }
+                ReaderMenu(file, title, store, sourceName, onOpenSource)
             }
 
             Box(
@@ -237,3 +247,88 @@ private fun PdfPage(
 }
 
 private val ZOOM_STEPS = listOf(1f, 1.5f, 2f, 3f)
+
+
+/**
+ * The reader's overflow menu.
+ *
+ * A menu rather than a row of icons, because the bar is already carrying a back button, the
+ * paper's title and the zoom control, and the title is the part that suffers: it is one line
+ * and ellipsised before anything is added to it. Three more icons would leave it showing about
+ * two words. This is also the shape the library rows already use for the same problem.
+ *
+ * The three that earn a place are the ones the app cannot otherwise do. Sharing here sends the
+ * PDF itself, which is a different act from the Share on the abstract screen: that one sends
+ * the title and a link, and neither substitutes for the other when the person receiving it is
+ * standing next to you with no signal. Opening in another app is how a reader gets annotation
+ * and text selection, which this renderer deliberately does not have. The last one goes to the
+ * paper's own page, which is the only honest reading of "open location": the file itself lives
+ * in the app's private cache, where no file manager on the device can reach it.
+ */
+@Composable
+private fun ReaderMenu(
+    file: File,
+    title: String,
+    store: PdfStore,
+    sourceName: String,
+    onOpenSource: () -> Unit,
+) {
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+
+    /** The download as something another app is allowed to read. */
+    fun uri(): android.net.Uri = androidx.core.content.FileProvider.getUriForFile(
+        context, context.packageName + ".files", file,
+    )
+
+    // Both inside one Box, so the menu anchors to the button rather than to the row it sits
+    // in. As siblings of the row's other children the popup took the row's own origin and
+    // opened against the far left of the screen, a long way from the control that opened it.
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "More actions")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Share this PDF") },
+                onClick = {
+                    open = false
+                    // Sent as a copy named after the paper: see PdfStore.shareableCopy.
+                    val named = runCatching { store.shareableCopy(file, title) }.getOrDefault(file)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = store.mimeOf(file)
+                        putExtra(
+                            Intent.EXTRA_STREAM,
+                            androidx.core.content.FileProvider.getUriForFile(
+                                context, context.packageName + ".files", named,
+                            ),
+                        )
+                        // The paper's name, which is what a mail or message app puts in its
+                        // subject line. Without it the attachment arrives titled by its cache
+                        // filename, which is a DOI with the punctuation replaced.
+                        putExtra(Intent.EXTRA_SUBJECT, title)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runCatching { context.startActivity(Intent.createChooser(send, "Share the PDF")) }
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Open with another app") },
+                onClick = {
+                    open = false
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri(), store.mimeOf(file))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    // A chooser rather than a direct launch: on a phone with no other PDF app
+                    // startActivity throws and the item looks broken.
+                    runCatching { context.startActivity(Intent.createChooser(view, "Open with")) }
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("On $sourceName") },
+                onClick = { open = false; onOpenSource() },
+            )
+        }
+    }
+}

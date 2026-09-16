@@ -6,4 +6,6 @@
 -->
 <paths>
     <cache-path name="downloads" path="pdf/" />
+    <!-- Copies named after the paper, for sending to somebody else. -->
+    <cache-path name="shared" path="share/" />
 </paths>

@@ -47,6 +47,14 @@ import si.jakobkreft.aftergleam.R
  * tour: a reader who wants to know what the diversity slider does will find it in settings,
  * and one who is still deciding whether to spend a minute on the survey needs three reasons,
  * not thirty.
+ *
+ * The headlines say the thing rather than allude to it. They used to be written as promises,
+ * which read well and left the reader to work out what was meant: "The day's research, without
+ * the rest of it" cannot be resolved until the body has been read, and "Read it here, and keep
+ * it" leans on two pronouns with nothing yet to refer back to. A headline has about a second
+ * to land, for somebody who does not yet know what the app is, so each one now names what it
+ * is talking about. The bodies were already plain and mostly stand; where a headline now
+ * carries a fact, the body underneath no longer repeats it.
  */
 private data class Slide(
     val headline: String,
@@ -55,19 +63,18 @@ private data class Slide(
 
 private val SLIDES = listOf(
     Slide(
-        "The day's research, without the rest of it.",
-        "A few hundred new papers appear every morning. Aftergleam reads them and puts the " +
-            "handful worth your time at the top.",
+        "Hundreds of new papers a day. You get a personalised selection.",
+        "Aftergleam reads them all and puts the handful worth your time at the top.",
     ),
     Slide(
-        "It learns from you, on your phone.",
+        "It learns your interests, on your device.",
         "React to a paper and the ranking shifts. The model is trained here, from what you " +
             "read. There is no account, no server, and nothing about you to leak.",
     ),
     Slide(
-        "Read it here, and keep it.",
-        "Open the PDF without leaving the app. Save what matters, take it offline, and it " +
-            "is still there on a train with no signal.",
+        "Read papers here, and save them offline.",
+        "Open the PDF without leaving the app. What you keep is still there on a train with " +
+            "no signal.",
     ),
 )
 
