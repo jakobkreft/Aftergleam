@@ -316,8 +316,8 @@ private fun RankingPage(
     Text("Exploration: ${(expl * 100).roundToInt()}%",
         style = MaterialTheme.typography.bodyMedium)
     Text(
-        "Cards near the model's decision boundary. These are the ones it learns most from, " +
-            "and they are labelled as such.",
+        "Papers that only just missed the cut, labelled as such. Your reaction to them " +
+            "shows the model where your line is.",
         style = MaterialTheme.typography.labelSmall,
     )
     Slider(expl, { expl = it }, valueRange = 0f..0.4f)
