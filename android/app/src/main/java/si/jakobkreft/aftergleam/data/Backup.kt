@@ -21,6 +21,9 @@ import org.json.JSONObject
 object Backup {
 
     const val VERSION = 2
+
+    /** Longer than any id a preprint server issues; DOIs and OSF guids run to about sixty. */
+    private const val MAX_ID = 200
     const val MIME = "application/json"
 
     fun suggestedFileName(): String {
@@ -77,23 +80,41 @@ object Backup {
             "This backup was written by a newer version of the app."
         }
 
+        // A backup is a file from somewhere else: another phone, an older version, or a text
+        // editor. Everything in it is checked against what the app itself could have written.
+        //
+        // Categories are kept only if a subject in this version of the app offers them. They
+        // go into the arXiv request as they stand, so an unchecked one could carry extra query
+        // parameters, and one this version no longer knows would be fetched for no subject.
+        val known = Topics.FIELDS.flatMap { it.topics }.flatMap { it.qualified }.toSet()
         val cats = root.optJSONArray("categories")
         val categories = buildSet {
-            if (cats != null) for (i in 0 until cats.length()) add(cats.getString(i))
+            if (cats != null) for (i in 0 until cats.length()) {
+                cats.optString(i).takeIf { it in known }?.let { add(it) }
+            }
         }
         if (categories.isNotEmpty()) prefs.categories = categories
-        if (root.has("digestSize")) prefs.digestSize = root.getInt("digestSize")
-        if (root.has("qualityWeight")) prefs.qualityWeight = root.getDouble("qualityWeight").toFloat()
-        if (root.has("explorationRate")) {
-            prefs.explorationRate = root.getDouble("explorationRate").toFloat()
-        }
-        if (root.has("diversity")) prefs.diversity = root.getDouble("diversity").toFloat()
+
+        // Settings are held to the ranges the settings screen allows. A negative digest size
+        // made every rebuild throw; NaN weights made every score NaN and the order random.
+        fun number(key: String, range: ClosedFloatingPointRange<Double>): Double? =
+            root.optDouble(key, Double.NaN).takeIf { it.isFinite() }?.coerceIn(range)
+        number("digestSize", 5.0..60.0)?.let { prefs.digestSize = it.toInt() }
+        number("qualityWeight", 0.0..1.0)?.let { prefs.qualityWeight = it.toFloat() }
+        number("explorationRate", 0.0..0.4)?.let { prefs.explorationRate = it.toFloat() }
+        number("diversity", 0.0..0.8)?.let { prefs.diversity = it.toFloat() }
+
+        // Read once. It used to be re-read for every saved paper, which is a full table scan
+        // per entry and turns a large backup into a quadratic restore.
+        val reactions = db.allReactions().toMutableMap()
 
         val arr = root.optJSONArray("reactions") ?: JSONArray()
         var count = 0
         for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val id = o.optString("id").ifBlank { continue }
+            val o = arr.optJSONObject(i) ?: continue
+            // An id names a paper and, through the download cache, a file. The cache makes
+            // it safe as a name, and this keeps an absurd one from being stored at all.
+            val id = o.optString("id").takeIf { it.isNotBlank() && it.length <= MAX_ID } ?: continue
 
             val signals = o.optJSONArray("signals")
             if (signals != null) {
@@ -109,7 +130,9 @@ object Backup {
             }
 
             if (o.optBoolean("saved", false)) {
-                db.setReaction(id, (db.allReactions()[id] ?: Reaction.NONE).copy(saved = true))
+                val saved = (reactions[id] ?: Reaction.NONE).copy(saved = true)
+                db.setReaction(id, saved)
+                reactions[id] = saved
                 db.addSignal(id, Signal.SAVED)
             }
             count++

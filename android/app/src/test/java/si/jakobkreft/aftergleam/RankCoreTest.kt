@@ -2,6 +2,7 @@
 package si.jakobkreft.aftergleam
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import si.jakobkreft.aftergleam.data.Paper
@@ -52,6 +53,48 @@ class RankCoreTest {
 
     private fun paper(id: String, title: String, abs: String, comments: String = "") =
         Paper(id, title, abs, listOf("A"), listOf("cs.CV"), "2026-09-01", "2026-09-01", comments)
+
+    @Test
+    fun `the model can use a word only the day's papers share with a liked one`() {
+        // The vocabulary keeps words seen in at least two documents. Fitted on the training
+        // papers alone, a subject the reader has liked once is a word seen once, so it was
+        // dropped, and the day's papers on that subject looked like any other. On a real phone
+        // 57% of a new paper's words were missing from the vocabulary this way.
+        val liked = listOf(
+            "tokamak plasma disruption forecasting",
+            "coral reef bleaching field survey",
+            "medieval manuscript dating from parchment",
+        )
+        val subjects = listOf(
+            "tokamak plasma disruption", "coral reef bleaching", "medieval manuscript dating",
+        )
+        val onSubject = subjects.flatMap { s ->
+            (1..4).map { paper("s${s.hashCode()}-$it", "New results on $s", "A study of $s, part $it.") }
+        }
+        val elsewhere = (1..20).map {
+            paper("e$it", "Sparse regression $it", "A study of convex optimisation for sparse regression, part $it.")
+        }
+        val fields = listOf(
+            "stochastic gradient methods", "graph neural networks", "protein structure",
+            "image segmentation", "speech recognition",
+        )
+        val negatives = (1..40).map { "${fields[it % fields.size]} for large data, report $it" }
+
+        val model = Ranker().train(
+            candidates = onSubject + elsewhere,
+            rated = liked.map { RatedDoc(null, it, 0.95f) },
+            negativePool = negatives,
+        )
+        assertNotNull("three liked papers should train a model", model)
+        fun score(p: Paper) = model!!.clf.predict(model.vec.transform(p.rankText))
+        val weakestOnSubject = onSubject.minOf { score(it) }
+        val strongestElsewhere = elsewhere.maxOf { score(it) }
+        assertTrue(
+            "every paper on a liked subject should outrank the rest: " +
+                "$weakestOnSubject vs $strongestElsewhere",
+            weakestOnSubject > strongestElsewhere,
+        )
+    }
 
     @Test
     fun `tokeniser produces unigrams and bigrams and drops stopwords`() {
@@ -187,12 +230,14 @@ class RankCoreTest {
     }
 
     @Test
-    fun `with almost no history the venue is allowed to win`() {
-        // The counterpart to the test above, and it documents intended behaviour rather
-        // than tolerating a bug. Shrinkage pulls a three-rating model toward the prior, so
-        // the gap between "on topic" and "off topic" is genuinely small; leaning on a
-        // NeurIPS acceptance at that point is the right call, and it is exactly what the
-        // cold-start path already does.
+    fun `with almost no history the model already decides the order`() {
+        // This used to let the venue win. Shrinkage pulls a three-rating model toward the
+        // prior, and that was read as "the model barely knows, so lean on the acceptance".
+        // But three liked papers already rank a reader's library far above chance (nDCG@25
+        // of 0.55 against about 0.05 for a random order), and what shrinkage actually did
+        // was hand the order to a fixed venue bonus. Ordering now uses the model's standing
+        // among the day's papers, whatever its confidence; the uncertainty of an early model
+        // is what the sampling, the exploration cards and the topic bandit are for.
         val liked = listOf(
             "diffusion model panorama outpainting 360 degree image synthesis",
             "panoramic image generation with latent diffusion models",
@@ -217,6 +262,7 @@ class RankCoreTest {
             evidenceCount = 3,
         )
         assertEquals("both papers are still offered", 2, out.size)
+        assertEquals("the paper on the reader's subject leads", "a", out.first().paper.id)
     }
 
     @Test

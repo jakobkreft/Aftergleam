@@ -28,8 +28,12 @@ object ArxivApi {
 
     /** Most recent submissions across [categories], newest first. */
     suspend fun recent(categories: List<String>, max: Int = 300): List<Paper> {
-        require(categories.isNotEmpty()) { "no categories selected" }
-        val q = categories.joinToString("+OR+") { "cat:$it" }
+        // Categories are spliced into the query as they stand, so only strings shaped like an
+        // arXiv category are let through. Restoring a backup checks them against the known
+        // subjects too; this is the last line, for any path that one day forgets to.
+        val safe = categories.filter { CATEGORY.matches(it) }
+        require(safe.isNotEmpty()) { "no categories selected" }
+        val q = safe.joinToString("+OR+") { "cat:$it" }
         val url = "$ENDPOINT?search_query=$q&sortBy=submittedDate&sortOrder=descending" +
             "&start=0&max_results=$max"
         return parse(get(url))
@@ -77,6 +81,9 @@ object ArxivApi {
     private val limiter = RateLimiter(SLEEP_MS)
 
     private suspend fun get(url: String): String = limiter.paced { fetch(url) }
+
+    /** cs.LG, astro-ph.GA, hep-th, cond-mat.str-el, q-bio.NC and the rest; nothing else. */
+    private val CATEGORY = Regex("""[a-z]+(-[a-z]+)?(\.[A-Za-z]+(-[A-Za-z]+)?)?""")
 
     private suspend fun fetch(url: String): String = withContext(Dispatchers.IO) {
         var attempt = 0

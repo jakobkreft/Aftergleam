@@ -40,6 +40,23 @@ class SamplingTest {
     }
 
     @Test
+    fun `scores squeezed into a narrow band are drawn as sharply as spread ones`() {
+        // On a real phone every candidate scored between 0.26 and 0.40. Read as probabilities
+        // those are nearly equal, and a draw in proportion to them was close to blind: of the
+        // model's own top twenty five, two reached the digest. What decides a draw is where a
+        // score sits among the others, whatever units it comes in.
+        val spread = (1..40).flatMap {
+            Sampling.topK(items, 10, random = Random(it)) { score(it) }
+        }
+        val squeezed = (1..40).flatMap {
+            Sampling.topK(items, 10, random = Random(it)) { 0.26f + 0.14f * score(it) }
+        }
+        assertEquals("the same draws whatever the units", spread, squeezed)
+        assertTrue("draws should sit near the top, mean rank was ${squeezed.average()}",
+            squeezed.average() < 25)
+    }
+
+    @Test
     fun `asking for everything returns everything`() {
         assertEquals(items.size, Sampling.topK(items, 500, random = Random(0)) { score(it) }.size)
         assertTrue(Sampling.topK(items, 0, random = Random(0)) { score(it) }.isEmpty())

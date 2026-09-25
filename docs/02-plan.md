@@ -11,7 +11,7 @@ Updated 2026-09-08, after the first working Android build. Evidence in `01-findi
 |---|---|---|
 | 0. Verify the data layer | **done** | OpenAlex ruled out, venue signal found. `01-findings.md` |
 | 1. E1, the ranking gate | **done, passed** | hit@10 = 0.875 in cs.CV. `03-e1-results.md` |
-| 2. E2, embedder bake-off | **answered early** | MiniLM does not beat TF-IDF. Ship TF-IDF |
+| 2. E2, embedder bake-off | **done** | Alone no better than TF-IDF; added to it, 3–12% better. Not shipped. `05-algorithm.md` |
 | 3. E3-revised, quality signal | **measured and shipped** | Venue from arXiv comments, ~30% at 6–12 months |
 | 4. E5 bridge / E6 exploration | not started | Neither gates anything |
 | 5. Android v1 | **core loop working** | See below |

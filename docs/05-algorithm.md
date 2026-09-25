@@ -1292,3 +1292,195 @@ Both shares now record that the paper was shared, as the abstract screen's Share
 The PDF share added in the previous round did not, so passing a file on counted for less than
 passing on a link, which is the wrong way round.
 
+## Why "outside your usual" kept coming first
+
+It was first on three days in seven on a real phone, with a median position of 1, and it was
+never because it was the best match. Reconstructing a day's scores showed why: every card's
+relevance sat between 0.31 and 0.34, and a conference acceptance multiplies the score by up
+to 1.35, so when relevance is that flat the venue bonus decides the order. The bridge card
+that day had an acceptance; the matches did not.
+
+The same flatness broke exploration. It took the papers nearest a relevance of 0.5, which is
+where a calibrated classifier is least sure, but relevance is shrunk towards 0.3 until
+evidence builds up, so nothing came near 0.5 and "nearest" meant "highest". Five of the top
+seven cards that day were labelled "testing whether this is for you", and they were the best
+papers in the digest.
+
+Two fixes to how a digest is put together, whatever the scores look like. The top three cards
+are always the best matches, and the detours follow, one after every three matches, with the
+bridge first among them. Exploration now takes the near misses, a band of papers ranked just
+below the ones chosen to show, which is where the digest actually decides between showing a
+paper and not, and which cannot reach the top. Rebuilt on the same phone, the digest reads
+R R R B R R R e R R R e and so on.
+
+Neither fix makes relevance less flat. The model's raw predictions over that day's 400
+candidates ran from 0.26 to 0.40, and only 43% of a new paper's words were in its
+vocabulary at all, because the vocabulary is fitted on the 242 papers it trains on. That is
+the question E2 is for.
+
+## Hardening
+
+A review of every input the app does not control found these.
+
+- **SQLite's parameter limit.** Android 8 to 11 cap a statement at 999 bound parameters. The
+  digest builder looks up every paper carrying any signal, and opening a paper is a signal,
+  so a reader opening a few a day passes 999 in about half a year, after which no digest
+  could be built on those phones. Lookups are now batched, and search keeps its first twelve
+  words, since each costs three parameters.
+- **Backups are checked.** Restore accepted any categories and any settings. Categories are
+  spliced into the arXiv request, so one reading `cs.LG&max_results=100000` would have added
+  a parameter to it; a negative digest size made every rebuild throw. Categories are now kept
+  only if a subject offers them, settings are held to the ranges the settings screen allows,
+  and absurd ids are skipped. The arXiv client also refuses anything not shaped like a
+  category code, as a last line for any future path that forgets.
+- **Server filenames.** A download's extension came from the server's filename, and whatever
+  follows its last dot could carry a path separator into the cache. It could not climb out,
+  having no dots left, but it is now letters and digits or nothing.
+- **Download size.** Unbounded, so one broken or hostile response could fill the phone's
+  storage. Now refused over 100 MB, including when the server understates the size.
+- **Cleartext.** Every request was already HTTPS, but Android 8 permits cleartext by default,
+  so nothing enforced it there. The manifest now refuses it on every version.
+- **A damaged PDF.** The reader's page count started at zero, and a PDF that would not open
+  also reported zero pages, so it showed the loading spinner for good. It now says the file
+  looks damaged and offers to download it again or open it elsewhere.
+- **No browser.** Opening a paper's page launched the browser directly, which throws when
+  there is none, and took the app down. Every web link now goes through one guarded call.
+- **Restore was quadratic.** It re-read the whole reactions table for every saved paper.
+
+Checked and found sound: XML is parsed by Android's pull parser, which resolves no external
+entities; every SQL statement binds its values; nothing is logged.
+
+## The digest was throwing away most of what the model knew
+
+The two fixes above changed the order of a digest. The next question was whether the right
+papers were in it at all, and it needed a way to measure that which does not depend on one
+phone and one reader.
+
+### Measuring the digest rather than the model
+
+E1 and E2 score a ranking once. A digest is built every morning from a sample, a topic
+bandit, a diversity pass and reserved slots, and the reader's reactions feed the next one,
+so a ranking that scores well can still produce a poor morning. The simulation in
+`DigestSimulation` runs the app's own ranker, not a copy, for forty mornings.
+
+- **Readers.** Six, built by `prototype/sim_prep.py` from 27,470 public arXiv abstracts:
+  broad machine learning (cs.CV, cs.CL, cs.LG, cs.AI, three interests), robotics, numerical
+  analysis, security, neuroscience, and one reader of both cs.LG and q-bio.NC with an
+  interest in each. An interest is a point in a sentence-embedding space (bge-small,
+  deliberately not the app's representation), and how much a reader would like a paper is
+  its similarity to their nearest interest. The app never sees this.
+- **Behaviour.** A paper in the top 3% of the reader's fields is liked half the time and
+  read for a while another 30%. One in the top 10% is opened a quarter of the time. One in
+  the bottom half is disliked one time in twenty five. Attention fades a little down the list.
+- **Measures.** Great papers delivered: cards in the reader's top 3%, as a share of the most
+  any digest could have held that morning. Matches: the average percentile of the ordinary
+  cards among that morning's candidates, by the hidden interest, where 50 is a random pick.
+
+### What it found
+
+Eight runs per reader, weeks two to six:
+
+| Reader | Great papers delivered | Matches, percentile | First three cards |
+|---|---|---|---|
+| Broad machine learning | 0.19 → 0.25 | 42 → 69 | 73 → 79 |
+| Robotics | 0.34 → 0.61 | 48 → 72 | 58 → 81 |
+| Numerical analysis | 0.18 → 0.43 | 33 → 64 | 38 → 68 |
+| Security | 0.43 → 0.65 | 48 → 59 | 41 → 63 |
+| Machine learning and neuroscience | 0.21 → 0.38 | 38 → 70 | 63 → 74 |
+
+The first week improves too, most for the two-field reader (0.07 to 0.34). The neuroscience
+reader is left out: that field is small enough that every paper is shown either way.
+
+For all five readers, the committed digest's ordinary cards were less interesting on
+average than a random pick of the same morning's papers. The model was not the problem. Its
+own top 25 for the broad reader sat at the 78th percentile and held 44% of the great papers
+available, while the digest built from it delivered 19%. One detail explains why the numbers
+were not worse still: the old exploration rule was taking the papers the model rated
+highest, which was the main route by which they reached the reader at all. With only the
+near-miss change above, the broad reader's figure fell to about 0.10 before the fixes below.
+
+### Six causes, each fixed and each with a test that fails on the old code
+
+1. **The sampler read scores as probabilities.** It drew in proportion to them, which only
+   works when they spread over most of 0..1. On the phone they sat within 0.07 of each other,
+   and of the model's own top 25, two reached the digest. Scores are now measured in
+   standard deviations among the day's candidates before the draw, so the temperature means
+   the same whatever the model's confidence.
+2. **Relevance was too flat to combine with anything.** Venue multiplies the score by up to
+   1.35 and freshness adds up to 0.25, fixed amounts sized for a relevance that spans 0..1.
+   Against a spread of 0.07 they decided the order. Relevance now enters the score as its
+   standing among the day's papers in the reader's fields, which spans 0..1 whatever the
+   evidence. The card still shows the shrunk probability as its confidence.
+3. **Topics were primary categories.** Every category a paper is cross-listed from became a
+   bandit arm, most of them untried, and an untried arm starts from a flat prior with a mean
+   of one half. Readers act on about one card in ten, so against twenty untried arms a topic
+   they read won none of 200,000 draws. Topics are now the reader's own categories: a paper
+   counts towards the first one it is listed in, and the stored history is kept under the
+   same names.
+4. **Variety did nothing whenever the bandit ran.** The bandit fills slots one paper at a
+   time, and each call started with an empty list of what had been chosen, so there was
+   nothing to be different from. The history now carries over. Similarity is priced in
+   standard deviations of score too; subtracting a raw cosine from a raw score let
+   similarity decide nearly every pick whenever relevance was flat.
+5. **The model could see less than half of each new paper.** Its vocabulary came from the
+   papers it trains on, 4,580 terms from 242 papers on the phone, and 43% of a new paper's
+   words were in it. It now includes the day's candidates, which carry no label, so the
+   model sees more without being taught anything different. E2 below measures the gain.
+6. **A day smaller than the digest skipped the scope rule.** The ranker returned everything
+   unchanged when the pool was smaller than the digest, so the bridge's papers came through
+   as ordinary matches. A law reader with one unread law paper and five fetched for the
+   bridge saw six matches.
+
+### Tried and not kept
+
+- **A bandit prior at the reader's own engagement rate.** It helped while topics were
+  primary categories. With the reader's own categories as topics the flat prior did as well
+  or better, and it is the simpler of the two.
+- **No bandit at all.** The same for one-field readers, where there is nothing to allocate,
+  and for the broad reader. The two-field reader got 0.11 in the first week without it
+  against 0.33 with it. That reader is the one the bandit exists for, so it stays.
+- **A sharper draw.** Temperature 0.2 did no better than 0.35.
+- **Other similarity prices.** Half and double the chosen value were within noise.
+
+### What the simulation cannot say
+
+Venue and freshness have no value to a simulated reader, so it cannot say how much they
+should weigh. They keep their designed weights. The readers behave simply, and two sets of
+three runs of essentially the same design gave robotics 0.58 and 0.72, so differences
+smaller than about 0.1 for the narrow readers are noise. It measures what the digest does
+with a model, not how good the model is. That is E2.
+
+## E2: would a sentence embedding rank better?
+
+A real 38-paper library stood in for a reader, against 1,500 papers from cs.CV and cs.LG,
+with 3, 5, 10 or 20 of its papers given as liked and the rest to be found, over 25 random
+splits. Four small embedders were each pooled as their authors specify: all-MiniLM-L6-v2
+(Apache 2.0), bge-small-en-v1.5 (MIT), gte-small (MIT) and snowflake-arctic-embed-s
+(Apache 2.0). nDCG@25:
+
+| Method | 3 liked | 5 | 10 | 20 |
+|---|---|---|---|---|
+| TF-IDF, vocabulary from the training papers (as it was) | 0.43 | 0.59 | 0.67 | 0.74 |
+| TF-IDF, vocabulary from the candidates too (now) | 0.55 | 0.64 | 0.72 | 0.76 |
+| Best embedding with logistic regression | 0.56 | 0.64 | 0.67 | 0.71 |
+| Embedding and TF-IDF scores added | 0.62 | 0.70 | 0.76 | 0.79 |
+
+Alone, an embedding is no better than TF-IDF with the wider vocabulary, and worse once a
+reader has ten liked papers. Added together they beat either, by 12% from three liked papers
+and 3% from twenty. In that combination the four embedders were within noise of each other,
+so the smallest, MiniLM at 22 million parameters, would do.
+
+On a copy of a real phone's database, holding out each of 6 liked and 7 disliked papers in
+turn, no linear model placed the liked ones above the disliked ones, whether TF-IDF or
+embedding. The disliked papers are inside the reader's own subjects, where one straight
+boundary cannot separate them. Ranking by similarity to the nearest liked paper did, by 18
+points. Thirteen papers is too few to act on, but it points the same way as the combination
+above.
+
+Not shipped. An embedder is a larger change than anything above and is a decision rather
+than a fix: F-Droid builds native code from source, which rules out ONNX Runtime's prebuilt
+library and leaves llama.cpp built with the NDK, which runs this family of models from GGUF
+files. MiniLM would add roughly 25 to 35 MB, and embedding a day's 400 papers fits in the
+nightly job. EmbeddingGemma, the strongest small embedder, is under Gemma's own terms rather
+than an open source licence, so it cannot ship in an F-Droid app.
+

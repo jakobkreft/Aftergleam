@@ -85,7 +85,7 @@ object DigestBuilder {
             negativePool = negativePool,
             attention = attention,
             evidenceCount = db.evidence().count { it.value.label() != null },
-            topicHistory = db.topicHistory(),
+            topicHistory = db.topicHistory(subscribed = prefs.categories),
             prebuilt = model,
         )
         if (store) {

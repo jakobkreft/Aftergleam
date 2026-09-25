@@ -337,11 +337,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onPageChanged = { vm.rememberPage(reading.id, it) },
                             onBack = vm::closeReader,
                             sourceName = si.jakobkreft.aftergleam.data.Source.label(reading.source),
-                            onOpenSource = {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(reading.absUrl))
-                                )
-                            },
+                            onOpenSource = { openUrl(context, reading.absUrl) },
                             liked = state.likedFlag(reading.id),
                             saved = state.reactions[reading.id]?.saved == true,
                             onSteer = { vm.steer(reading.id, it) },
@@ -349,6 +345,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             // The same share, and the same signal, as the abstract screen.
                             onShareLink = { sharePaper(context, reading); vm.share(reading.id) },
                             onShared = { vm.share(reading.id) },
+                            onRedownload = { vm.redownload(reading) },
                         )
                     }
                 }
@@ -380,9 +377,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         upvotes = state.attention[detail.id] ?: 0,
                         onSteer = { vm.steer(detail.id, it) },
                         onSave = { vm.toggleSave(detail.id) },
-                        onOpenExternal = { url ->
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        },
+                        onOpenExternal = { url -> openUrl(context, url) },
                         onRead = { vm.openReader(detail) },
                         onShare = { sharePaper(context, detail); vm.share(detail.id) },
                         onBack = vm::closeDetail,
@@ -483,15 +478,19 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             },
                             notificationsAllowed = notificationsAllowed(),
                             onOpenSystemSettings = {
-                                context.startActivity(
-                                    Intent(
-                                        android.provider.Settings
-                                            .ACTION_APP_NOTIFICATION_SETTINGS
-                                    ).putExtra(
-                                        android.provider.Settings.EXTRA_APP_PACKAGE,
-                                        context.packageName,
+                                // Some vendor builds strip this screen; a missing one should
+                                // not take the app down with it.
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(
+                                            android.provider.Settings
+                                                .ACTION_APP_NOTIFICATION_SETTINGS
+                                        ).putExtra(
+                                            android.provider.Settings.EXTRA_APP_PACKAGE,
+                                            context.packageName,
+                                        )
                                     )
-                                )
+                                }
                             },
                             onNotifyEnabled = { on ->
                                 withNotificationPermission(on) { vm.setNotifyEnabled(it) }
@@ -511,11 +510,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onRestore = { restoreBackup.launch(arrayOf("*/*")) },
                             backupSummary = state.backupSummary,
                             onReset = vm::resetModel,
-                            onOpenUrl = { url ->
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                }
-                            },
+                            onOpenUrl = { url -> openUrl(context, url) },
                             onApply = { vm.rerank(); showTune = false; tuneStart = null },
                         )
                     }
@@ -594,9 +589,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 }
             }
         ) { inner ->
-            val openExternal: (String) -> Unit = { url ->
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            }
+            val openExternal: (String) -> Unit = { url -> openUrl(context, url) }
             androidx.compose.foundation.pager.HorizontalPager(
                 state = pager,
                 modifier = Modifier.padding(inner),
@@ -723,6 +716,18 @@ private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
+}
+
+/**
+ * Opens a web address in whatever the phone uses to read them.
+ *
+ * Launching ACTION_VIEW directly throws when nothing can handle it, which on a phone without
+ * a browser (a locked-down work profile, some Android Go builds) took the whole app down from
+ * a button that only meant "show me the paper's page". Failing quietly is the right outcome:
+ * there is nothing the app can open it with.
+ */
+private fun openUrl(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
 private fun sharePaper(context: android.content.Context, paper: Paper) {

@@ -97,6 +97,27 @@ class NarrowFieldTest {
     }
 
     @Test
+    fun `a day smaller than the digest still keeps outside papers to the bridge`() {
+        // With fewer candidates than cards the ranker used to hand everything back unsorted
+        // and unscoped, so the bridge's papers came through as ordinary matches. A law reader
+        // with one unread law paper and five fetched for the bridge saw six "matches".
+        val cards = Ranker().digest(
+            candidates = law + outside.take(5),
+            rated = law.take(3).map { RatedDoc(it.id, it.rankText, 0.9f) },
+            seen = emptySet(),
+            subscribed = setOf("lawarchive:law"),
+            size = 25,
+            random = Random(1),
+            negativePool = outside.drop(5).map { it.rankText },
+        )
+        val offTopic = cards.filter {
+            it.slot != Slot.BRIDGE && it.paper.categories.none { c -> c == "lawarchive:law" }
+        }
+        assertEquals(emptyList<String>(), offTopic.map { it.paper.id })
+        assertEquals("the unread law paper and one bridge", 2, cards.size)
+    }
+
+    @Test
     fun `every card the reader sees is one they asked for`() {
         for (card in digest().filter { it.slot != Slot.BRIDGE }) {
             assertTrue(

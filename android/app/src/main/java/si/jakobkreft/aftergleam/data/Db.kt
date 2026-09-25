@@ -206,12 +206,23 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
             arrayOf(limit.toString())
         ).use { it.toPapers() }
 
+    /**
+     * Looks papers up by id, in batches the oldest supported SQLite will accept.
+     *
+     * Android 8 to 11 ship SQLite built with a limit of 999 bound parameters per statement,
+     * and one `IN (?, ?, ...)` with more than that throws. The digest builder asks for every
+     * paper that carries any signal, and opening a paper is a signal, so a reader who opens a
+     * handful a day passes 999 in about half a year. From then on every digest failed to
+     * build on those phones, for exactly the readers who had used the app longest.
+     */
     fun papersById(ids: Collection<String>): List<Paper> {
         if (ids.isEmpty()) return emptyList()
-        val ph = ids.joinToString(",") { "?" }
-        return readableDatabase.rawQuery(
-            "SELECT * FROM papers WHERE id IN ($ph)", ids.toTypedArray()
-        ).use { it.toPapers() }
+        return ids.distinct().chunked(MAX_BOUND_PARAMS).flatMap { batch ->
+            val ph = batch.joinToString(",") { "?" }
+            readableDatabase.rawQuery(
+                "SELECT * FROM papers WHERE id IN ($ph)", batch.toTypedArray()
+            ).use { it.toPapers() }
+        }
     }
 
     fun setReaction(paperId: String, r: Reaction) = writableDatabase.let { db ->
@@ -386,9 +397,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
     /**
      * Per-topic engagement history, for the slot bandit, weighted towards recent days.
      *
-     * A topic here is the paper's primary arXiv category: stable, already stored, and the
-     * right granularity for deciding how much of a morning to spend on an area. Engaged
-     * means a shown paper later earned a positive signal; ignored means it did not.
+     * A topic here is the first of the paper's categories the reader follows, see
+     * [TopicBandit.topicOf], so the history is kept under the same names the bandit draws.
+     * Papers from no followed category, which is what the bridge shows, count towards no
+     * topic. Engaged means a shown paper later earned a positive signal; ignored means it
+     * did not.
      *
      * Each paper contributes by the day it was last shown, discounted by
      * [TopicBandit.recency]. Counting every day equally made abandoned topics permanent:
@@ -399,12 +412,13 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
      * Grouped per paper rather than per row, so a paper resurfaced three times is one
      * observation dated by its most recent showing, not three.
      */
-    fun topicHistory(today: LocalDate = LocalDate.now()): Map<String, Pair<Float, Float>> =
+    fun topicHistory(
+        today: LocalDate = LocalDate.now(),
+        subscribed: Set<String> = emptySet(),
+    ): Map<String, Pair<Float, Float>> =
         readableDatabase.rawQuery(
             """
-            SELECT substr(p.categories, 1, CASE
-                     WHEN instr(p.categories, '|') = 0 THEN length(p.categories)
-                     ELSE instr(p.categories, '|') - 1 END) AS topic,
+            SELECT p.categories,
                    MAX(s.day) AS last_day,
                    MAX(CASE WHEN g.signal IN
                        ('LIKED','READ_PAGES','SHARED','DOWNLOADED','SAVED','DWELLED')
@@ -419,8 +433,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
             val engaged = HashMap<String, Float>()
             val ignored = HashMap<String, Float>()
             while (c.moveToNext()) {
-                val topic = c.getString(0)
-                if (topic.isNullOrBlank()) continue
+                val categories = c.getString(0).orEmpty().split('|').filter { it.isNotBlank() }
+                val topic = TopicBandit.topicOf(categories, subscribed) ?: continue
                 // A day that will not parse is treated as today rather than dropped: a bad
                 // row should not silently remove a topic's whole history from the bandit.
                 val age = runCatching {
@@ -443,7 +457,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
      * arXiv for it would usually fail to find the very paper the reader means.
      */
     fun searchLocal(query: String, savedOnly: Boolean, limit: Int = 100): List<Paper> {
-        val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.length > 1 }
+        // Each word binds three parameters, so a pasted abstract would pass the 999 limit
+        // above on Android 8 to 11. Past a dozen words a search has said what it means.
+        val terms = query.trim().lowercase().split(Regex("\\s+"))
+            .filter { it.length > 1 }
+            .take(MAX_SEARCH_TERMS)
         if (terms.isEmpty()) return emptyList()
         val where = terms.joinToString(" AND ") {
             "(lower(p.title) LIKE ? OR lower(p.abstract) LIKE ? OR lower(p.authors) LIKE ?)"
@@ -700,6 +718,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
     }
 
     private companion object {
+        /** Under SQLite's 999 bound-parameter limit on Android 8 to 11, with room to spare. */
+        const val MAX_BOUND_PARAMS = 900
+
+        /** Three parameters a word, well inside the limit above. */
+        const val MAX_SEARCH_TERMS = 12
+
         /** How long a day's upvote counts stay useful. */
         const val RETENTION_DAYS = 30L
 

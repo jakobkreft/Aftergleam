@@ -92,6 +92,26 @@ class TopicHistoryTest {
     }
 
     @Test
+    fun `given the reader's categories, a paper counts under the one they follow`() {
+        // The bandit's topics are the reader's own categories, so the history has to be kept
+        // under the same names or every topic would look untried.
+        val db = Db(ctx)
+        show(db, "math.OC", daysAgo = 0, n = 4, engaged = 1, tag = "m")   // cross-listed stat.ML
+        val h = db.topicHistory(today, subscribed = setOf("stat.ML", "cs.CV"))
+        assertEquals(setOf("stat.ML"), h.keys)
+        assertEquals(1f, h.getValue("stat.ML").first, 1e-3f)
+        assertEquals(3f, h.getValue("stat.ML").second, 1e-3f)
+    }
+
+    @Test
+    fun `papers from no followed category count towards no topic`() {
+        val db = Db(ctx)
+        show(db, "cs.RO", daysAgo = 0, n = 3, engaged = 0, tag = "bridge")
+        // Every test paper is cross-listed to stat.ML, so follow something else entirely.
+        assertTrue(db.topicHistory(today, subscribed = setOf("cs.CV")).isEmpty())
+    }
+
+    @Test
     fun `no history at all is an empty map rather than zeroes`() {
         // The ranker uses emptiness to mean "the bandit has nothing to say", and falls back
         // to plain sampling. Rows of zeroes would send it down the bandit path with nothing

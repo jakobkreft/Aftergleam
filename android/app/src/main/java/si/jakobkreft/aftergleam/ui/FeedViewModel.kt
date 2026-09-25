@@ -326,9 +326,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * The trained model, kept between rebuilds.
      *
-     * Training took the better part of the nine seconds a rebuild costs, and it depends only
-     * on the reader's signals: re-fitting it because today's papers arrived is work for
-     * nothing. The signature is the ledger, so any new reaction invalidates it at once.
+     * Training took the better part of the nine seconds a rebuild costs. It depends on the
+     * reader's signals and, through its vocabulary, on which papers are the newest, so the
+     * signature is the ledger plus the newest paper: any new reaction or any fetch that
+     * brings papers invalidates it, and a re-rank with neither reuses it.
      */
     private var cachedModel: Ranker.Model? = null
     private var cachedSignature: String? = null
@@ -408,7 +409,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun modelSignature(rated: List<RatedDoc>): String =
         rated.joinToString("|") { "${it.paperId ?: it.text.hashCode()}:${it.interest}" }
-            .hashCode().toString()
+            .hashCode().toString() + "@" + db.recentPapers(limit = 1).firstOrNull()?.id.orEmpty()
 
     private val _state = MutableStateFlow(
         FeedState(
@@ -1560,7 +1561,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     size = EXPLORE_PAGE,
                     attention = _state.value.attention,
                     evidenceCount = evidenceCount(),
-                    topicHistory = db.topicHistory(),
+                    topicHistory = db.topicHistory(subscribed = cats.toSet()),
                     prebuilt = model,
                 )
             }
@@ -1691,7 +1692,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     size = CATCH_UP_SIZE,
                     attention = _state.value.attention,
                     evidenceCount = evidenceCount(),
-                    topicHistory = db.topicHistory(),
+                    topicHistory = db.topicHistory(subscribed = _state.value.categories),
                     prebuilt = ensureModelShared(rated),
                 )
             }
@@ -1769,6 +1770,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     /** Opens the reader, downloading first if the file is not already cached. */
+    /**
+     * Throws away the copy on the phone and fetches the paper again.
+     *
+     * For a file that downloaded but will not open. The download itself is atomic, so this is
+     * usually a server that answered with something damaged, and asking again is the fix.
+     */
+    fun redownload(paper: Paper) {
+        viewModelScope.launch {
+            PdfStore(getApplication()).delete(paper.id)
+            openReader(paper)
+        }
+    }
+
     fun openReader(paper: Paper) {
         val store = PdfStore(getApplication())
         _state.value = _state.value.copy(

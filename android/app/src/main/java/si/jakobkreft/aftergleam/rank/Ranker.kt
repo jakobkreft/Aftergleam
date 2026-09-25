@@ -253,12 +253,20 @@ class Ranker(private val weights: Weights = Weights()) {
         val today = LocalDate.now()
 
         val hasModel = model != null
-        val scored = fresh.map { paper ->
-            val vec = model?.vec?.transform(paper.rankText)
-            // Shrunk toward the prior: a model fitted on a handful of papers is as sharp as
-            // one fitted on hundreds, and acting on that is how the feed narrowed in a day.
+        val vecs = fresh.map { model?.vec?.transform(it.rankText) }
+        val predictions = fresh.indices.map { i ->
+            val v = vecs[i]
+            if (model != null && v != null) model.clf.predict(v) else 0f
+        }
+        val standing = standing(fresh, predictions, subscribed)
+
+        val scored = fresh.mapIndexed { i, paper ->
+            val vec = vecs[i]
+            // The confidence a card shows. Shrunk toward the prior: a model fitted on a
+            // handful of papers is as sharp as one fitted on hundreds, and quoting its raw
+            // probability would claim more than it knows. Ordering uses standing instead.
             val rel = if (model != null && vec != null) {
-                Sampling.shrink(model.clf.predict(vec), evidenceCount)
+                Sampling.shrink(predictions[i], evidenceCount)
             } else 0f
             val venue = Venue.score(paper)
             val fresh = recency(paper, today)
@@ -276,7 +284,7 @@ class Ranker(private val weights: Weights = Weights()) {
             // strong venue promotes a paper the user would want anyway, and cannot rescue
             // one they would not.
             val score = if (hasModel) {
-                rel * (1f + weights.quality * venue + weights.attention * buzz) +
+                standing[i] * (1f + weights.quality * venue + weights.attention * buzz) +
                     weights.recency * fresh
             } else {
                 // Cold start: with no model every relevance is zero, so a multiplier would
@@ -290,12 +298,50 @@ class Ranker(private val weights: Weights = Weights()) {
                 relevance = rel,
                 slot = Slot.RELEVANCE,
                 vec = vec,
-                placedByQuality = hasModel && venue > 0f && weights.quality * venue * rel > weights.recency * fresh,
+                placedByQuality = hasModel && venue > 0f &&
+                    weights.quality * venue * standing[i] > weights.recency * fresh,
             )
         }.sortedByDescending { it.score }
 
         val chosen = compose(scored, subscribed, size, random, hasModel, model, topicHistory)
         return explain(chosen, rated, model)
+    }
+
+    /**
+     * Each paper's interest as its standing among the day's papers in the reader's fields,
+     * in 0..1.
+     *
+     * The model's probabilities are too close together to be combined with anything. They
+     * are pulled toward a prior until evidence builds up, and the classifier takes small
+     * steps, so on a real phone every one of the day's 400 candidates sat between 0.26 and
+     * 0.40 before shrinking and within 0.07 of each other after it. Venue multiplies the
+     * score by up to 1.35 and freshness adds up to 0.25, both fixed amounts, and against a
+     * spread that narrow they decided the order: an acceptance was worth more than the whole
+     * difference between the day's best match and its worst.
+     *
+     * Standing is the model's score in standard deviations from the day's average, mapped
+     * to 0..1 by a logistic curve that closely follows the normal distribution. It spans the
+     * range whatever the model's confidence, so venue and freshness again adjust the order
+     * rather than set it. Papers from outside the reader's fields are placed on the same
+     * scale but do not set it: the bridge fetches dozens of them, and letting them into the
+     * average made every paper in a small field look excellent.
+     */
+    private fun standing(
+        papers: List<Paper>,
+        predictions: List<Float>,
+        subscribed: Set<String>,
+    ): FloatArray {
+        val logits = predictions.map { logit(it) }
+        val own = papers.indices.filter { i ->
+            subscribed.isEmpty() || papers[i].categories.any { it in subscribed }
+        }
+        val scale = Sampling.Scale(own.map { logits[it] }.ifEmpty { logits })
+        return FloatArray(papers.size) { i -> 1f / (1f + exp(-1.7f * scale.of(logits[i]))) }
+    }
+
+    private fun logit(p: Float): Float {
+        val q = p.coerceIn(1e-6f, 1f - 1e-6f)
+        return kotlin.math.ln(q / (1f - q))
     }
 
     /**
@@ -323,24 +369,24 @@ class Ranker(private val weights: Weights = Weights()) {
      *
      * Similarity is cosine over the same TF-IDF vectors the ranker already computed, so
      * this costs one dot product per candidate per slot and needs no extra model. With no
-     * vectoriser available (cold start) it degrades to plain ranking.
+     * vectoriser available (cold start) it degrades to plain sampling.
+     *
+     * [earlier] is what was chosen before this call. The topic bandit asks for one paper at a
+     * time, and each call used to start from an empty list, so the penalty had nothing to
+     * compare against: for every reader with more than one topic, the variety setting did
+     * nothing at all.
      */
     private fun selectDiverse(
         scored: List<Scored>,
         n: Int,
         model: Model?,
         random: Random,
+        scale: Sampling.Scale,
+        earlier: List<Scored> = emptyList(),
     ): List<Scored> {
         if (n <= 0) return emptyList()
         if (model == null) {
-            return Sampling.topK(scored, n, weights.temperature, random) {
-                it.score.coerceIn(0f, 1f)
-            }
-        }
-
-        val vectors = HashMap<String, SparseVec>()
-        fun vec(s: Scored) = vectors.getOrPut(s.paper.id) {
-            model.vec.transform(s.paper.rankText)
+            return Sampling.topK(scored, n, weights.temperature, random) { it.score }
         }
 
         // Two caps, both needed. The loop is slots x pool x already-chosen, so at a digest
@@ -353,7 +399,20 @@ class Ranker(private val weights: Weights = Weights()) {
         // something chosen forty slots ago is not what this pass is for.
         val pool = scored.take(MMR_POOL.coerceAtMost(scored.size)).toMutableList()
         val chosen = mutableListOf<Scored>()
-        val lambda = 1f - weights.diversity
+        val t = weights.temperature.coerceAtLeast(1e-3f)
+        fun vec(s: Scored) = s.vec ?: model.vec.transform(s.paper.rankText)
+
+        // Score and similarity are on different scales, so similarity is priced in the
+        // score's own unit, the standard deviation. At the default setting a paper that
+        // repeats one already chosen loses about two and a half, a close relative at a
+        // cosine of 0.3 loses under one, and papers that merely share a field lose almost
+        // nothing.
+        //
+        // It used to subtract the raw cosine from the raw score. With the day's scores
+        // within 0.07 of each other and similarities spread up to 0.8, similarity decided
+        // nearly every pick and relevance hardly mattered.
+        val cost = SIMILARITY_COST * weights.diversity /
+            (1f - weights.diversity).coerceAtLeast(0.1f)
 
         // Stochastic maximal marginal relevance: each pick is *drawn* from the
         // diversity-adjusted scores rather than taken as the maximum.
@@ -365,16 +424,13 @@ class Ranker(private val weights: Weights = Weights()) {
         // to rescue. One loop does both jobs: variety between runs, and no near-duplicates
         // within a run.
         while (chosen.size < n && pool.isNotEmpty()) {
+            val recent = (earlier + chosen).takeLast(MMR_LOOKBACK)
             var bestIdx = 0
             var bestKey = Float.NEGATIVE_INFINITY
             for (i in pool.indices) {
                 val cand = pool[i]
-                val maxSim = chosen.takeLast(MMR_LOOKBACK)
-                    .maxOfOrNull { cosine(vec(cand), vec(it)) } ?: 0f
-                val value = (lambda * cand.score - weights.diversity * maxSim)
-                    .coerceIn(1e-6f, 1f)
-                val key = kotlin.math.ln(value) / weights.temperature.coerceAtLeast(1e-3f) +
-                    gumbel(random)
+                val maxSim = recent.maxOfOrNull { cosine(vec(cand), vec(it)) } ?: 0f
+                val key = (scale.of(cand.score) - cost * maxSim) / t + Sampling.gumbel(random)
                 if (key > bestKey) {
                     bestKey = key
                     bestIdx = i
@@ -398,13 +454,17 @@ class Ranker(private val weights: Weights = Weights()) {
         model: Model?,
         random: Random,
         topicHistory: Map<String, Pair<Float, Float>>,
+        scale: Sampling.Scale,
+        subscribed: Set<String>,
     ): List<Scored> {
         if (n <= 0 || candidates.isEmpty()) return emptyList()
-        val byTopic = candidates.groupBy { it.paper.primaryCategory }
+        val byTopic = candidates.groupBy {
+            TopicBandit.topicOf(it.paper.categories, subscribed) ?: it.paper.primaryCategory
+        }
         // With one topic there is nothing to allocate, and with no history the bandit would
         // just be a uniform draw over topics, which the sampler already handles better.
         if (byTopic.size < 2 || topicHistory.isEmpty()) {
-            return selectDiverse(candidates, n, model, random)
+            return selectDiverse(candidates, n, model, random, scale)
         }
 
         val pools = byTopic.mapValues { (_, v) -> v.toMutableList() }
@@ -420,23 +480,20 @@ class Ranker(private val weights: Weights = Weights()) {
             val topic = TopicBandit.draw(arms, random) ?: break
             val pool = pools[topic] ?: break
             // One paper at a time, so the next slot is decided with the previous pick known.
-            val pick = selectDiverse(pool, 1, model, random).firstOrNull() ?: break
+            val pick = selectDiverse(pool, 1, model, random, scale, earlier = chosen)
+                .firstOrNull() ?: break
             pool.remove(pick)
             chosen += pick
         }
         // A short pool or an unlucky run of draws must not leave the digest short.
         if (chosen.size < n) {
+            val taken = chosen.map { it.paper.id }.toSet()
             chosen += selectDiverse(
-                candidates.filter { c -> chosen.none { it.paper.id == c.paper.id } },
-                n - chosen.size, model, random,
+                candidates.filter { it.paper.id !in taken },
+                n - chosen.size, model, random, scale, earlier = chosen,
             )
         }
         return chosen
-    }
-
-    private fun gumbel(random: Random): Float {
-        val u = random.nextFloat().coerceIn(1e-6f, 1f - 1e-6f)
-        return -kotlin.math.ln(-kotlin.math.ln(u))
     }
 
     // Both vectors are L2 normalised by Tfidf.transform, so the dot product is the cosine.
@@ -452,7 +509,9 @@ class Ranker(private val weights: Weights = Weights()) {
         model: Model?,
         topicHistory: Map<String, Pair<Float, Float>>,
     ): List<Scored> {
-        if (scored.size <= size) return scored
+        // There is deliberately no shortcut for a pool smaller than the digest. There was
+        // one, returning everything as it stood, and it skipped the scope rule below: a law
+        // reader with one unread law paper and five fetched for the bridge got six "matches".
 
         // Papers from categories the reader never chose are candidates for exactly one slot,
         // the bridge, and for nothing else.
@@ -498,13 +557,27 @@ class Ranker(private val weights: Weights = Weights()) {
         // posterior does the exploring, so an area nothing is known about is tried because it
         // is unknown rather than because a slider said to.
         val remaining = inScope.filter { it.paper.id !in picked }
-        val allocated = allocateByTopic(remaining, nRelevance, model, random, topicHistory)
+        // One scale for every draw, so a paper's chances do not depend on which topic's
+        // pool it happens to be drawn from.
+        val scale = Sampling.Scale(inScope.map { it.score })
+        val allocated = allocateByTopic(
+            remaining, nRelevance, model, random, topicHistory, scale, subscribed,
+        )
         allocated.forEach { picked[it.paper.id] = it }
 
-        // Uncertainty sampling: relevance nearest 0.5 is where a label teaches the most.
-        inScope.asSequence()
+        // Exploration is the near misses: papers ranked just below the ones chosen to show.
+        //
+        // It used to take the papers nearest a relevance of 0.5, on the reasoning that 0.5 is
+        // where a classifier is least sure. That holds for a calibrated classifier and not for
+        // this one. Relevance is shrunk towards a prior of 0.3 until evidence accumulates, so
+        // on a real digest every candidate sat between 0.28 and 0.35, and "nearest 0.5" meant
+        // "highest scored". Exploration was taking the best papers of the day and labelling
+        // them as a test, while the relevance slots got what was left. A band of ranks is
+        // where the digest actually decides between showing a paper and not, whatever the
+        // scale of the scores, and it cannot reach the top of the list.
+        inScope.sortedByDescending { it.relevance }.asSequence()
+            .drop(nRelevance)
             .filter { it.paper.id !in picked }
-            .sortedBy { kotlin.math.abs(it.relevance - 0.5f) }
             .take(nExplore * 3)
             .shuffled(random)
             .take(nExplore)
@@ -516,7 +589,38 @@ class Ranker(private val weights: Weights = Weights()) {
             if (picked.size >= size) break
             picked.putIfAbsent(s.paper.id, s)
         }
-        return picked.values.take(size).sortedByDescending { it.score }
+        return arrange(picked.values.take(size))
+    }
+
+    /**
+     * The order the reader sees: the best matches first, the deliberate detours woven in.
+     *
+     * Everything used to be sorted by score together, and a bridge or exploration card is not
+     * worse by construction, so it could land anywhere including the top. On a real digest the
+     * bridge card was first on three days in seven and second on most of the rest. Its score
+     * was not higher because it was a better match; a conference acceptance multiplies the
+     * score, and when relevance is nearly flat that multiplier decides the order.
+     *
+     * The top of the list is the one place a reader judges the whole digest by, so it belongs
+     * to the papers most likely to be right. The detours follow, one after every few matches,
+     * with the bridge first among them so that the one thing from outside the reader's fields
+     * is seen rather than buried at the bottom.
+     */
+    private fun arrange(cards: List<Scored>): List<Scored> {
+        val matches = cards.filter { it.slot == Slot.RELEVANCE }.sortedByDescending { it.score }
+        val detours = ArrayDeque(
+            cards.filter { it.slot == Slot.BRIDGE } +
+                cards.filter { it.slot == Slot.EXPLORATION }.sortedByDescending { it.score }
+        )
+        if (detours.isEmpty()) return matches
+        val out = ArrayList<Scored>(cards.size)
+        matches.forEachIndexed { i, card ->
+            out += card
+            val shown = i + 1
+            if (shown >= HEAD && (shown - HEAD) % SPACING == 0) detours.removeFirstOrNull()?.let { out += it }
+        }
+        out += detours
+        return out
     }
 
     /**
@@ -561,7 +665,15 @@ class Ranker(private val weights: Weights = Weights()) {
             .shuffled(Random(rated.sumOf { it.text.hashCode().toLong() }))
             .take(rated.size * 10)
         val docs = rated.map { it.text } + easyNegatives
-        val vec = Tfidf().apply { fit(docs) }
+        // The vocabulary comes from the day's candidates as well as the training set.
+        //
+        // Fitted on the training set alone, a real phone's held 4,580 terms from 242 papers,
+        // and only 43% of a new paper's words were in it: most of what a candidate said was
+        // invisible to the model. Candidates carry no label, so this widens what the model
+        // can see without changing what it is taught. On a real reader's library it ranked
+        // held-out papers better at every size tried, most when it matters most: from three
+        // liked papers, nDCG@25 rose from 0.43 to 0.55.
+        val vec = Tfidf().apply { fit(docs + candidates.map { it.rankText }) }
         if (vec.size == 0) return null
 
         val x = docs.map { vec.transform(it) }
@@ -576,11 +688,24 @@ class Ranker(private val weights: Weights = Weights()) {
         /** Below this many ratings the model is noise, so we do not pretend to have one. */
         const val MIN_RATINGS = 3
 
+        /** Cards at the top that are always the best matches. */
+        const val HEAD = 3
+
+        /** Matches between one detour and the next. */
+        const val SPACING = 3
+
         /** Candidates the diversity pass considers. Flat cost regardless of digest size. */
         private const val MMR_POOL = 150
 
         /** How many recent picks a candidate is compared against for similarity. */
         private const val MMR_LOOKBACK = 12
+
+        /**
+         * Standard deviations of score that a cosine similarity of one costs, when variety
+         * and relevance are weighted equally. Simulated readers did as well at half and at
+         * double this; it is the middle of that range.
+         */
+        private const val SIMILARITY_COST = 6f
     }
 
     /** Exponential decay with a one-week half-life. */

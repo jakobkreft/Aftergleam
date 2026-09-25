@@ -115,7 +115,30 @@ class PdfStore(private val context: Context) {
             // Write to a temporary name first, so an interrupted download cannot leave a
             // truncated file that later looks cached and renders as a corrupt document.
             val partial = File(dir, base(paper.id) + ".part")
-            conn.inputStream.use { input -> partial.outputStream().use { input.copyTo(it) } }
+            // Refused outright when the server says it is too large, and cut off if it lies.
+            // Without a ceiling one broken or hostile response could fill the phone's storage,
+            // and the cache is only reclaimed by the system after the damage is done.
+            if (conn.contentLengthLong > MAX_DOWNLOAD_BYTES) {
+                throw DownloadError("The file is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB")
+            }
+            conn.inputStream.use { input ->
+                partial.outputStream().use { out ->
+                    val buf = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > MAX_DOWNLOAD_BYTES) {
+                            out.close(); partial.delete()
+                            throw DownloadError(
+                                "The file is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB"
+                            )
+                        }
+                        out.write(buf, 0, n)
+                    }
+                }
+            }
 
             // What arrived, rather than what was asked for. The server's own name for the
             // file is the best evidence, and the first bytes are the tiebreak: a PDF starts
@@ -141,10 +164,14 @@ class PdfStore(private val context: Context) {
      * Trusts the sniffed bytes over the server's filename, because the extension decides
      * whether the app tries to render the file and which app it is offered to if it cannot.
      */
-    private fun extensionFor(filename: String?, file: File): String {
+    internal fun extensionFor(filename: String?, file: File): String {
         if (looksLikePdf(file)) return "pdf"
+        // Letters and digits only. The name comes from the server, and everything after its
+        // last dot could otherwise carry a path separator into the cache: "x.pdf/../y" leaves
+        // "/y" after the last dot. It cannot climb out, having no dots left, but a file name
+        // is not the place to find out what a remote server chose to put in one.
         val fromName = filename?.substringAfterLast('.', "")?.lowercase()
-        return if (!fromName.isNullOrBlank() && fromName.length <= 5) fromName else "bin"
+        return if (fromName != null && EXTENSION.matches(fromName)) fromName else "bin"
     }
 
     /** True when the file really is a PDF, whatever it is called. */
@@ -271,5 +298,13 @@ class PdfStore(private val context: Context) {
     companion object {
         /** Beyond this a full page bitmap costs more memory than the detail is worth. */
         const val MAX_RENDER_WIDTH = 2600
+
+        /**
+         * The largest download accepted. Papers run to a few megabytes and the largest seen
+         * here was 7.3 MB; a hundred leaves room for scanned books and figure-heavy theses.
+         */
+        const val MAX_DOWNLOAD_BYTES = 100_000_000L
+
+        private val EXTENSION = Regex("[a-z0-9]{1,5}")
     }
 }

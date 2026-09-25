@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.rank
 
 import kotlin.math.ln
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
@@ -18,13 +19,42 @@ import kotlin.random.Random
 object Sampling {
 
     /**
-     * Gumbel top-k: the standard way to draw k items without replacement, in proportion to
-     * their weights, in one pass and without normalising.
+     * Where a score sits among the scores it competes with, in standard deviations.
      *
-     * Adding Gumbel noise to each log-score and taking the largest k is exactly equivalent to
-     * sampling k times without replacement from the softmax. Temperature scales the scores
-     * before the noise: low temperature approaches plain top-K, high temperature approaches
-     * uniform.
+     * The sampler used to read scores as probabilities and draw in proportion to them, which
+     * only works when they spread over most of 0..1. They do not. On a real phone with twenty
+     * two signals the model's predictions for the day's papers ran only from 0.26 to 0.40, and
+     * shrinking them toward the prior left them within 0.07 of each other. Drawing in
+     * proportion to numbers that close is close to drawing blind: of the twenty five papers
+     * the model rated highest, two reached the digest, about what chance would manage.
+     * Measured against their own spread, scores mean the same on the first day as on the
+     * hundredth, and so does the temperature.
+     */
+    class Scale(values: Collection<Float>) {
+        private val mean: Float
+        private val sd: Float
+
+        init {
+            val m = if (values.isEmpty()) 0.0 else values.average()
+            val v = if (values.isEmpty()) 0.0 else values.sumOf { (it - m) * (it - m) } / values.size
+            mean = m.toFloat()
+            sd = sqrt(v).toFloat()
+        }
+
+        /** Zero for every score when they are all equal, since then there is nothing to prefer. */
+        fun of(score: Float): Float = if (sd < 1e-6f) 0f else (score - mean) / sd
+    }
+
+    /**
+     * Gumbel top-k: the standard way to draw k items without replacement, favouring high
+     * scores, in one pass.
+     *
+     * Adding Gumbel noise to each score divided by the temperature and taking the largest k
+     * is exactly sampling k times without replacement from the softmax of those scores. The
+     * scores are put on a common scale first, so a temperature means the same whatever they
+     * are measured in: at the default, a paper one standard deviation above another is about
+     * seventeen times as likely to be drawn. Low temperature approaches plain top-K, high
+     * temperature approaches uniform.
      */
     fun <T> topK(
         items: List<T>,
@@ -36,18 +66,17 @@ object Sampling {
         if (k <= 0 || items.isEmpty()) return emptyList()
         if (k >= items.size) return items
         val t = temperature.coerceAtLeast(1e-3f)
-        return items
-            .map { item ->
-                // Scores are probabilities in 0..1; the floor keeps log finite.
-                val s = score(item).coerceIn(1e-6f, 1f)
-                item to (ln(s) / t + gumbel(random))
-            }
+        val scores = items.map(score)
+        val scale = Scale(scores)
+        return items.indices
+            .map { items[it] to (scale.of(scores[it]) / t + gumbel(random)) }
             .sortedByDescending { it.second }
             .take(k)
             .map { it.first }
     }
 
-    private fun gumbel(random: Random): Float {
+    /** A standard Gumbel draw: the noise that turns taking a maximum into sampling. */
+    fun gumbel(random: Random): Float {
         val u = random.nextFloat().coerceIn(1e-6f, 1f - 1e-6f)
         return -ln(-ln(u))
     }

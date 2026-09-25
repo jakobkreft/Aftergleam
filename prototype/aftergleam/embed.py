@@ -4,9 +4,11 @@ Using onnxruntime rather than sentence-transformers/torch is not just about inst
 It means the ms/abstract numbers from E2 are measured on the runtime that will actually
 ship, on CPU, with no GPU path silently helping. A torch benchmark would flatter us.
 
-Mean-pooling over the last hidden state with attention masking, then L2 normalisation —
-this is what all-MiniLM-L6-v2 and the bge family expect. Getting the pooling wrong is a
-quiet way to lose several points of precision, so it is worth stating explicitly.
+Mean-pooling over the last hidden state with attention masking, then L2 normalisation.
+That is what all-MiniLM-L6-v2 and GTE expect. The bge family and Arctic do not: they use
+the [CLS] token, so this class is only right for mean-pooled models. E1 used it for bge as
+well, which is one reason E2 was rerun with each model pooled as its authors specify (see
+e2.py). Getting the pooling wrong is a quiet way to lose several points of precision.
 """
 
 from __future__ import annotations

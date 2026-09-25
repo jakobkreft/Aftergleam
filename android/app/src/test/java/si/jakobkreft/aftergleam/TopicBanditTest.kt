@@ -153,6 +153,18 @@ class TopicBanditTest {
     }
 
     @Test
+    fun `a paper counts towards the category the reader follows`() {
+        val followed = setOf("cs.LG", "q-bio.NC")
+        assertEquals("filed under stat.ML, followed through its cross-list",
+            "cs.LG", TopicBandit.topicOf(listOf("stat.ML", "cs.LG"), followed))
+        assertEquals("q-bio.NC", TopicBandit.topicOf(listOf("q-bio.NC", "cs.LG"), followed))
+        assertNull("a paper from no followed category, as the bridge shows, is no topic",
+            TopicBandit.topicOf(listOf("cs.RO"), followed))
+        assertEquals("with nothing followed, the primary category",
+            "cs.RO", TopicBandit.topicOf(listOf("cs.RO", "cs.CV"), emptySet()))
+    }
+
+    @Test
     fun `no arms means no draw`() {
         assertNull(TopicBandit.draw(emptyList(), Random(1)))
     }

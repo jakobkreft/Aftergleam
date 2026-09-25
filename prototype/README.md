@@ -27,6 +27,10 @@ python3 -m venv .venv
 | `aftergleam/embed.py` | Sentence embedder on ONNX Runtime, the comparison TF-IDF was measured against |
 | `aftergleam/e1.py` | The evaluation: held-out library papers against random ones |
 | `run_e1.py` | Runs the evaluation end to end |
+| `pipeline.py` | The app's TF-IDF and logistic regression, replicated in Python |
+| `e2.py` | E2: TF-IDF against four small embedders, alone and combined, from a few liked papers |
+| `e2_device.py` | The same comparison on a copy of a phone's database |
+| `sim_prep.py` | Builds simulated readers for the app's digest simulation |
 
 ## Running the evaluation
 
@@ -40,3 +44,18 @@ export first.
 
 arXiv asks for no more than one request every three seconds, and the harvester keeps to that.
 A full harvest is slow on purpose.
+
+## Simulating the digest
+
+E1 and E2 score a ranking once. The simulation asks what the digest does with it over weeks:
+readers with hidden interests react to forty mornings of cards, and the app's own ranker,
+not a copy, builds every digest. `sim_prep.py` needs `data/corpus_all.parquet` and the
+bge-small model in `models/bge-small` (its `onnx/model.onnx` and `tokenizer.json` from
+Hugging Face), and writes the readers to `out/sim/`. Then, from `android/`:
+
+```sh
+AFTERGLEAM_SIM=$PWD/../prototype/out/sim AFTERGLEAM_SIM_LABEL=mine \
+    ./gradlew :app:testDebugUnitTest --tests '*DigestSimulation*' --rerun
+```
+
+Each run appends to `out/sim/results.tsv`. The test is skipped when `AFTERGLEAM_SIM` is unset.

@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.mutableStateOf
@@ -127,13 +129,18 @@ fun PdfReaderScreen(
     onShareLink: () -> Unit,
     /** Records that the PDF itself was shared, which is as strong a signal as the link. */
     onShared: () -> Unit,
+    /** Deletes the copy on the phone and fetches it again, for a file that will not open. */
+    onRedownload: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
     val hScroll = rememberScrollState()
     var zoom by remember { mutableFloatStateOf(1f) }
 
-    val pages by produceState(0, file) { value = store.pageCount(file) }
+    // Null while the document is opening, zero if it could not be. Starting at zero conflated
+    // the two: a damaged PDF reported no pages and the reader showed its loading spinner for
+    // good, with nothing to say the wait would never end.
+    val pages by produceState<Int?>(null, file) { value = store.pageCount(file) }
 
     // Remember where the reader stopped, so reopening a long paper does not start again.
     LaunchedEffect(listState) {
@@ -199,15 +206,17 @@ fun PdfReaderScreen(
                     modifier = Modifier.fillMaxSize().horizontalScroll(hScroll),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(pages) { index ->
+                    items(pages ?: 0) { index ->
                         PdfPage(store, file, index, renderWidth, baseWidthPx.roundToInt())
                     }
                 }
 
-                if (pages == 0) {
+                if (pages == null) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
+                } else if (pages == 0) {
+                    Unreadable(file, store, onRedownload)
                 } else {
                     Text(
                         "${listState.firstVisibleItemIndex + 1} / $pages",
@@ -423,4 +432,47 @@ private fun Judgement(
             { Icon(Icons.Filled.Check, contentDescription = "On", tint = tint) }
         } else null,
     )
+}
+
+/**
+ * A downloaded file that looks like a PDF and will not open as one.
+ *
+ * Usually a damaged download or a server that sent an error page with a PDF's first bytes.
+ * Downloading again fixes the first; another app, with a more forgiving renderer, sometimes
+ * reads what this one refuses.
+ */
+@Composable
+private fun Unreadable(file: File, store: PdfStore, onRedownload: () -> Unit) {
+    val context = LocalContext.current
+    Column(
+        Modifier.fillMaxSize().padding(28.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("This PDF will not open", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "The file on your phone looks damaged. Downloading it again usually fixes this.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onRedownload, modifier = Modifier.fillMaxWidth()) {
+            Text("Download again")
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(
+            onClick = {
+                val view = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(
+                        androidx.core.content.FileProvider.getUriForFile(
+                            context, context.packageName + ".files", file,
+                        ),
+                        store.mimeOf(file),
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching { context.startActivity(Intent.createChooser(view, "Open with")) }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Open with another app") }
+    }
 }

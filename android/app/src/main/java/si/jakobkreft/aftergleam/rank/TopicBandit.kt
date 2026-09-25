@@ -38,6 +38,24 @@ object TopicBandit {
     }
 
     /**
+     * The topic a paper counts towards: the first of its categories the reader follows.
+     *
+     * It used to be the paper's primary category, which made every category a paper was
+     * cross-listed from an arm of its own. A reader following four machine learning
+     * categories had candidates from dozens of primary categories, most never shown, and an
+     * untried arm starts from a flat prior with a mean of one half. Readers act on about one
+     * card in ten, so a topic they follow and read sits near 0.1, and against twenty untried
+     * arms it won none of 200,000 simulated draws. The digest's slots went to whichever
+     * category had a stray paper in the pool.
+     *
+     * The arms are now the subjects the reader chose, which is also what a topic means
+     * everywhere else in the app. With no subscription at all, the primary category.
+     */
+    fun topicOf(categories: List<String>, subscribed: Set<String>): String? =
+        if (subscribed.isEmpty()) categories.firstOrNull()
+        else categories.firstOrNull { it in subscribed }
+
+    /**
      * How much evidence any one topic is allowed to accumulate.
      *
      * Without a bound the posteriors sharpen without limit, and a topic ignored forty times
