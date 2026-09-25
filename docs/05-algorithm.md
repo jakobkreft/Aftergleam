@@ -1280,3 +1280,15 @@ selection, learning your interests on your device, reading here and saving offli
 were already plain and mostly stand. Where a headline now carries a fact the body no longer
 repeats it: the first body used to open by counting the papers a second time.
 
+The reader's menu then gained the card's three judgements and a link share, in three groups:
+judge, share, leave. The judgements come first because the reader is where an opinion about
+a paper actually forms, and going back to the card to find the heart means losing the page.
+Each shows whether it is already on with the card's icon in the primary colour and a check at
+the end of the row; the card gets by with the tint alone because it shows all three side by
+side, and a menu row stands on its own. Choosing one that is on turns it off, and choosing Less
+on a paper marked More replaces the judgement rather than recording both.
+
+Both shares now record that the paper was shared, as the abstract screen's Share always has.
+The PDF share added in the previous round did not, so passing a file on counted for less than
+passing on a link, which is the wrong way round.
+

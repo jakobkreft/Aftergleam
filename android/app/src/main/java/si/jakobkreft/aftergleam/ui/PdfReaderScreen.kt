@@ -25,6 +25,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.mutableStateOf
@@ -114,6 +119,14 @@ fun PdfReaderScreen(
     /** Where the paper came from, for the one menu item that leaves the app. */
     sourceName: String,
     onOpenSource: () -> Unit,
+    /** The reader's current judgement of this paper, so the menu can show it. */
+    liked: Boolean?,
+    saved: Boolean,
+    onSteer: (Boolean?) -> Unit,
+    onSave: () -> Unit,
+    onShareLink: () -> Unit,
+    /** Records that the PDF itself was shared, which is as strong a signal as the link. */
+    onShared: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
@@ -165,7 +178,10 @@ fun PdfReaderScreen(
                     zoom = ZOOM_STEPS.firstOrNull { it > step } ?: ZOOM_STEPS.first()
                     scope.launch { hScroll.scrollTo(0) }
                 }) { Text(if (step >= ZOOM_STEPS.last()) "Fit" else "Zoom") }
-                ReaderMenu(file, title, store, sourceName, onOpenSource)
+                ReaderMenu(
+                    file, title, store, sourceName, onOpenSource,
+                    liked, saved, onSteer, onSave, onShareLink, onShared,
+                )
             }
 
             Box(
@@ -254,16 +270,24 @@ private val ZOOM_STEPS = listOf(1f, 1.5f, 2f, 3f)
  *
  * A menu rather than a row of icons, because the bar is already carrying a back button, the
  * paper's title and the zoom control, and the title is the part that suffers: it is one line
- * and ellipsised before anything is added to it. Three more icons would leave it showing about
- * two words. This is also the shape the library rows already use for the same problem.
+ * and ellipsised before anything is added to it.
  *
- * The three that earn a place are the ones the app cannot otherwise do. Sharing here sends the
- * PDF itself, which is a different act from the Share on the abstract screen: that one sends
- * the title and a link, and neither substitutes for the other when the person receiving it is
- * standing next to you with no signal. Opening in another app is how a reader gets annotation
- * and text selection, which this renderer deliberately does not have. The last one goes to the
- * paper's own page, which is the only honest reading of "open location": the file itself lives
- * in the app's private cache, where no file manager on the device can reach it.
+ * Three groups, in the order they are wanted while reading.
+ *
+ * The judgements come first. The reader is where an opinion about a paper is actually formed,
+ * and leaving it to find the heart on the card means losing the page. They are the card's own
+ * three actions with the card's own icons, and each shows whether it is already on, because a
+ * menu has no other way to say so. Choosing one that is on turns it off, as on the card.
+ *
+ * Then sharing, in both forms. The link is what most people send; the file is for somebody
+ * with no signal or behind a paywall-free mirror nobody can find. They are different acts and
+ * neither substitutes for the other. Both record that the paper was shared, as the abstract
+ * screen's Share always has: passing a paper on is one of the strongest signals there is.
+ *
+ * Last, the two ways out: another app, for annotation and text selection this renderer
+ * deliberately does not have, and the paper's own page. That is the only honest reading of
+ * "open location", because the file itself lives in the app's private cache where no file
+ * manager can reach it.
  */
 @Composable
 private fun ReaderMenu(
@@ -272,6 +296,12 @@ private fun ReaderMenu(
     store: PdfStore,
     sourceName: String,
     onOpenSource: () -> Unit,
+    liked: Boolean?,
+    saved: Boolean,
+    onSteer: (Boolean?) -> Unit,
+    onSave: () -> Unit,
+    onShareLink: () -> Unit,
+    onShared: () -> Unit,
 ) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
@@ -289,6 +319,37 @@ private fun ReaderMenu(
             Icon(Icons.Filled.MoreVert, contentDescription = "More actions")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Judgement(
+                icon = { tint -> Icon(Icons.Filled.Favorite, null, tint = tint) },
+                label = "More like this",
+                on = liked == true,
+                onClick = { open = false; onSteer(if (liked == true) null else true) },
+            )
+            Judgement(
+                icon = { tint -> Icon(Icons.Filled.Clear, null, tint = tint) },
+                label = "Less like this",
+                on = liked == false,
+                onClick = { open = false; onSteer(if (liked == false) null else false) },
+            )
+            Judgement(
+                icon = { tint ->
+                    Icon(
+                        painterResource(si.jakobkreft.aftergleam.R.drawable.ic_bookmark),
+                        null,
+                        tint = tint,
+                    )
+                },
+                label = if (saved) "Saved" else "Save for later",
+                on = saved,
+                onClick = { open = false; onSave() },
+            )
+
+            HorizontalDivider()
+
+            DropdownMenuItem(
+                text = { Text("Share link") },
+                onClick = { open = false; onShareLink() },
+            )
             DropdownMenuItem(
                 text = { Text("Share this PDF") },
                 onClick = {
@@ -309,9 +370,15 @@ private fun ReaderMenu(
                         putExtra(Intent.EXTRA_SUBJECT, title)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    runCatching { context.startActivity(Intent.createChooser(send, "Share the PDF")) }
+                    runCatching {
+                        context.startActivity(Intent.createChooser(send, "Share the PDF"))
+                        onShared()
+                    }
                 },
             )
+
+            HorizontalDivider()
+
             DropdownMenuItem(
                 text = { Text("Open with another app") },
                 onClick = {
@@ -331,4 +398,29 @@ private fun ReaderMenu(
             )
         }
     }
+}
+
+/**
+ * One of the three judgements, as a menu row.
+ *
+ * The icon takes the primary colour and a check appears at the end when it is on. The tint
+ * alone is what the cards use, but a card shows all three side by side where the difference
+ * is obvious; a menu row stands on its own, and a check is the convention for "this is set".
+ */
+@Composable
+private fun Judgement(
+    icon: @Composable (androidx.compose.ui.graphics.Color) -> Unit,
+    label: String,
+    on: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = onClick,
+        leadingIcon = { icon(tint) },
+        trailingIcon = if (on) {
+            { Icon(Icons.Filled.Check, contentDescription = "On", tint = tint) }
+        } else null,
+    )
 }

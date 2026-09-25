@@ -342,6 +342,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                     Intent(Intent.ACTION_VIEW, Uri.parse(reading.absUrl))
                                 )
                             },
+                            liked = state.likedFlag(reading.id),
+                            saved = state.reactions[reading.id]?.saved == true,
+                            onSteer = { vm.steer(reading.id, it) },
+                            onSave = { vm.toggleSave(reading.id) },
+                            // The same share, and the same signal, as the abstract screen.
+                            onShareLink = { sharePaper(context, reading); vm.share(reading.id) },
+                            onShared = { vm.share(reading.id) },
                         )
                     }
                 }
