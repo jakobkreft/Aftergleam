@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.ui.AftergleamTheme
 import si.jakobkreft.aftergleam.ui.DetailScreen
 import si.jakobkreft.aftergleam.ui.PastScreen
@@ -511,6 +512,19 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             backupSummary = state.backupSummary,
                             onReset = vm::resetModel,
                             onOpenUrl = { url -> openUrl(context, url) },
+                            donationsAllowed = state.donationsAllowed,
+                            supportReminder = state.supportReminder,
+                            onSupportReminder = vm::setSupportReminder,
+                            onDonate = {
+                                openUrl(context, Support.DONATE_URL)
+                                vm.supportActed()
+                            },
+                            onRate = {
+                                openUrl(context, Support.playListing(context.packageName))
+                                vm.supportActed()
+                            },
+                            onShareApp = { shareApp(context); vm.supportActed() },
+                            onFeedback = { writeToDeveloper(context) },
                             onApply = { vm.rerank(); showTune = false; tuneStart = null },
                         )
                     }
@@ -612,6 +626,17 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onRefresh = vm::refresh,
                         onPast = vm::openPast,
                         onDismissResurfaced = vm::dismissResurfaced,
+                        onDonate = {
+                            openUrl(context, Support.DONATE_URL)
+                            vm.supportActed()
+                        },
+                        onRate = {
+                            openUrl(context, Support.playListing(context.packageName))
+                            vm.supportActed()
+                        },
+                        onShareApp = { shareApp(context); vm.supportActed() },
+                        onSupportLater = vm::supportLater,
+                        onSupportNever = vm::supportNever,
                     )
                     Tab.EXPLORE -> ExploreScreen(
                         state = state,
@@ -728,6 +753,37 @@ private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
  */
 private fun openUrl(context: android.content.Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+/**
+ * Recommends the app itself. Only offered in a copy from Google Play, so the link is the
+ * Play listing: the one place the person receiving it can be sure to install it from.
+ */
+private fun shareApp(context: android.content.Context) {
+    val share = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(
+            Intent.EXTRA_TEXT,
+            "Aftergleam, a private reader for new research papers: " +
+                Support.playListing(context.packageName),
+        )
+    }
+    runCatching { context.startActivity(Intent.createChooser(share, null)) }
+}
+
+/**
+ * Opens the reader's mail app addressed to the developer, with the version in the subject so
+ * a bug report says which build it is about. Nothing is attached and nothing is sent until
+ * they send it.
+ */
+private fun writeToDeveloper(context: android.content.Context) {
+    val mail = Intent(
+        Intent.ACTION_SENDTO,
+        Uri.parse("mailto:${Support.CONTACT}"),
+    ).apply {
+        putExtra(Intent.EXTRA_SUBJECT, "Aftergleam ${BuildConfig.VERSION_NAME}")
+    }
+    runCatching { context.startActivity(mail) }
 }
 
 private fun sharePaper(context: android.content.Context, paper: Paper) {

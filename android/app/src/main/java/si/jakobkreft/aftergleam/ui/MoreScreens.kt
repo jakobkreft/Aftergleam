@@ -51,7 +51,7 @@ import si.jakobkreft.aftergleam.data.Venue
  * It had grown to nine sections in a single column: import, subjects, ranking, appearance,
  * digest, reminder, backup, model, about, with eighty subject chips in the middle of it.
  * Finding the reminder hour meant scrolling past every field of science. The index says what
- * is in here in seven lines, and each page is short enough to take in at once.
+ * is in here in a line per page, and each page is short enough to take in at once.
  *
  * Navigation is a single piece of state rather than a library: there is one level, and the
  * back gesture is handled here so that it closes the page before it closes settings.
@@ -64,6 +64,9 @@ private enum class Page(val title: String, val summary: String) {
     LIBRARY("Your library", "Import from Zotero, export and restore"),
     MODEL("The model", "What it has learned, and how to clear it"),
     ABOUT("About", "Where the papers come from"),
+    SUPPORT("Support Aftergleam", "Free, no ads, open source. Help keep it that way"),
+    // The same place in a copy from Google Play, which may not ask for money.
+    HELP("Help Aftergleam", "Rate it, share it, or say what is missing"),
 }
 
 @Composable
@@ -109,6 +112,15 @@ fun TuneScreen(
     onApply: () -> Unit,
     /** Opens a web address in the browser, for the About page's links. */
     onOpenUrl: (String) -> Unit = {},
+    /** False in a copy installed from Google Play, which asks for a rating instead. */
+    donationsAllowed: Boolean = false,
+    supportReminder: Boolean = true,
+    onSupportReminder: (Boolean) -> Unit = {},
+    onDonate: () -> Unit = {},
+    onRate: () -> Unit = {},
+    onShareApp: () -> Unit = {},
+    /** Writes to the developer, from About and the support page. */
+    onFeedback: () -> Unit = {},
     onClose: () -> Unit,
 ) {
     var page by rememberSaveable {
@@ -136,7 +148,11 @@ fun TuneScreen(
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
         )
         when (page) {
-            null -> Index { page = it }
+            null -> Index(
+                pages = Page.entries.filter {
+                    it != (if (donationsAllowed) Page.HELP else Page.SUPPORT)
+                },
+            ) { page = it }
             Page.SUBJECTS -> SubjectsPage(topics, onTopics)
             Page.APPEARANCE -> AppearancePage(
                 theme, paperSerif, interfaceSerif, dynamicColour,
@@ -156,18 +172,22 @@ fun TuneScreen(
                 onPickLibrary, onExport, onRestore,
             )
             Page.MODEL -> ModelPage(ratedCount, judgedCount, onReset)
-            Page.ABOUT -> AboutPage(versionName, onOpenUrl)
+            Page.ABOUT -> AboutPage(versionName, onOpenUrl, onFeedback)
+            Page.SUPPORT -> SupportPage(supportReminder, onSupportReminder, onDonate, onFeedback)
+            Page.HELP -> HelpPage(
+                supportReminder, onSupportReminder, onRate, onShareApp, onFeedback,
+            )
         }
     }
 }
 
 @Composable
-private fun Index(onOpen: (Page) -> Unit) {
+private fun Index(pages: List<Page>, onOpen: (Page) -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
     ) {
-        items(Page.entries) { p ->
+        items(pages) { p ->
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -504,7 +524,11 @@ private fun ModelPage(ratedCount: Int, judgedCount: Int, onReset: () -> Unit) = 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AboutPage(versionName: String, onOpenUrl: (String) -> Unit) = PageBody {
+private fun AboutPage(
+    versionName: String,
+    onOpenUrl: (String) -> Unit,
+    onFeedback: () -> Unit,
+) = PageBody {
     Text("Aftergleam $versionName", style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(10.dp))
     Text(
@@ -535,6 +559,99 @@ private fun AboutPage(versionName: String, onOpenUrl: (String) -> Unit) = PageBo
             Text("Privacy policy")
         }
         OutlinedButton(onClick = { onOpenUrl("$REPO/blob/main/LICENSE") }) { Text("License") }
+    }
+    Spacer(Modifier.height(16.dp))
+    Text(
+        "Questions, bugs, or a source you would like added: " +
+            si.jakobkreft.aftergleam.data.Support.CONTACT,
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedButton(onClick = onFeedback) { Text("Write to the developer") }
+    Spacer(Modifier.height(32.dp))
+}
+
+/**
+ * The permanent, quiet place to support the app: always here, never in the way.
+ *
+ * It says plainly that nothing is locked, because a request that might be a paywall in
+ * disguise is one people ignore. The reminder switch lives here too, so turning the note off
+ * and finding it again are the same place.
+ */
+@Composable
+private fun SupportPage(
+    reminder: Boolean,
+    onReminder: (Boolean) -> Unit,
+    onDonate: () -> Unit,
+    onFeedback: () -> Unit,
+) = PageBody {
+    Text(
+        "Aftergleam is free and open source. It has no ads, no tracking and no account, and " +
+            "it never will. Supporting it unlocks nothing, because nothing is locked.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "If it has earned a place in your mornings, you can help keep it going.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(12.dp))
+    Button(onClick = onDonate) { Text("Support on Ko-fi") }
+    Spacer(Modifier.height(16.dp))
+    Text(
+        "Hearing what is missing or broken helps too.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedButton(onClick = onFeedback) { Text("Write to the developer") }
+    ReminderSetting(reminder, onReminder)
+}
+
+/**
+ * The same page in a copy installed from Google Play.
+ *
+ * Play counts any link, button or message that leads to another way of paying, including a
+ * website that has a donate button on it, so this page asks only for what Play allows and
+ * what genuinely helps a free app there: ratings decide who finds it.
+ */
+@Composable
+private fun HelpPage(
+    reminder: Boolean,
+    onReminder: (Boolean) -> Unit,
+    onRate: () -> Unit,
+    onShare: () -> Unit,
+    onFeedback: () -> Unit,
+) = PageBody {
+    Text(
+        "Aftergleam is free and open source, with no ads, no tracking and no account. The " +
+            "most useful help is a rating on Google Play, a word to a colleague, and hearing " +
+            "what is missing or broken.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(12.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onRate) { Text("Rate on Google Play") }
+        OutlinedButton(onClick = onShare) { Text("Share the app") }
+        OutlinedButton(onClick = onFeedback) { Text("Write to the developer") }
+    }
+    ReminderSetting(reminder, onReminder)
+}
+
+@Composable
+private fun ColumnScope.ReminderSetting(reminder: Boolean, onReminder: (Boolean) -> Unit) {
+    Spacer(Modifier.height(24.dp))
+    Text("The occasional reminder", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Once you have read on five different days, a short note ends the digest until you " +
+            "answer it. Not now hides it for a week. Once you have acted on it, it stays away " +
+            "for a year.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(checked = reminder, onCheckedChange = onReminder)
+        Text("  Show the reminder", style = MaterialTheme.typography.bodyMedium)
     }
     Spacer(Modifier.height(32.dp))
 }

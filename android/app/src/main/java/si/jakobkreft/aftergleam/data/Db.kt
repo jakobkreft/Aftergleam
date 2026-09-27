@@ -352,6 +352,19 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
         }, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
+    /**
+     * Separate days on which the reader opened, read or reacted to at least one paper.
+     *
+     * Counted from the ledger the ranking already keeps rather than from a new record of
+     * visits: the question is how often the app was useful, and a day with a signal is a day
+     * something in it was read. Local days, so an evening's reading is one day, not two.
+     */
+    fun readingDays(): Int = readableDatabase.rawQuery(
+        "SELECT COUNT(DISTINCT date(ts / 1000, 'unixepoch', 'localtime')) FROM signals " +
+            "WHERE signal != 'PASSED'",
+        null,
+    ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
     /** Removes one signal, for undoing an explicit judgement. */
     fun removeSignal(paperId: String, signal: Signal) {
         writableDatabase.delete(

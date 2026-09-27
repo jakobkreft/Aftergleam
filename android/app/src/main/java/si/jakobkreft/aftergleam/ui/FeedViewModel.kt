@@ -26,6 +26,7 @@ import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Evidence
 import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
+import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Fetcher
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
@@ -143,6 +144,11 @@ data class FeedState(
     val personalisation: Float = 0.5f,
     val searchScope: SearchScope = SearchScope.ARXIV,
     val drift: Drift.Report? = null,
+    /** The note that ends today's digest, if it is due. See [Support]. */
+    val support: Support.Card? = null,
+    /** False in a copy installed from Google Play, which asks for a rating instead of money. */
+    val donationsAllowed: Boolean = false,
+    val supportReminder: Boolean = true,
     val explore: List<Scored> = emptyList(),
     val exploreLoading: Boolean = false,
     val popular: List<Paper> = emptyList(),
@@ -417,6 +423,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             onboarded = prefs.onboarded,
             theme = prefs.theme,
             topics = prefs.seedTopics,
+            donationsAllowed = Support.donationsAllowed(app),
+            supportReminder = prefs.supportReminder,
         )
     )
     val state: StateFlow<FeedState> = _state.asStateFlow()
@@ -739,6 +747,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     resurfaced = resurfaced,
                     drift = withContext(Dispatchers.IO) { computeDrift() },
+                    support = withContext(Dispatchers.IO) { supportCard() },
                 )
                 withContext(Dispatchers.IO) { refreshCatchUp() }
                 prewarm()
@@ -931,6 +940,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
             resurfaced = findResurfaced(),
             drift = computeDrift(),
+            support = supportCard(),
         )
         refreshCatchUp()
         prewarm()
@@ -976,6 +986,48 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             return Resurfaced(paper, venue, shown)
         }
         return null
+    }
+
+    /** Whether today's digest ends with the support note. The thank-you stays for the session. */
+    private fun supportCard(): Support.Card? {
+        if (_state.value.support == Support.Card.THANKS) return Support.Card.THANKS
+        val due = Support.due(
+            enabled = prefs.supportReminder,
+            readingDays = db.readingDays(),
+            today = LocalDate.now(),
+            quietUntil = prefs.supportQuietUntil,
+        )
+        return if (due) Support.Card.ASK else null
+    }
+
+    /** "Not now": away for a week, then back until it is answered. */
+    fun supportLater() {
+        prefs.supportQuietUntil = LocalDate.now().plusDays(Support.LATER_DAYS)
+        _state.value = _state.value.copy(support = null)
+    }
+
+    /** "Don't ask again": the reminder is switched off, as it would be in settings. */
+    fun supportNever() = setSupportReminder(false)
+
+    /**
+     * The reader acted on the request: followed the Ko-fi link, or on Google Play went to rate
+     * or share the app, from the note or from settings.
+     *
+     * Whether anything came of it is not something the app can know. Somebody who went to
+     * look has heard the request, so the note stays away for a year either way.
+     */
+    fun supportActed() {
+        prefs.supportQuietUntil = LocalDate.now().plusDays(Support.QUIET_AFTER_ACTING_DAYS)
+        val shown = _state.value.support
+        _state.value = _state.value.copy(support = if (shown != null) Support.Card.THANKS else null)
+    }
+
+    fun setSupportReminder(on: Boolean) {
+        prefs.supportReminder = on
+        _state.value = _state.value.copy(
+            supportReminder = on,
+            support = if (on) _state.value.support else null,
+        )
     }
 
     fun dismissResurfaced(stillNotInterested: Boolean) {

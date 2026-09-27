@@ -56,6 +56,11 @@ cd android
 Any JDK 17 or newer will do. See [docs/development.md](docs/development.md) for tests, release
 signing and the reasoning behind the design.
 
+## Support
+
+Aftergleam is free, with no ads and nothing to sell. If it is useful to you, you can support
+it on [Ko-fi](https://ko-fi.com/jakobk).
+
 ## License
 
 [GNU General Public License v3.0 or later](LICENSE).

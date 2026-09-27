@@ -1484,3 +1484,41 @@ files. MiniLM would add roughly 25 to 35 MB, and embedding a day's 400 papers fi
 nightly job. EmbeddingGemma, the strongest small embedder, is under Gemma's own terms rather
 than an open source licence, so it cannot ship in an F-Droid app.
 
+## Asking for support
+
+The app is free and will stay free, with a Ko-fi link for readers who want to help. The risk
+with any request inside an app is that it becomes the thing people remember about it, so the
+design is mostly about when not to ask.
+
+- **One permanent place.** A last row in settings with the link, a plain statement that
+  nothing is locked, a way to write to the developer, and the switch for the reminder. Easy
+  to find for someone looking, invisible to someone who is not.
+- **A card, not a dialog.** A dialog interrupts whatever the reader opened the app to do. The
+  note is the last card of the digest, after "That is today", which is the one moment the
+  reader has just been given what they came for and is about to leave anyway. Only readers who
+  get to the end of the digest see it. It is in the app's own green, like its other notes, so
+  it reads as the app speaking rather than as an advertisement. An earlier blue version stood
+  out more than a request should.
+- **Five separate reading days first.** Returning is the most honest sign the app is useful:
+  a first session can be curiosity, and ten papers can be opened in one evening of looking
+  around, but reading on five different days is a habit. A reading day is a local day with any
+  signal in the ledger the ranking already keeps, so nothing new is recorded to decide this.
+- **Then it stays until answered.** The rule is simple enough to print on the card. It is
+  there at the end of every digest until the reader answers it. "Not now" puts it away for
+  seven calendar days, after which it is back whether or not the app was opened in between;
+  "Don't ask again" puts it away for good, and so does the switch in settings. Acting on it
+  keeps it away for a year, since the app cannot know whether anything came of it. An earlier
+  version doubled its wait after every showing, counted in reading days; it was harder to
+  explain than it was worth.
+- **On Google Play it asks for a rating instead.** Play requires its own billing for payments
+  to a developer, exempts only tax-exempt donations, and its policy covers any in-app button,
+  link or message that leads to another way of paying. Pointing at the website or the source
+  repository instead of Ko-fi would not change that if those pages carry a donate button. The
+  US link-out programme exists, but needs enrolment, Google's billing library, transaction
+  reporting and fees, which is out of proportion for a tip jar and would break the F-Droid
+  build. So a copy installed from Play asks for what Play does allow and what most helps a free
+  app there: a rating, a share, and feedback. The app checks which store installed it, so one
+  build still serves every store.
+- **A way to write in.** About and the support page open the reader's mail app addressed to
+  hello@aftergleam.app with the version in the subject. The address the paper APIs see stays
+  separate, so the two can be routed and filtered apart.

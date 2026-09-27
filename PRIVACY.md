@@ -45,6 +45,12 @@ Each of these services has its own privacy policy, which applies to the requests
 - **Exporting a backup** writes a file where you choose. It contains your subjects,
   reactions and settings, so treat it as private.
 - **Opening a file with another app** hands that one file to the app you choose.
+- **Supporting the app** opens Ko-fi in your browser, or in a copy from Google Play the app's
+  Play listing, where their own terms apply. The app sends them nothing. Whether and when the
+  app shows its occasional note about this is worked out on your device from how many days
+  you have read, and that count goes nowhere.
+- **Writing to the developer** opens your mail app with the address filled in. Nothing is
+  sent until you send it.
 
 ## Android backup
 
@@ -69,5 +75,5 @@ date above updated. The history of every change is visible there.
 
 ## Contact
 
-Questions about privacy: user@aftergleam.app, or open an issue at
+Questions about privacy: hello@aftergleam.app, or open an issue at
 https://github.com/jakobkreft/aftergleam/issues.

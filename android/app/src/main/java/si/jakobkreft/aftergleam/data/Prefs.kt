@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.data
 
 import android.content.Context
+import java.time.LocalDate
 
 /**
  * Settings. SharedPreferences rather than DataStore: this is a handful of scalars read
@@ -168,6 +169,17 @@ class Prefs(context: Context) {
     var fetchedCategories: Set<String>
         get() = sp.getStringSet("fetched_categories", emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet("fetched_categories", v).apply()
+
+    /** Whether the occasional support note may end the digest. See [Support]. */
+    var supportReminder: Boolean
+        get() = sp.getBoolean("support_reminder", true)
+        set(v) = sp.edit().putBoolean("support_reminder", v).apply()
+
+    /** The support note stays away until this day. */
+    var supportQuietUntil: LocalDate?
+        get() = sp.getString("support_quiet_until", null)
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        set(v) = sp.edit().putString("support_quiet_until", v?.toString()).apply()
 
     companion object {
         private const val MAX_REMEMBERED_PAGES = 100

@@ -66,6 +66,11 @@ fun FeedScreen(
     onRefresh: () -> Unit,
     onPast: () -> Unit,
     onDismissResurfaced: (Boolean) -> Unit = {},
+    onDonate: () -> Unit = {},
+    onRate: () -> Unit = {},
+    onShareApp: () -> Unit = {},
+    onSupportLater: () -> Unit = {},
+    onSupportNever: () -> Unit = {},
 ) {
     when {
         state.loading -> DigestSkeleton(state.loadingLabel.ifBlank { "Working" })
@@ -170,6 +175,16 @@ fun FeedScreen(
             }
             item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
+            // Last of all, after "That is today": the reader has had the day's papers and is
+            // about to leave, which is the one point where a request interrupts nothing.
+            state.support?.let { card ->
+                item(key = "support") {
+                    SupportCard(
+                        card, state.donationsAllowed,
+                        onDonate, onRate, onShareApp, onSupportLater, onSupportNever,
+                    )
+                }
+            }
         }
         }
     }
@@ -394,6 +409,98 @@ private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/**
+ * The occasional request for help, at the very end of the digest.
+ *
+ * In the app's own green, like its other notes, so it reads as the app speaking rather than
+ * as an advertisement; it carries no title, author or category to mistake it for a paper. It
+ * says what "not now" does, because a request that explains itself is easier to say no to,
+ * and saying no has to be as easy as saying yes.
+ *
+ * A copy installed from Google Play may not ask for money at all, so there it asks for the
+ * things Play does allow: a rating, and a word to a colleague.
+ */
+@Composable
+private fun SupportCard(
+    card: si.jakobkreft.aftergleam.data.Support.Card,
+    donations: Boolean,
+    onDonate: () -> Unit,
+    onRate: () -> Unit,
+    onShare: () -> Unit,
+    onLater: () -> Unit,
+    onNever: () -> Unit,
+) {
+    val thanks = card == si.jakobkreft.aftergleam.data.Support.Card.THANKS
+    Card(
+        Modifier.fillMaxWidth(),
+        elevation = flatCard(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Favorite,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when {
+                        thanks -> "Thank you"
+                        donations -> "No ads, no tracking, no account. Ever."
+                        else -> "Help others find Aftergleam"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                when {
+                    thanks -> "This note will stay away for a year."
+                    donations ->
+                        "Aftergleam is free and open source, with nothing to sell. If it has " +
+                            "become part of your mornings, you can help keep it that way by " +
+                            "becoming a supporter."
+                    else ->
+                        "It is free and open source, with no ads and no account. A rating on " +
+                            "Google Play, or a word to a colleague, is how more readers find it."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (!thanks) {
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    if (donations) {
+                        Button(onClick = onDonate) { Text("Support on Ko-fi") }
+                    } else {
+                        Button(onClick = onRate) { Text("Rate on Google Play") }
+                        TextButton(onClick = onShare) { Text("Share") }
+                    }
+                    TextButton(onClick = onLater) { Text("Not now") }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Not now hides this for a week.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onNever) { Text("Don't ask again") }
+                }
             }
         }
     }
