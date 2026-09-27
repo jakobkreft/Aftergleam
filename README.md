@@ -6,6 +6,8 @@
 
 A private reader for new research papers, ranked on your phone.
 
+**[aftergleam.app](https://aftergleam.app)**
+
 Hundreds of new papers appear every day. Aftergleam reads them and shows you the few worth
 your time. It learns what you like from how you react, and the model is trained on your
 device. There is no account and nothing about your reading leaves your phone.
