@@ -42,7 +42,7 @@ only if its own build is identical to the one on the GitHub release. So every re
 from the tag, never from a working tree.
 
 1. Raise `versionCode` and `versionName` in `android/app/build.gradle.kts` and write
-   `android/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, under 500 characters.
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, under 500 characters.
 2. Commit, tag and push:
    ```sh
    git tag -a v1.0.0 -m "Aftergleam 1.0.0"

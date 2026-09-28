@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="android/fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Aftergleam" width="100%">
+  <img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Aftergleam" width="100%">
 </p>
 
 # Aftergleam
@@ -13,12 +13,12 @@ your time. It learns what you like from how you react, and the model is trained 
 device. There is no account and nothing about your reading leaves your phone.
 
 <p align="center">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="15%" alt="For you">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="15%" alt="Subjects">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="15%" alt="Popular">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="15%" alt="Ranking">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/5.png" width="15%" alt="Library">
-  <img src="android/fastlane/metadata/android/en-US/images/phoneScreenshots/6.png" width="15%" alt="A paper">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="15%" alt="For you">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="15%" alt="Subjects">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="15%" alt="Popular">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="15%" alt="Ranking">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.png" width="15%" alt="Library">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/6.png" width="15%" alt="A paper">
 </p>
 
 ## Features
