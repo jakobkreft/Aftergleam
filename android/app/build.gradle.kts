@@ -29,25 +29,29 @@ android {
     fun secret(env: String, prop: String): String? =
         System.getenv(env) ?: providers.gradleProperty(prop).orNull
 
+    // F-Droid's build server deletes this block, and the `signingConfig =` line below, before
+    // it builds. Its clean-up only recognises that line when the value has no spaces in it, so
+    // it must stay exactly `signingConfigs.findByName("release")`. A longer expression was left
+    // in place and then failed on the missing config, which broke the 1.0.0 build there.
     signingConfigs {
-        create("release") {
-            secret("AFTERGLEAM_KEYSTORE", "aftergleam.keystore")?.let { path ->
+        secret("AFTERGLEAM_KEYSTORE", "aftergleam.keystore")?.let { path ->
+            create("release") {
                 storeFile = file(path)
                 storePassword = secret("AFTERGLEAM_KEYSTORE_PASSWORD", "aftergleam.keystorePassword")
                 keyAlias = secret("AFTERGLEAM_KEY_ALIAS", "aftergleam.keyAlias")
                 keyPassword = secret("AFTERGLEAM_KEY_PASSWORD", "aftergleam.keyPassword")
+                // v1 is not needed at minSdk 26, and its per-entry signatures would change the
+                // archive that F-Droid compares against its own build of the same commit.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
             }
-            // v1 is not needed at minSdk 26, and its per-entry signatures would change the
-            // archive that F-Droid compares against its own build of the same commit.
-            enableV1Signing = false
-            enableV2Signing = true
-            enableV3Signing = true
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
