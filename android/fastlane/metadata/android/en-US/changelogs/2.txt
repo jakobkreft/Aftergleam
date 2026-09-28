@@ -1,0 +1,7 @@
+First public release.
+
+- A short daily digest of new papers, ranked on your phone from how you react
+- Papers from arXiv, bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv, Law Archive and ChemRxiv
+- Explore, Popular, search, and a library with offline PDFs
+- Import a BibTeX or RIS library; export and restore your reading history
+- No account, no ads, no tracking

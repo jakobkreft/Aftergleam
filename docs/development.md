@@ -35,6 +35,39 @@ Never commit them.
 The build leaves the git hash and the dependency blob out of the APK so that two checkouts of
 the same commit produce the same bytes.
 
+### Releasing
+
+F-Droid builds each tagged release from source and publishes the APK signed with your key
+only if its own build is identical to the one on the GitHub release. So every release is built
+from the tag, never from a working tree.
+
+1. Raise `versionCode` and `versionName` in `android/app/build.gradle.kts` and write
+   `android/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, under 500 characters.
+2. Commit, tag and push:
+   ```sh
+   git tag -a v1.0.0 -m "Aftergleam 1.0.0"
+   git push origin main v1.0.0
+   ```
+3. Build the signed APK from a clean clone of the tag, with the signing settings above and
+   `ANDROID_HOME` set, since a fresh clone has no `local.properties`:
+   ```sh
+   git clone --branch v1.0.0 . /tmp/aftergleam-release
+   cd /tmp/aftergleam-release/android && ./gradlew assembleRelease
+   ```
+4. Check the signature. The SHA-256 must be the `AllowedAPKSigningKeys` value in F-Droid's
+   metadata for the app:
+   ```sh
+   apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+   ```
+5. Attach it to a GitHub release for the tag as `aftergleam-1.0.0.apk`, the name F-Droid's
+   `Binaries` pattern expects.
+
+F-Droid's build server deletes `gradle/gradle-daemon-jvm.properties` and runs Gradle on its own
+JDK, OpenJDK 21, where local builds use the JDK 25 that file pins. For 1.0.0 both produced the
+same unsigned APK. After a large toolchain or dependency update it is worth checking again:
+remove that file in a scratch copy, set `JAVA_HOME` to a JDK 21, build, and compare the
+unsigned APK with one built normally.
+
 ## Layout
 
 ```

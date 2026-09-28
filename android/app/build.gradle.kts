@@ -11,8 +11,8 @@ android {
         applicationId = "si.jakobkreft.aftergleam"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
     }
 
     /**
@@ -37,6 +37,11 @@ android {
                 keyAlias = secret("AFTERGLEAM_KEY_ALIAS", "aftergleam.keyAlias")
                 keyPassword = secret("AFTERGLEAM_KEY_PASSWORD", "aftergleam.keyPassword")
             }
+            // v1 is not needed at minSdk 26, and its per-entry signatures would change the
+            // archive that F-Droid compares against its own build of the same commit.
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
