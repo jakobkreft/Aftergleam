@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import si.jakobkreft.aftergleam.data.ArxivApi
@@ -23,6 +25,7 @@ import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Resurfaced
 import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.data.Db
+import si.jakobkreft.aftergleam.data.CrossrefSearch
 import si.jakobkreft.aftergleam.data.Evidence
 import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
@@ -53,7 +56,8 @@ import java.time.temporal.ChronoUnit
  * and reacted to" described the scope accurately and was unreadable at that size.
  */
 enum class SearchScope(val label: String) {
-    ARXIV("arXiv"),
+    // Every server the app reads, not only arXiv. See [CrossrefSearch].
+    ONLINE("Online"),
     CACHED("On device"),
     KEPT("My library"),
 }
@@ -142,7 +146,7 @@ data class FeedState(
     val pastCards: List<Scored> = emptyList(),
     val searchError: String? = null,
     val personalisation: Float = 0.5f,
-    val searchScope: SearchScope = SearchScope.ARXIV,
+    val searchScope: SearchScope = SearchScope.ONLINE,
     val drift: Drift.Report? = null,
     /** The note that ends today's digest, if it is due. See [Support]. */
     val support: Support.Card? = null,
@@ -1388,12 +1392,17 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             searching = true, searchError = null,
             searchHits = emptyList(), searchLocalHits = emptyList(), searchLocalMore = 0,
         )
-        if (_state.value.searchScope == SearchScope.ARXIV) searchOnDevice(q)
+        if (_state.value.searchScope == SearchScope.ONLINE) searchOnDevice(q)
         viewModelScope.launch {
             try {
                 val scope = _state.value.searchScope
+                var partial: String? = null
                 val results = when (scope) {
-                    SearchScope.ARXIV -> ArxivApi.search(q, max = 100)
+                    SearchScope.ONLINE -> {
+                        val (found, missing) = searchOnline(q)
+                        partial = missing
+                        found
+                    }
                     SearchScope.CACHED -> withContext(Dispatchers.IO) {
                         db.searchLocal(q, savedOnly = false)
                     }
@@ -1407,13 +1416,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     // The digest's model, not a fresh one. Training here was the whole cost
                     // of a search, and it is the same model either way.
                     val model = ensureModelShared(rated)
-                    // Papers already judged are poor results when searching arXiv, but they
-                    // are the entire point when searching your own library.
-                    // Papers already judged are poor results when searching arXiv, and so
-                    // are the ones already listed above as being on the device.
+                    // Papers already judged are poor results when searching online, and so
+                    // are the ones already listed above as being on the device. When
+                    // searching your own library they are the entire point.
                     val shown = _state.value.searchLocalHits.map { it.paper.id }.toSet()
                     val visible =
-                        if (scope == SearchScope.ARXIV)
+                        if (scope == SearchScope.ONLINE)
                             results.filter { it.id !in ratedIds && it.id !in shown }
                         else results
                     SearchRanker.rank(
@@ -1428,21 +1436,59 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         model = model,
                     )
                 }
-                // Only arXiv results are new; the local scopes already came from the table.
-                if (scope == SearchScope.ARXIV) {
+                // Only online results are new; the local scopes already came from the table.
+                if (scope == SearchScope.ONLINE) {
                     withContext(Dispatchers.IO) { db.upsertPapers(results) }
                 }
-                _state.value = _state.value.copy(searching = false, searchHits = hits)
+                _state.value = _state.value.copy(
+                    searching = false,
+                    searchHits = hits,
+                    searchError = partial,
+                )
             } catch (e: Exception) {
                 // With device results already on screen this is a footnote rather than the
                 // whole answer, which is the other thing local-first buys: a search on a
                 // train now returns something.
                 _state.value = _state.value.copy(
                     searching = false,
-                    searchError = humanError(e, "reach arXiv"),
+                    searchError = humanError(e, "reach the preprint servers"),
                 )
             }
         }
+    }
+
+    /**
+     * arXiv, and through Crossref every other server the app reads, at the same time.
+     *
+     * Either can fail without taking the other's results with it; the second value names
+     * what is missing so the screen can say so. Both failing is an error like any other.
+     *
+     * Crossref names some papers without the version the app stores them under, so each one
+     * already on the device is replaced by the stored copy, reactions and all, rather than
+     * becoming a second copy of itself.
+     */
+    private suspend fun searchOnline(q: String): Pair<List<Paper>, String?> = coroutineScope {
+        val arxiv = async { runCatching { ArxivApi.search(q, max = 100) } }
+        val others = async { runCatching { CrossrefSearch.search(q, rows = 60) } }
+        val fromArxiv = arxiv.await()
+        val fromOthers = others.await()
+        if (fromArxiv.isFailure && fromOthers.isFailure) {
+            throw fromArxiv.exceptionOrNull() ?: fromOthers.exceptionOrNull()!!
+        }
+        val crossref = fromOthers.getOrDefault(emptyList())
+        val stored = withContext(Dispatchers.IO) {
+            val byBase = db.storedIds(crossref.map { CrossrefSearch.baseId(it.id) })
+            val papers = db.papersById(byBase.values).associateBy { it.id }
+            crossref.map { p -> byBase[CrossrefSearch.baseId(p.id)]?.let { papers[it] } ?: p }
+        }
+        val missing = when {
+            fromArxiv.isFailure -> "arXiv did not answer, so these are from the other servers only."
+            fromOthers.isFailure ->
+                "bioRxiv, medRxiv, ChemRxiv and the OSF servers could not be reached through " +
+                    "Crossref, so these are from arXiv only."
+            else -> null
+        }
+        (fromArxiv.getOrDefault(emptyList()) + stored).distinctBy { it.id } to missing
     }
 
     /**

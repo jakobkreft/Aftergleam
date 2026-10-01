@@ -7,6 +7,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import si.jakobkreft.aftergleam.data.ChemRxivApi
+import si.jakobkreft.aftergleam.data.CrossrefSearch
 import si.jakobkreft.aftergleam.data.OsfApi
 import si.jakobkreft.aftergleam.data.Source
 
@@ -68,6 +69,25 @@ class NewSourceLiveTest {
         }
         assert(papers.all { it.published.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }) {
             "dates are not ISO: " + papers.map { it.published }.distinct().take(3)
+        }
+    }
+
+    @Test
+    fun `a search reaches biology, medicine and psychology through crossref`() = runBlocking {
+        assumeTrue("offline", online())
+        val crispr = orSkip("Crossref") { CrossrefSearch.search("CRISPR gene editing", rows = 20) }
+        println("crispr: " + crispr.take(3).map { "${it.source} ${it.title.take(50)}" })
+        assert(crispr.any { it.source == Source.BIORXIV }) { "no bioRxiv paper for a biology query" }
+        val vaccine = orSkip("Crossref") { CrossrefSearch.search("COVID-19 vaccine effectiveness", rows = 20) }
+        assert(vaccine.any { it.source == Source.MEDRXIV }) { "no medRxiv paper for a medical query" }
+        val memory = orSkip("Crossref") { CrossrefSearch.search("working memory capacity", rows = 20) }
+        assert(memory.any { it.source == Source.PSYARXIV }) { "no PsyArXiv paper for a psychology query" }
+        val all = crispr + vaccine + memory
+        assert(all.all { it.abstract.isNotBlank() && '<' !in it.title }) { "abstract or clean title missing" }
+        for (found in listOf(crispr, vaccine, memory)) {
+            assert(found.map { CrossrefSearch.baseId(it.id) }.toSet().size == found.size) {
+                "one preprint came back more than once"
+            }
         }
     }
 

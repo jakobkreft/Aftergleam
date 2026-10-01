@@ -45,7 +45,7 @@ object ChemRxivApi {
      * faster pool. This is the project's address, not the reader's: nothing about who is
      * using the app goes with it.
      */
-    private const val CONTACT = "user@aftergleam.app"
+    internal const val CONTACT = "user@aftergleam.app"
 
     suspend fun recent(
         subjects: Set<String>,
@@ -75,28 +75,17 @@ object ChemRxivApi {
         out.associateBy { it.id.substringBefore("/v") }.values.toList()
     }
 
-    private fun parse(o: JSONObject): Paper? {
+    internal fun parse(o: JSONObject): Paper? {
         val doi = o.optString("DOI").ifBlank { return null }
-        val title = o.optJSONArray("title")?.optString(0)?.trim().orEmpty().ifBlank { return null }
+        val title = title(o) ?: return null
         val abstract = stripJats(o.optString("abstract")).ifBlank { return null }
         val date = postedDate(o) ?: return null
-
-        val authors = mutableListOf<String>()
-        val arr = o.optJSONArray("author")
-        if (arr != null) {
-            for (i in 0 until arr.length()) {
-                val a = arr.optJSONObject(i) ?: continue
-                val name = listOf(a.optString("given"), a.optString("family"))
-                    .filter { it.isNotBlank() }.joinToString(" ").trim()
-                if (name.isNotBlank()) authors += name
-            }
-        }
 
         return Paper(
             id = doi,
             title = title,
             abstract = abstract,
-            authors = authors,
+            authors = authors(o),
             categories = listOf(Source.qualify(Source.CHEMRXIV, CATEGORY)),
             published = date,
             updated = date,
@@ -104,8 +93,27 @@ object ChemRxivApi {
         )
     }
 
+    /**
+     * The title, without its markup. Crossref titles are JATS too, and a bioRxiv title read
+     * "Plasmid-based CRISPR-Cas9 gene editing in multiple <i>Candida</i> species".
+     */
+    internal fun title(o: JSONObject): String? =
+        stripJats(o.optJSONArray("title")?.optString(0).orEmpty()).ifBlank { null }
+
+    internal fun authors(o: JSONObject): List<String> {
+        val authors = mutableListOf<String>()
+        val arr = o.optJSONArray("author") ?: return authors
+        for (i in 0 until arr.length()) {
+            val a = arr.optJSONObject(i) ?: continue
+            val name = listOf(a.optString("given"), a.optString("family"))
+                .filter { it.isNotBlank() }.joinToString(" ").trim()
+            if (name.isNotBlank()) authors += name
+        }
+        return authors
+    }
+
     /** "posted" is the preprint date, as date-parts: [[2026, 9, 9]]. */
-    private fun postedDate(o: JSONObject): String? {
+    internal fun postedDate(o: JSONObject): String? {
         val parts = o.optJSONObject("posted")?.optJSONArray("date-parts")?.optJSONArray(0)
             ?: return null
         if (parts.length() < 1) return null
@@ -138,7 +146,7 @@ object ChemRxivApi {
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
-    private fun get(url: String): String? = runCatching {
+    internal fun get(url: String): String? = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             setRequestProperty("User-Agent", "${Http.USER_AGENT} mailto:$CONTACT")
             setRequestProperty("Accept", "application/json")

@@ -29,11 +29,12 @@ from Aftergleam. The app only contacts the servers your subjects need.
 | **arXiv** (arxiv.org) | the arXiv categories you follow, and a few related ones for suggestions outside your usual reading; your search terms; the titles in a library you import, to match them; the identifiers of papers from your past digests, three to twelve months later, to check whether they have since been published; and the identifier of any paper whose PDF you open |
 | **bioRxiv and medRxiv** (biorxiv.org, medrxiv.org) | a range of dates, and the identifier of any paper whose PDF you open. Your subjects are not sent: papers are filtered on your phone |
 | **OSF**, which hosts PsyArXiv, SocArXiv, EdArXiv and Law Archive (osf.io) | the name of the server and a date, and the identifier of any paper whose PDF you open. Your subjects are not sent. OSF stores its files with Google Cloud, so a PDF download is completed by storage.googleapis.com, which also receives that request |
-| **Crossref** (crossref.org), for ChemRxiv | a date and the app's contact address. Nothing about you |
+| **Crossref** (crossref.org), for ChemRxiv, and for searching bioRxiv, medRxiv, ChemRxiv, PsyArXiv, SocArXiv, EdArXiv and Law Archive | a date and the app's contact address; and your search terms when you search online |
 | **Hugging Face** (huggingface.co) | a request for its public list of the day's popular papers, which is the same for everyone. Nothing about you |
 
 Search terms and imported titles are the most revealing of these, because you wrote them or
-chose them. They go only to arXiv, and only when you search or import.
+chose them. Imported titles go only to arXiv. Search terms go to arXiv and to Crossref, and
+only when you search online; the On device and My library searches send nothing.
 
 Each of these services has its own privacy policy, which applies to the requests it receives.
 

@@ -57,13 +57,50 @@ object ArxivApi {
      * This is arXiv's own keyword index, not semantic search. The UI says so: promising
      * semantic search over three million papers and delivering keyword matching would be
      * the kind of lie users notice on their second query.
+     *
+     * Every word is required. The query used to go out as `all:CRISPR gene editing`, which
+     * arXiv reads as CRISPR or gene or editing: 24,329 matches, the first two about the Gene
+     * Ontology. Requiring each word gave fifteen, all on the subject. When requiring all of
+     * them finds nothing, the looser form is the better answer than none.
      */
     suspend fun search(query: String, max: Int = 100): List<Paper> {
-        val cleaned = query.trim()
-        if (cleaned.length < 2) return emptyList()
-        val encoded = java.net.URLEncoder.encode("all:$cleaned", "UTF-8")
-        return parse(get("$ENDPOINT?search_query=$encoded&max_results=$max"))
+        val strict = searchQuery(query, requireAll = true) ?: return emptyList()
+        val found = parse(get("$ENDPOINT?search_query=${enc(strict)}&max_results=$max"))
+        if (found.isNotEmpty()) return found
+        val loose = searchQuery(query, requireAll = false) ?: return found
+        if (loose == strict) return found
+        return parse(get("$ENDPOINT?search_query=${enc(loose)}&max_results=$max"))
     }
+
+    /**
+     * What is typed, as an arXiv query. Quoted phrases stay phrases, and words too common to
+     * narrow anything are left out, since requiring "of" or "for" only loses results. Anybody
+     * who writes arXiv's own syntax, `ti:` or `au:` or `AND`, gets exactly what they wrote.
+     */
+    internal fun searchQuery(text: String, requireAll: Boolean): String? {
+        val t = text.trim()
+        if (t.length < 2) return null
+        if (ARXIV_SYNTAX.containsMatchIn(t)) return t
+        val phrases = Regex("\"([^\"]+)\"").findAll(t)
+            .map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
+        val words = t.replace(Regex("\"[^\"]*\"?"), " ")
+            .split(Regex("[^\\p{L}\\p{N}+#-]+"))
+            .map { it.trim('-') }
+            .filter { it.length > 1 && it.lowercase() !in STOP_WORDS }
+            .distinctBy { it.lowercase() }
+        val parts = phrases.map { "all:\"$it\"" } + words.map { "all:$it" }
+        if (parts.isEmpty()) return "all:$t"
+        return parts.joinToString(if (requireAll) " AND " else " OR ")
+    }
+
+    private val ARXIV_SYNTAX = Regex("""\b(AND|OR|ANDNOT)\b|\b(ti|au|abs|co|jr|cat|rn|id|all):""")
+
+    private val STOP_WORDS = setOf(
+        "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "is", "of", "on",
+        "or", "the", "to", "via", "with",
+    )
+
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
     /**
      * Phrase search on the title field. Returns candidates for the caller to score; the

@@ -132,8 +132,9 @@ fun SearchScreen(
         Spacer(Modifier.height(4.dp))
         Text(
             when (state.searchScope) {
-                SearchScope.ARXIV ->
-                    "Keyword search on arXiv, reordered here by what you read."
+                SearchScope.ONLINE ->
+                    "Keyword search on arXiv and seven other preprint servers, reordered " +
+                        "here by what you read."
                 SearchScope.CACHED -> "Everything this device has downloaded. No network."
                 SearchScope.KEPT -> "Only what you saved or reacted to. No network."
             },
@@ -165,7 +166,7 @@ fun SearchScreen(
             // skeleton over the top of real results would hide the thing that just arrived.
             state.searching && nothingAtAll -> DigestSkeleton(
                 when (state.searchScope) {
-                    SearchScope.ARXIV -> "Asking arXiv, then ranking for you"
+                    SearchScope.ONLINE -> "Asking the preprint servers, then ranking for you"
                     else -> "Searching this device"
                 }
             )
@@ -202,9 +203,9 @@ fun SearchScreen(
                         Spacer(Modifier.height(4.dp))
                         SectionLabel(
                             when {
-                                state.searching -> "Asking arXiv for the rest"
-                                state.searchError != null -> "arXiv"
-                                else -> "New to you, from arXiv"
+                                state.searching -> "Asking the preprint servers for the rest"
+                                state.searchError != null -> "From the preprint servers"
+                                else -> "New to you, from the preprint servers"
                             }
                         )
                     }

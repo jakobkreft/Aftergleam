@@ -1522,3 +1522,34 @@ design is mostly about when not to ask.
 - **A way to write in.** About and the support page open the reader's mail app addressed to
   hello@aftergleam.app with the version in the subject. The address the paper APIs see stays
   separate, so the two can be routed and filtered apart.
+
+## Search reaches every server
+
+Search asked arXiv and nothing else. A reader who follows biology searched for "CRISPR gene
+editing" and got machine learning papers about CRISPR from cs.LG; the bioRxiv preprints on the
+subject could only turn up if one was already on the phone. Every result was also labelled
+"outside your usual reading", for a reader who had not read anything yet.
+
+- **Every server, one extra request.** bioRxiv's API has no keyword search, ChemRxiv sits
+  behind a browser challenge and OSF's search is being replaced, but Crossref holds all of
+  their records with abstracts, and the app already used it for ChemRxiv. Each server
+  registers under its own DOI prefix (openRxiv's `10.64898` covers bioRxiv and medRxiv, old
+  `10.1101` DOIs included), so one Crossref query restricted to those prefixes searches all
+  seven. It runs alongside the arXiv query, and either one failing leaves the other's results
+  on screen with a line saying what is missing.
+- **One paper, one entry.** Crossref gives bioRxiv DOIs without the version the digest stores
+  them under, and OSF ids sometimes without `_v1`. A result for a paper already on the device
+  is replaced by the stored copy, so it keeps its reactions and does not appear twice. Several
+  versions of one preprint come back as one. bioRxiv resolves a versionless DOI to the latest
+  version, page and PDF alike, which was checked before relying on it.
+- **arXiv is asked for every word.** `all:CRISPR gene editing` means CRISPR or gene or
+  editing to arXiv: 24,329 matches, the first two about the Gene Ontology. Requiring each word
+  gave fifteen, all on the subject. Quoted phrases stay phrases, words like "of" and "for" are
+  not required, arXiv's own syntax passes through, and a query that finds nothing is retried
+  with any word.
+- **The order and the labels are relative.** Query match and predicted interest are blended
+  as ranks among the results, because the raw interest sits within a few hundredths of 0.3
+  and the slider barely moved anything. "Matches your interests" and "further from your
+  usual reading" now mean the top and bottom third of the results, and with no model at all a
+  result only says that it matches the query.
+

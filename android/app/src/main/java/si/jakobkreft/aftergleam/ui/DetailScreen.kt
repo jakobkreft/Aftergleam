@@ -151,7 +151,9 @@ fun DetailScreen(
                     // Comma separated: a paper filed under "law and politics" and "courts"
                     // ran together as "law and politics courts", which reads as one subject
                     // nobody has ever heard of.
-                    paper.displayCategories.joinToString(", "),
+                    // Nothing at all for a paper with no subject, which a search can bring
+                    // in, rather than an empty field between two separators.
+                    paper.displayCategories.joinToString(", ").ifBlank { null },
                     "submitted ${paper.published}",
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,

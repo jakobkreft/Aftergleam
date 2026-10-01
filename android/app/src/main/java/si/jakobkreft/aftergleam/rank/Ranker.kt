@@ -39,7 +39,8 @@ data class Scored(
      */
     fun why(): String = storedReason ?: when (slot) {
         Slot.EXPLORATION -> "testing whether this is for you"
-        Slot.BRIDGE -> "${paper.primaryCategory}, outside your usual"
+        Slot.BRIDGE -> Source.display(paper.primaryCategory)
+            .ifBlank { paper.sourceLabel ?: "another field" } + ", outside your usual"
         Slot.RELEVANCE -> when {
             placedByQuality && reasonTerms.isNotEmpty() ->
                 "ranked up for its venue, matches " +

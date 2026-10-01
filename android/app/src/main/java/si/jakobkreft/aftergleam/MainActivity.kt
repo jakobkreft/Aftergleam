@@ -559,7 +559,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 else null
                             )
                         }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search arXiv")
+                            Icon(Icons.Filled.Search, contentDescription = "Search papers")
                         }
                         IconButton(onClick = { showTune = true }) {
                             Icon(Icons.Filled.Settings, contentDescription = "Settings")

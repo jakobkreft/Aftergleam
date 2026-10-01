@@ -128,7 +128,8 @@ fun PaperCard(
                         // what it is: a medRxiv preprint is not peer reviewed and may never
                         // be, and the reader is entitled to know that at a glance.
                         paper.sourceLabel,
-                        Source.display(paper.primaryCategory),
+                        // Blank for a paper with no subject, which a search can bring in.
+                        Source.display(paper.primaryCategory).ifBlank { null },
                         Venue.of(paper),
                         if (upvotes > 0) Attention.label(upvotes) else null,
                     ).joinToString(" · "),

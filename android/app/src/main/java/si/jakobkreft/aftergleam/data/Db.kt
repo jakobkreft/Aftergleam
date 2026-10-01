@@ -353,6 +353,33 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
     }
 
     /**
+     * The stored id of each paper whose versionless id is given, where one is stored.
+     *
+     * A search result and the copy fetched for a digest can name the same paper differently:
+     * bioRxiv's API gives `10.1101/2025.07.18.665633v2` and Crossref the bare DOI, OSF ids
+     * may or may not end in `_v1`. Without this the paper existed twice, once with the
+     * reader's reactions on it and once without.
+     */
+    fun storedIds(bases: Collection<String>): Map<String, String> {
+        val out = HashMap<String, String>()
+        val db = readableDatabase
+        for (base in bases.distinct()) {
+            val like = base.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            db.rawQuery(
+                "SELECT id FROM papers WHERE id = ? OR id LIKE ? ESCAPE '\\' " +
+                    "OR id LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\'",
+                arrayOf(base, "${like}v%", "${like}\\_v%", "$like/v%"),
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getString(0)
+                    if (CrossrefSearch.baseId(id) == base) { out[base] = id; break }
+                }
+            }
+        }
+        return out
+    }
+
+    /**
      * Separate days on which the reader opened, read or reacted to at least one paper.
      *
      * Counted from the ledger the ranking already keeps rather than from a new record of
