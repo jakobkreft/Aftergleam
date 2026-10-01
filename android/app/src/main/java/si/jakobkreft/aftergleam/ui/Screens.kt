@@ -175,7 +175,7 @@ fun FeedScreen(
             }
             item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
-            // Last of all, after "That is today": the reader has had the day's papers and is
+            // Last of all, after "That's all for today": the reader has had the day's papers and is
             // about to leave, which is the one point where a request interrupts nothing.
             state.support?.let { card ->
                 item(key = "support") {
@@ -337,7 +337,9 @@ private fun EndCard(
     onPast: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp)) {
-        Text("That is today", style = MaterialTheme.typography.titleMedium)
+        // Says outright that the digest has ended. It read "That is today", which was meant as
+        // "that is all of today's papers" and left readers wondering what it referred to.
+        Text("That's all for today", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
         Text(
             when {

@@ -28,6 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -163,4 +168,28 @@ internal fun Mark(modifier: Modifier = Modifier) {
         contentDescription = null,
         modifier = modifier,
     )
+}
+
+/**
+ * The mark at a small size, in [color], for places inside the app.
+ *
+ * Always the whole letter with its gleam, never the gleam alone. A four-pointed sparkle on its
+ * own is what a dozen apps now put on their AI features, and would read as one; inside the A
+ * it can only be this app's.
+ *
+ * The launcher artwork carries the margin adaptive icons need, the letter filling 43.5% of it,
+ * so drawn small it is mostly empty space. A larger copy is clipped to the letter's own
+ * bounds instead. The monochrome layer is used so the mark takes the theme's colour and reads
+ * in the dark theme as well as the light.
+ */
+@Composable
+internal fun SmallMark(size: Dp, color: Color, modifier: Modifier = Modifier) {
+    Box(modifier.size(size).clipToBounds(), contentAlignment = Alignment.Center) {
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_monochrome),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(color),
+            modifier = Modifier.requiredSize(size / 0.435f),
+        )
+    }
 }

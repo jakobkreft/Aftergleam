@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -529,11 +530,25 @@ private fun AboutPage(
     onOpenUrl: (String) -> Unit,
     onFeedback: () -> Unit,
 ) = PageBody {
-    Text("Aftergleam $versionName", style = MaterialTheme.typography.bodyMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SmallMark(36.dp, MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(
+                "Aftergleam",
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+            )
+            Text("Version $versionName", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    Spacer(Modifier.height(4.dp))
     Spacer(Modifier.height(10.dp))
     Text(
         "Papers come from arXiv, bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv, Law Archive " +
-            "and ChemRxiv, and only from the ones your subjects need. Popularity counts come " +
+            "and ChemRxiv, and only from the ones your subjects need; a search online asks " +
+            "arXiv and Crossref, which covers the rest. Popularity counts come " +
             "from the Hugging Face daily papers list, fetched whole so it says nothing about " +
             "you. Ranking, your reactions and everything you read stay on this device.",
         style = MaterialTheme.typography.bodySmall,

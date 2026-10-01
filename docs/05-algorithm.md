@@ -1494,7 +1494,7 @@ design is mostly about when not to ask.
   nothing is locked, a way to write to the developer, and the switch for the reminder. Easy
   to find for someone looking, invisible to someone who is not.
 - **A card, not a dialog.** A dialog interrupts whatever the reader opened the app to do. The
-  note is the last card of the digest, after "That is today", which is the one moment the
+  note is the last card of the digest, after "That's all for today", which is the one moment the
   reader has just been given what they came for and is about to leave anyway. Only readers who
   get to the end of the digest see it. It is in the app's own green, like its other notes, so
   it reads as the app speaking rather than as an advertisement. An earlier blue version stood
