@@ -1553,3 +1553,35 @@ subject could only turn up if one was already on the phone. Every result was als
   usual reading" now mean the top and bottom third of the results, and with no model at all a
   result only says that it matches the query.
 
+## The survey says what it is for, and how long it is
+
+Four changes after watching the onboarding survey on a phone.
+
+- **It says what the answers do.** "Would you read this?" on its own read as the app itself,
+  a stack of papers to swipe through for ever. One line under it now says that each answer
+  teaches the ranking and that the first digest comes next. The abstract is set at the same
+  size as on a paper's own page, since reading it is the whole task here.
+- **It says how many.** "3 of 12 · 2 kept", once the number is certain. A small field gets a
+  shorter deck and that is only known once its papers have arrived, so until then the count
+  is left out rather than shown and then shrunk. The deck was also shorter than it should
+  have been: each subject's papers were read with a limit of twelve and the five kept back
+  for the first digest came off that, so a reader who chose computer vision was asked about
+  seven papers out of hundreds. The pool is now read deep enough to tell a busy field from a
+  small one.
+- **It can always be left.** "Skip the rest, build my digest" is there from the first card,
+  and becomes "That is enough, build my digest" at the third keeper. The chosen subjects
+  rank a first digest on their own. Leaving early found a bug: liking nothing subscribed the
+  reader to cs.LG, a fallback from when every reader was assumed to be in machine learning,
+  so a reader who followed criminal law got a first digest of twenty four machine learning
+  papers and no law.
+- **Most of the work happens while the reader answers.** Once the answers have been still for
+  a moment the app fetches any subjects they pointed to, the popularity list and the papers
+  for the "outside your usual" card, and trains the model. Finishing only has to rank.
+  Measured on a phone from the last tap to the digest on screen: 4.2 and 4.0 seconds before,
+  2.2, 2.3, 2.2, 2.3 and 2.1 after, in the easy case where nothing new had to be fetched;
+  readers whose answers pointed to new subjects also used to wait for that fetch at the end.
+  Finishing used to skip the popularity list and the outside papers when it had nothing else
+  to fetch, so the first digest could have no "outside your usual" card; they are now fetched
+  during the survey. The wait is labelled "Building your first digest" rather than "Nothing
+  new announced", which meant nothing to somebody who had just arrived.
+

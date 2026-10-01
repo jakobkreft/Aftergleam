@@ -57,9 +57,11 @@ object DigestBuilder {
         // Easy negatives come from older papers, deliberately disjoint from the candidates
         // being scored so that training cannot mark a good candidate as a negative. Only as
         // many as the trainer will sample, rather than loading three thousand abstracts out
-        // of SQLite on every rebuild to discard most of them.
+        // of SQLite on every rebuild to discard most of them; and not at all when the model
+        // is already trained, which is every rebuild after the first and the first digest
+        // too, since onboarding trains it while the reader is still answering.
         val candidateIds = candidates.map { it.id }.toSet()
-        val negativePool = db.recentPapers(limit = 900)
+        val negativePool = if (prebuilt != null) emptyList() else db.recentPapers(limit = 900)
             .filter { it.id !in candidateIds }
             .map { it.rankText }
 

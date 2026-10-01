@@ -208,17 +208,28 @@ private fun Question(
                 TextButton(onClick = onBack) { Text("Undo") }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        // Without this the cards read as the app itself, a stack of papers to swipe through
+        // for ever. One line says what the answers are for and that something comes after.
         Text(
-            "Paper ${survey.seen + 1} · ${survey.liked.size} kept" +
-                if (survey.loading) " · more loading" else "",
+            "Each answer teaches your ranking. Your first digest comes next.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        val total = survey.planned
+        Text(
+            buildString {
+                append(if (total > 0) "${survey.seen + 1} of $total" else "Paper ${survey.seen + 1}")
+                append(" · ${survey.liked.size} kept")
+                if (total == 0 && survey.loading) append(" · more loading")
+            },
             style = MaterialTheme.typography.labelSmall,
         )
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = {
-                if (survey.expected == 0) 0f
-                else (survey.seen.toFloat() / survey.expected).coerceIn(0f, 1f)
+                val of = if (total > 0) total else survey.expected
+                if (of == 0) 0f else (survey.seen.toFloat() / of).coerceIn(0f, 1f)
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -240,9 +251,11 @@ private fun Question(
                 Text(paper.displayCategories.joinToString(", "),
                     style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
+                // The same size as the abstract on a paper's own page. This is the one screen
+                // where reading the abstract is the whole task.
                 Text(
                     paper.displayAbstract,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontFamily = LocalPaperFont.current,
                 )
             }
@@ -257,14 +270,14 @@ private fun Question(
                 Text("Yes")
             }
         }
-        // Offered from the third keeper on: that is when ranking switches on, and there is
-        // no reason to make someone answer questions they have already answered enough of.
-        if (survey.enough) {
-            TextButton(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
-                Text("That is enough, build my digest")
-            }
-        } else {
-            Spacer(Modifier.height(8.dp))
+        // Always there, so nobody is held in the survey. The chosen subjects already rank a
+        // first digest on their own; from the third keeper on, the answers do too, and the
+        // wording says which of the two the reader is choosing.
+        TextButton(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (survey.enough) "That is enough, build my digest"
+                else "Skip the rest, build my digest"
+            )
         }
     }
 }

@@ -80,7 +80,13 @@ object Taste {
      *
      * Their real categories come from the papers themselves rather than from the probe
      * label, because a paper found under "image generation" is frequently cross-listed
-     * somewhere more useful. Falls back to the probe categories when nothing was liked.
+     * somewhere more useful.
+     *
+     * Nothing liked means nothing to add. This used to fall back to cs.LG, from when every
+     * reader was assumed to be in machine learning, and a reader who followed criminal law
+     * and skipped the survey was subscribed to cs.LG: their first digest was twenty four
+     * machine learning papers and no law. The chosen subjects are subscribed regardless, and
+     * they are what a reader who liked nothing has said.
      */
     fun categoriesFrom(liked: List<Paper>, likedProbes: List<Probe>): Set<String> {
         val counted = liked
@@ -90,6 +96,6 @@ object Taste {
             .filterValues { it >= 2 }
             .keys
         val fromProbes = likedProbes.map { Source.qualify(it.source, it.category) }.toSet()
-        return (counted + fromProbes).ifEmpty { setOf("cs.LG") }
+        return counted + fromProbes
     }
 }

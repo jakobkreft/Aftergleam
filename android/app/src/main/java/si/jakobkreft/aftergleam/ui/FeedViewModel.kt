@@ -9,6 +9,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
@@ -256,6 +258,21 @@ data class SurveyState(
     val waiting: Boolean get() = deck.isEmpty() && loading
     /** Three liked papers is where ranking switches on, so that is the honest target. */
     val enough: Boolean get() = liked.size + seeded >= Ranker.MIN_RATINGS
+
+    /**
+     * How many cards this survey will ask about in all, or 0 while that is not yet known.
+     *
+     * Usually twelve, and known from the first card, because subjects are fetched while
+     * they are being chosen. A field with few papers gets a shorter deck, and that is only
+     * certain once its fetch has finished; until then no number is shown rather than one
+     * that later shrinks.
+     */
+    val planned: Int get() = when {
+        !started -> 0
+        !loading -> seen + deck.size
+        seen + deck.size >= expected -> expected
+        else -> 0
+    }
 }
 
 /**
@@ -311,6 +328,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
         /** How long a subject selection must hold still before it is worth fetching. */
         const val SELECTION_SETTLE_MS = 1_200L
+
+        /** How long survey answers must hold still before the first digest is prepared. */
+        const val SURVEY_SETTLE_MS = 1_200L
+
+        /** Popularity and outside papers fetched this recently are not fetched again. */
+        const val EXTRAS_FRESH_MS = 30 * 60 * 1000L
 
         /** The catch-up is a digest, not an inbox: a morning's reading, not a backlog. */
         const val CATCH_UP_SIZE = 25
@@ -557,9 +580,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
         val pools = withContext(Dispatchers.IO) {
             probes.map { probe ->
+                // Past the deck's size by the reserve, so a busy field can be told from a
+                // small one. Read at exactly the deck's size, computer vision looked like a
+                // field of twelve papers, the reserve came off that, and a reader who chose it
+                // was asked about seven.
                 probe to db.papersInCategory(
                     Source.qualify(probe.source, probe.category),
-                    limit = SURVEY_CARDS,
+                    limit = SURVEY_CARDS + SURVEY_RESERVE,
                 )
             }
         }
@@ -611,6 +638,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // ranker precisely nothing and the library showed their answers with neither chip lit.
         db.addSignal(head.second.id, if (liked) Signal.LIKED else Signal.DISLIKED)
         invalidateModel()
+        surveyAnswers.value++
         _state.value = _state.value.copy(
             survey = sv.copy(
                 deck = sv.deck.drop(1),
@@ -637,6 +665,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         db.removeSignal(last.second.id, Signal.LIKED)
         db.removeSignal(last.second.id, Signal.DISLIKED)
         invalidateModel()
+        surveyAnswers.value++
         _state.value = _state.value.copy(
             survey = sv.copy(
                 deck = listOf(last) + sv.deck,
@@ -688,14 +717,55 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Categories from the topics chosen, widened by what the liked papers turned out to be
+     * cross-listed under. A paper found under "generative models" is often filed somewhere
+     * more useful than the probe that surfaced it.
+     */
+    private fun surveyCategories(sv: SurveyState): Set<String> =
+        Topics.categoriesFor(prefs.seedTopics) +
+            Taste.categoriesFrom(sv.liked.map { it.second }, sv.liked.map { it.first })
+
+    /** Bumped on every survey answer, so the first digest is prepared once answers settle. */
+    private val surveyAnswers = MutableStateFlow(0)
+
+    /** Held while the first digest is being prepared, so finishing waits for it. */
+    private val prepLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Gets the first digest ready while the reader is still answering.
+     *
+     * Finishing the survey used to start all the work: fetching the subjects the answers
+     * pointed to, the popularity list, the papers for the "outside your usual" card, then
+     * training, then ranking. On a phone that was most of eight seconds after the last tap,
+     * and when nothing new needed fetching the extras were skipped altogether, so the first
+     * digest had no "outside your usual" card. Each step here is done once the answers have
+     * been still for a moment, so finishing finds the papers on the device and the model
+     * trained, and only has to rank.
+     *
+     * Collected rather than collected-latest: work already under way is never cancelled,
+     * and an answer given during it simply causes one more pass afterwards.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private val firstDigestPrep = viewModelScope.launch {
+        surveyAnswers.drop(1).debounce(SURVEY_SETTLE_MS).collect {
+            prepLock.withLock { prepareFirstDigest() }
+        }
+    }
+
+    private suspend fun prepareFirstDigest() {
+        if (prefs.onboarded) return
+        val cats = surveyCategories(_state.value.survey)
+        val missing = cats - prefs.fetchedCategories
+        if (missing.isNotEmpty()) runCatching { fetchInto(missing) }
+        if (extrasStale()) runCatching { fetchExtras(cats) }
+        withContext(Dispatchers.Default) { ensureModelShared(ratedDocs()) }
+    }
+
     /** Finishes onboarding using what the survey learned. */
     fun finishSurvey() {
         val sv = _state.value.survey
-        // Categories from the topics chosen, widened by what the liked papers turned out to
-        // be cross-listed under. A paper found under "generative models" is often filed
-        // somewhere more useful than the probe that surfaced it.
-        val cats = Topics.categoriesFor(prefs.seedTopics) +
-            Taste.categoriesFrom(sv.liked.map { it.second }, sv.liked.map { it.first })
+        val cats = surveyCategories(sv)
         prefs.categories = cats
         prefs.onboarded = true
         val reactions = db.allReactions()
@@ -708,7 +778,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             judgedCount = judgedCount(),
             modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
         )
-        sync(force = true)
+        sync(force = true, firstDigest = true)
     }
 
     fun setCategories(cats: Set<String>) {
@@ -719,7 +789,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun finishOnboarding() {
         prefs.onboarded = true
         _state.value = _state.value.copy(onboarded = true)
-        sync(force = true)
+        sync(force = true, firstDigest = true)
     }
 
     /** Reopen today's digest from disk. No network, works on a train. */
@@ -810,7 +880,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         return total
     }
 
-    private fun sync(force: Boolean, networkAllowed: Boolean = true) {
+    private fun sync(
+        force: Boolean,
+        networkAllowed: Boolean = true,
+        /** The digest at the end of onboarding, which the survey may have half prepared. */
+        firstDigest: Boolean = false,
+    ) {
         val cats = _state.value.categories.toList()
         if (cats.isEmpty()) return
 
@@ -822,7 +897,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // spending it to arrive back where we started. A subject ticked since the last fetch
         // is the exception: it has no papers here yet, so it is pulled on its own rather
         // than dragging every other subject along with it.
-        val toFetch = FetchPlan.decide(
+        fun plan() = FetchPlan.decide(
             subscribed = cats.toSet(),
             alreadyFetched = prefs.fetchedCategories,
             announced = prefs.fetchIsStale(),
@@ -830,11 +905,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             forced = force,
             networkAllowed = networkAllowed,
         )
-        val shouldFetch = toFetch.isNotEmpty()
+        val early = plan()
         _state.value = _state.value.copy(
             loading = true,
             loadingLabel = when {
-                shouldFetch -> "Fetching from arXiv"
+                // "Nothing new announced" means nothing to somebody who has just arrived.
+                firstDigest -> "Building your first digest"
+                early.isNotEmpty() -> "Fetching from arXiv"
                 force -> "Nothing new announced, re-ranking what you have"
                 else -> "Re-ranking"
             },
@@ -844,6 +921,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             try {
+                // The survey may still be fetching what its answers pointed to, or training.
+                // Waiting for it costs nothing it was not going to cost anyway, and asking
+                // the servers a second time for the same subjects would.
+                if (firstDigest) prepLock.withLock { }
+                val toFetch = if (firstDigest) plan() else early
+                val shouldFetch = toFetch.isNotEmpty()
                 if (shouldFetch) {
                     val n = fetchInto(
                         subscribed = toFetch,
@@ -852,37 +935,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     _state.value = _state.value.copy(
                         loadingLabel = "Got $n papers, checking what is popular"
                     )
-
-                    // Enrichment only. A failure here returns an empty map and the digest
-                    // is built exactly as it would have been.
-                    val hot = Attention.fetch()
-                    if (hot.isNotEmpty()) {
-                        withContext(Dispatchers.IO) { db.saveAttention(hot) }
-                        _state.value = _state.value.copy(
-                            attention = _state.value.attention + hot
-                        )
-                    }
-
-                    // One extra request for the bridge slot. Without a pool from outside the
-                    // user's categories there is nothing for that slot to choose from, which
-                    // is why it never fired. Failure is silently fine: the slot just stays
-                    // empty and the digest backfills.
-                    _state.value = _state.value.copy(loadingLabel = "Looking outside your fields")
-                    val outside = Bridge.candidatesFor(
-                        subscribed = cats.toSet(),
-                        dayOfYear = LocalDate.now().dayOfYear,
-                    )
-                    if (outside.isNotEmpty()) {
-                        val across = mutableListOf<Paper>()
-                        // A smaller ask than the daily fetch: this is one card's worth of
-                        // somewhere else, not a second digest.
-                        Fetcher.fetch(
-                            outside.toSet(), arxivMax = 80, days = 2, osfPages = 1,
-                        ) { across += it }
-                        if (across.isNotEmpty()) {
-                            withContext(Dispatchers.IO) { db.upsertPapers(across) }
-                        }
-                    }
+                }
+                if (networkAllowed && (shouldFetch || (firstDigest && extrasStale()))) {
+                    fetchExtras(cats) { msg -> _state.value = _state.value.copy(loadingLabel = msg) }
                 }
                 // Keep the explanation when there was nothing to fetch. Overwriting it with
                 // "Ranking" meant the one message that answers "why is this so quick, did it
@@ -890,7 +945,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 if (shouldFetch) {
                     _state.value = _state.value.copy(loadingLabel = "Ranking")
                 }
-                withContext(Dispatchers.Default) { rebuild(cats) }
+                withContext(Dispatchers.Default) {
+                    // Through the shared lock, so a model the survey is still training is
+                    // waited for and reused rather than trained a second time alongside it.
+                    ensureModelShared(ratedDocs())
+                    rebuild(cats)
+                }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     loading = false,
@@ -898,6 +958,44 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
+    }
+
+    /** When popularity and the papers for the "outside your usual" card last came in. */
+    private var extrasAt = 0L
+
+    private fun extrasStale(): Boolean =
+        System.currentTimeMillis() - extrasAt > EXTRAS_FRESH_MS
+
+    /**
+     * What the field is reading today, and a handful of papers from outside the reader's
+     * fields for the one card that comes from there.
+     *
+     * Enrichment only. A failure in either leaves the digest exactly as it would have been
+     * without it.
+     */
+    private suspend fun fetchExtras(cats: Collection<String>, label: ((String) -> Unit)? = null) {
+        val hot = Attention.fetch()
+        if (hot.isNotEmpty()) {
+            withContext(Dispatchers.IO) { db.saveAttention(hot) }
+            _state.value = _state.value.copy(attention = _state.value.attention + hot)
+        }
+
+        // One extra request for the bridge slot. Without a pool from outside the user's
+        // categories there is nothing for that slot to choose from, which is why it never
+        // fired. Failure is silently fine: the slot just stays empty and the digest backfills.
+        label?.invoke("Looking outside your fields")
+        val outside = Bridge.candidatesFor(
+            subscribed = cats.toSet(),
+            dayOfYear = LocalDate.now().dayOfYear,
+        )
+        if (outside.isNotEmpty()) {
+            val across = mutableListOf<Paper>()
+            // A smaller ask than the daily fetch: this is one card's worth of somewhere
+            // else, not a second digest.
+            Fetcher.fetch(outside.toSet(), arxivMax = 80, days = 2, osfPages = 1) { across += it }
+            if (across.isNotEmpty()) withContext(Dispatchers.IO) { db.upsertPapers(across) }
+        }
+        extrasAt = System.currentTimeMillis()
     }
 
     /**
