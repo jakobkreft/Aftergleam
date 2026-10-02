@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.key
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
@@ -235,12 +237,17 @@ private fun Question(
         )
         Spacer(Modifier.height(12.dp))
 
+        // One scroll position per paper. Held for the whole screen, it carried over: a reader
+        // who scrolled down an abstract and answered saw the next paper from the same depth,
+        // with its title out of sight.
+        val scroll = key(paper.id) { rememberScrollState() }
+
         // The card takes the space that is left, so the buttons stay put.
         Card(
             Modifier.weight(1f).fillMaxWidth(),
             elevation = flatCard(),
         ) {
-            Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.padding(16.dp).verticalScroll(scroll)) {
                 Text(
                     paper.displayTitle,
                     style = MaterialTheme.typography.titleMedium,
@@ -251,11 +258,12 @@ private fun Question(
                 Text(paper.displayCategories.joinToString(", "),
                     style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(8.dp))
-                // The same size as the abstract on a paper's own page. This is the one screen
-                // where reading the abstract is the whole task.
+                // Between the small size it began at, which was hard to read on the one screen
+                // where reading the abstract is the whole task, and the page size, which left
+                // little of a long abstract on screen at once.
                 Text(
                     paper.displayAbstract,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 19.sp),
                     fontFamily = LocalPaperFont.current,
                 )
             }
@@ -292,7 +300,14 @@ private fun Finished(survey: SurveyState, onFinish: () -> Unit) {
         Text("Nothing to ask about yet", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         Text(
-            if (survey.seeded > 0)
+            // A server that refused is not a quiet field. Computer vision posts hundreds of
+            // papers a day, and telling its reader that smaller fields post a few a week, when
+            // arXiv had simply answered "rate exceeded", blamed their subject for an outage.
+            if (survey.unreachable.isNotEmpty())
+                "${survey.unreachable.joinToString(" and ")} did not answer, so there were no " +
+                    "papers to ask you about. This is usually temporary, and your first " +
+                    "digest will ask again."
+            else if (survey.seeded > 0)
                 "Your subjects had no papers on the device to ask you about, so the survey " +
                     "was skipped. The ${survey.seeded} from your library are enough to start."
             else

@@ -249,6 +249,8 @@ data class SurveyState(
      * thin start, is the app failing to notice what it was just handed.
      */
     val seeded: Int = 0,
+    /** Servers that did not answer while the survey was fetching, to say why it is empty. */
+    val unreachable: List<String> = emptyList(),
 ) {
     val canGoBack: Boolean get() = history.isNotEmpty()
     val started: Boolean get() = expected > 0
@@ -562,7 +564,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             fillDeck(probes)
             val cur = _state.value.survey
             _state.value = _state.value.copy(
-                survey = cur.copy(loading = false, failed = cur.deck.isEmpty())
+                survey = cur.copy(
+                    loading = false,
+                    failed = cur.deck.isEmpty(),
+                    unreachable = _state.value.fetchFailures,
+                )
             )
         }
     }
@@ -876,7 +882,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             activeSources = Fetcher.serversFor(subscribed).map { Source.label(it) }.sorted(),
         )
         prefs.lastFetchMillis = System.currentTimeMillis()
-        prefs.fetchedCategories = prefs.fetchedCategories + subscribed
+        // Only subjects whose server answered. Marking all of them recorded a refused request
+        // as a fetch: arXiv answered "Rate exceeded" during onboarding, computer vision was
+        // marked as fetched with nothing stored, the survey had nothing to ask about, and the
+        // next digest did not ask again because the subject looked already fetched.
+        prefs.fetchedCategories = prefs.fetchedCategories +
+            subscribed.filter { Source.label(Source.of(it)) !in outcome.failed }
         return total
     }
 
