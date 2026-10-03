@@ -221,6 +221,8 @@ data class FeedState(
     /** The reader view of the paper being read: whether it can be offered, and whether it is on. */
     val article: ArticleUi = ArticleUi(),
     val articleTextZoom: Int = 100,
+    /** The reader view's own light or dark, or null to follow the app. */
+    val articleTheme: String? = null,
 ) {
     /**
      * What the reader has explicitly said about a paper: true, false, or nothing yet.
@@ -2140,6 +2142,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             readingPage = prefs.lastPage(paper.id),
             article = ArticleUi(showing = reopen, position = position ?: 0f),
             articleTextZoom = prefs.articleTextZoom,
+            articleTheme = prefs.articleTheme,
         )
         articleJob?.cancel()
         articleJob = viewModelScope.launch {
@@ -2246,6 +2249,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         prefs.setArticlePosition(paperId, position)
         updateArticle(paperId) { it.copy(position = position) }
         if (position >= 0.2f) db.addSignal(paperId, Signal.READ_PAGES)
+    }
+
+    /** The sun or moon in the reader view: a light page or a dark one, for the reader only. */
+    fun toggleArticleTheme(appDark: Boolean) {
+        val next = ReaderTheme.toggled(_state.value.articleTheme, appDark)
+        prefs.articleTheme = next
+        _state.value = _state.value.copy(articleTheme = next)
     }
 
     fun setArticleTextZoom(percent: Int) {

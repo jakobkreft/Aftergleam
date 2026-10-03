@@ -1697,8 +1697,11 @@ answered by the app: figures are fetched once from the paper's own folder on arX
 anything else is refused, so the view contacts nobody else and works offline once opened. The
 copy counts towards the paper's size on the offline shelf and is deleted with it.
 
-Text size is two buttons and a pinch, which changes the size rather than magnifying; the text
-wraps again and the same passage stays in view. Citations and footnotes jump within the paper
+Text size is two buttons; the text wraps again and the same passage stays in view. A pinch that
+changed the size as well was taken out: one more way to do the same thing, and easy to set off
+by accident. The page can be light or dark on its own, with a sun or moon in the bar, for
+reading on a light page in an app that follows a dark system. It follows the app until the
+reader picks the other, and picking the app's own again goes back to following it. Citations and footnotes jump within the paper
 and Back returns to where the reader was. Footnotes open under their line when tapped: the
 stylesheet's pop-up is made for a desktop's margin and opened mostly off the side of a phone. A
 paper last read in the reader view reopens in it, at the same place, kept as a fraction of the
@@ -1727,3 +1730,11 @@ and a unit test holds a paper of that size under a second. And the same paper dr
 all when handed to the web view as data, because data addresses are capped at 2 MB; it is now
 requested by its arXiv address and answered from the phone. It takes about two seconds to lay
 out on a Pixel, with a spinner until it has drawn; ordinary papers take well under one.
+
+**Zooming a PDF by pinching.** The Zoom button steps through 100, 150, 200 and 300%, and a pinch
+used to snap between the same steps, so it jumped under the fingers. A pinch now stops at any
+level between 100 and 300%. While the fingers move, what is on screen is scaled, which costs
+nothing; when they lift, the pages are rendered again at exactly that size, so the text is
+sharp, and the point between the fingers stays where it was. Recorded on a phone, the frames
+change evenly through the pinch, and the release changes almost nothing. The first try showed
+a frame with the right of the page black, where a shift meant for the page moved the whole view.

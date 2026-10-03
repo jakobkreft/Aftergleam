@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -49,7 +50,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -64,6 +64,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -92,25 +95,34 @@ import kotlin.math.roundToInt
  * until a second finger is down, so one finger scrolls the list as usual and two fingers zoom.
  */
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPinchOnly(
-    onPinch: (zoom: Float) -> Unit,
+    onPinch: (zoom: Float, centroid: Offset) -> Unit,
+    onPinchEnd: () -> Unit,
 ) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var pinching = false
         do {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val pressed = event.changes.count { it.pressed }
             if (pressed >= 2) {
                 val zoom = event.calculateZoom()
                 if (zoom != 1f) {
-                    onPinch(zoom)
+                    pinching = true
+                    onPinch(zoom, event.calculateCentroid())
                     event.changes.forEach { it.consume() }
                 }
                 // Pan is consumed too while pinching, or the list lurches mid-gesture.
-                if (event.calculatePan() != androidx.compose.ui.geometry.Offset.Zero) {
+                if (event.calculatePan() != Offset.Zero) {
                     event.changes.forEach { it.consume() }
                 }
+            } else if (pinching) {
+                // One finger has lifted: the pinch is over, and the other one may go on to
+                // scroll as usual.
+                pinching = false
+                onPinchEnd()
             }
         } while (event.changes.any { it.pressed })
+        if (pinching) onPinchEnd()
     }
 }
 
@@ -118,9 +130,8 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPi
  * Full-screen reader: the PDF, or arXiv's HTML version of it in the reader view.
  *
  * Zoom re-renders the page at the wider size rather than magnifying a bitmap, so text stays
- * sharp at any level; that is the whole reason to zoom a paper. Zoom levels are discrete and
- * the render is debounced, because re-rendering on every frame of a pinch is what made the
- * previous version stutter.
+ * sharp at any level; that is the whole reason to zoom a paper. See [PdfZoomState] for how a
+ * pinch stays smooth while doing so.
  *
  * Horizontal panning when zoomed is an ordinary horizontal scroll of content that is simply
  * wider than the screen, so it needs no gesture handling of its own.
@@ -161,13 +172,16 @@ fun PdfReaderScreen(
     onShowPdf: () -> Unit,
     onArticlePosition: (Float) -> Unit,
     onArticleTextZoom: (Int) -> Unit,
+    /** Whether the reader view's page is dark, which can differ from the app. */
+    articleDark: Boolean,
+    onToggleArticleTheme: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     // Held here rather than with the pages, so that a trip to the reader view and back
     // returns to the same page at the same zoom.
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
     val hScroll = rememberScrollState()
-    var zoom by remember { mutableFloatStateOf(1f) }
+    val zoom = remember { PdfZoomState(listState, hScroll) }
     val find = remember { FindState() }
 
     // Null while the document is opening, zero if it could not be. Starting at zero conflated
@@ -194,10 +208,8 @@ fun PdfReaderScreen(
     val baseWidthPx = with(LocalDensity.current) {
         androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
     }
-    // Discrete steps: a continuous zoom would ask for a fresh render of every visible page
-    // on every frame of the pinch.
-    val step = ZOOM_STEPS.minByOrNull { kotlin.math.abs(it - zoom) } ?: 1f
-    val renderWidth = (baseWidthPx * step).roundToInt()
+    zoom.baseWidth = baseWidthPx
+    val renderWidth = zoom.pageWidth
     val showingArticle = article.showing
     val canFind = if (showingArticle) article.article != null
         else PdfFind.supported && (pages ?: 0) > 0
@@ -222,15 +234,23 @@ fun PdfReaderScreen(
                 )
                 if (showingArticle) {
                     TextSizeButtons(articleTextZoom, onArticleTextZoom)
+                    IconButton(onClick = onToggleArticleTheme) {
+                        Icon(
+                            painterResource(
+                                if (articleDark) si.jakobkreft.aftergleam.R.drawable.ic_light_page
+                                else si.jakobkreft.aftergleam.R.drawable.ic_dark_page
+                            ),
+                            contentDescription = if (articleDark) "Light page" else "Dark page",
+                        )
+                    }
                 } else {
                     Text(
-                        "${(step * 100).roundToInt()}%",
+                        "${(zoom.level * zoom.pinch * 100).roundToInt()}%",
                         style = MaterialTheme.typography.labelSmall,
                     )
                     TextButton(onClick = {
-                        zoom = ZOOM_STEPS.firstOrNull { it > step } ?: ZOOM_STEPS.first()
-                        scope.launch { hScroll.scrollTo(0) }
-                    }) { Text(if (step >= ZOOM_STEPS.last()) "Fit" else "Zoom") }
+                        zoom.zoomTo(PdfZoom.next(zoom.level), Offset.Zero, scope, toLeftEdge = true)
+                    }) { Text(if (PdfZoom.atMost(zoom.level)) "Fit" else "Zoom") }
                 }
                 ReaderMenu(
                     file, title, store, sourceName, onOpenSource,
@@ -247,16 +267,14 @@ fun PdfReaderScreen(
                 if (showingArticle) {
                     ArticleContent(
                         paperId, article, articleTextZoom, find,
-                        onShowArticle, onShowPdf, onArticlePosition, onArticleTextZoom,
+                        onShowArticle, onShowPdf, onArticlePosition,
                     )
                 } else {
                     PdfPages(
                         file, store, pages, listState, hScroll, find,
                         renderWidth = renderWidth,
                         baseWidthPx = baseWidthPx,
-                        onPinch = { factor ->
-                            zoom = (zoom * factor).coerceIn(ZOOM_STEPS.first(), ZOOM_STEPS.last())
-                        },
+                        zoom = zoom,
                         onRedownload = onRedownload,
                     )
                 }
@@ -297,7 +315,6 @@ private fun ArticleContent(
     onRetry: () -> Unit,
     onShowPdf: () -> Unit,
     onPosition: (Float) -> Unit,
-    onTextZoom: (Int) -> Unit,
 ) {
     val loaded = article.article
     when {
@@ -334,7 +351,6 @@ private fun ArticleContent(
                 position = article.position,
                 find = find,
                 onPosition = onPosition,
-                onPinch = { factor -> onTextZoom(pinchedTextZoom(textZoom, factor)) },
             )
         }
     }
@@ -351,9 +367,10 @@ private fun PdfPages(
     find: FindState,
     renderWidth: Int,
     baseWidthPx: Float,
-    onPinch: (Float) -> Unit,
+    zoom: PdfZoomState,
     onRedownload: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var matches by remember { mutableStateOf<List<PdfFind.Match>>(emptyList()) }
     val byPage = remember(matches) { matches.groupBy { it.page } }
 
@@ -436,11 +453,32 @@ private fun PdfPages(
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(Unit) { detectPinchOnly(onPinch) }
+            .onSizeChanged { zoom.view = it }
+            .pointerInput(Unit) {
+                detectPinchOnly(
+                    onPinch = { factor, centroid -> zoom.pinchBy(factor, centroid) },
+                    onPinchEnd = { zoom.endPinch(scope) },
+                )
+            }
     ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().horizontalScroll(hScroll),
+            modifier = Modifier
+                .fillMaxSize()
+                // Read in the drawing phase, so a pinch redraws the pages without composing
+                // or laying them out again on every frame.
+                .graphicsLayer {
+                    scaleX = zoom.pinch
+                    scaleY = zoom.pinch
+                    val v = zoom.view
+                    transformOrigin = if (v.width > 0 && v.height > 0) {
+                        TransformOrigin(zoom.pinchAt.x / v.width, zoom.pinchAt.y / v.height)
+                    } else TransformOrigin.Center
+                }
+                .horizontalScroll(hScroll)
+                // Inside the scroll, so the shift moves the pages within the view rather than
+                // moving the view and showing nothing beside it.
+                .graphicsLayer { translationX = zoom.shiftX },
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(pages ?: 0) { index ->
@@ -534,7 +572,6 @@ private fun PdfPage(
     }
 }
 
-private val ZOOM_STEPS = listOf(1f, 1.5f, 2f, 3f)
 
 
 /**

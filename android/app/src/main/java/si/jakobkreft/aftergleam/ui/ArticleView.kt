@@ -3,8 +3,6 @@ package si.jakobkreft.aftergleam.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -18,7 +16,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.background
@@ -43,25 +40,34 @@ import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.Html
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Text sizes the reader view steps through, in percent. */
 val ARTICLE_TEXT_STEPS = listOf(80, 90, 100, 115, 130, 150, 175, 200)
 
 /**
- * The text size a pinch of [factor] leads to from [current].
+ * The reader view's own light or dark, which may differ from the app's.
  *
- * The nearest step to the pinched size, and at least one step in the pinch's direction, so a
- * small deliberate pinch is never ignored.
+ * Stored only while it differs: "light" or "dark" when the reader has chosen a page unlike
+ * the app's, null to follow the app, which by default follows the system. Choosing the app's
+ * own again goes back to following it, so trying the other and returning does not leave a
+ * setting that stops tracking the system at night.
  */
-fun pinchedTextZoom(current: Int, factor: Float): Int {
-    if (abs(factor - 1f) < 0.08f) return current
-    val nearest = ARTICLE_TEXT_STEPS.minBy { abs(it - current * factor) }
-    return when {
-        factor > 1f && nearest <= current -> ARTICLE_TEXT_STEPS.firstOrNull { it > current } ?: current
-        factor < 1f && nearest >= current -> ARTICLE_TEXT_STEPS.lastOrNull { it < current } ?: current
-        else -> nearest
+object ReaderTheme {
+    fun dark(choice: String?, appDark: Boolean): Boolean = when (choice) {
+        "dark" -> true
+        "light" -> false
+        else -> appDark
+    }
+
+    /** The choice after the sun or moon is tapped. */
+    fun toggled(choice: String?, appDark: Boolean): String? {
+        val next = !dark(choice, appDark)
+        return when {
+            next == appDark -> null
+            next -> "dark"
+            else -> "light"
+        }
     }
 }
 
@@ -241,8 +247,9 @@ internal object ArticleDocument {
  * own folder on arXiv. Any other request is refused, so opening a paper this way contacts
  * nobody but arXiv. Links out of the paper open in the browser.
  *
- * Pinching changes the text size rather than magnifying the page, which is what keeps the
- * reading to one direction: the text wraps again at the new size.
+ * Nothing zooms. The text size is the two buttons in the bar, and the text wraps again at
+ * the new size, which is what keeps the reading to one direction. A pinch that changed the
+ * size as well was one more way to do the same thing, and easy to set off by accident.
  */
 @Composable
 fun ArticleView(
@@ -252,7 +259,6 @@ fun ArticleView(
     position: Float,
     find: FindState,
     onPosition: (Float) -> Unit,
-    onPinch: (Float) -> Unit,
 ) {
     val context = LocalContext.current
     val store = remember { ArticleStore(context) }
@@ -287,11 +293,14 @@ fun ArticleView(
 
     var web by remember { mutableStateOf<ArticleWebView?>(null) }
     var fraction by remember { mutableFloatStateOf(position) }
+    // Read when the page has loaded, not when the view was made: switching between a light
+    // and a dark page builds the view again, and the place it was left is saved as the old
+    // one goes, a moment after the new one is made.
+    val latestPosition by androidx.compose.runtime.rememberUpdatedState(position)
     var canGoBack by remember { mutableStateOf(false) }
     // The web view lays the page out in its own time, about two seconds on a phone for the
     // longest paper seen; until it has drawn, the spinner stays rather than an empty page.
     var drawn by remember { mutableStateOf(false) }
-    val latestPinch by rememberUpdatedState(onPinch)
 
     // A tapped citation or footnote jumps within the paper; Back returns to where it was,
     // as in a browser, before it closes the reader.
@@ -323,7 +332,7 @@ fun ArticleView(
                     configure(
                         this, paperId, store, article.baseUrl, page,
                         onVisible = { drawn = true },
-                        onLoaded = { restore(this, position) },
+                        onLoaded = { restore(this, latestPosition) },
                         onHistory = { canGoBack = it },
                     )
                     setBackgroundColor(style.background.toArgb())
@@ -343,7 +352,6 @@ fun ArticleView(
                 }
             },
             update = { view ->
-                view.onPinch = { latestPinch(it) }
                 if (view.settings.textZoom != textZoom) view.settings.textZoom = textZoom
             },
             onRelease = { it.destroy() },
@@ -356,7 +364,12 @@ fun ArticleView(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { web = null } }
+    DisposableEffect(Unit) {
+        onDispose {
+            web = null
+            onPosition(fraction)
+        }
+    }
 }
 
 /**
@@ -444,39 +457,10 @@ private fun restore(view: ArticleWebView, position: Float, attempt: Int = 0) {
     }, 60L)
 }
 
-/**
- * A web view that reports pinches and how far down it is.
- *
- * The pinch is read alongside the view's own touch handling rather than instead of it, so a
- * one-finger scroll is the web view's as usual.
- */
+/** A web view that reports how far down it is. */
 @SuppressLint("ViewConstructor")
 private class ArticleWebView(context: Context) : WebView(context) {
-    var onPinch: (Float) -> Unit = {}
     var onScrolled: (Float) -> Unit = {}
-    private var pinch = 1f
-
-    private val scaler = ScaleGestureDetector(
-        context,
-        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-                pinch = 1f
-                return true
-            }
-
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                pinch *= detector.scaleFactor
-                return true
-            }
-
-            override fun onScaleEnd(detector: ScaleGestureDetector) = onPinch(pinch)
-        },
-    )
-
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        scaler.onTouchEvent(event)
-        return super.dispatchTouchEvent(event)
-    }
 
     private val range: Int get() = computeVerticalScrollRange() - height
 

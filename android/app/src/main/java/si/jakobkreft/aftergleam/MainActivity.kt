@@ -60,6 +60,7 @@ import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.ImportScreen
 import si.jakobkreft.aftergleam.ui.OnboardingScreen
 import si.jakobkreft.aftergleam.ui.PdfReaderScreen
+import si.jakobkreft.aftergleam.ui.ReaderTheme
 import si.jakobkreft.aftergleam.ui.LibraryScreen
 import si.jakobkreft.aftergleam.ui.ExploreScreen
 import si.jakobkreft.aftergleam.ui.PopularScreen
@@ -306,55 +307,66 @@ private fun App(vm: FeedViewModel = viewModel()) {
         if (reading != null) {
             BackHandler { vm.closeReader() }
             val file = state.readingFile
-            Scaffold { inner ->
-                Box(Modifier.padding(inner)) {
-                    when {
-                        state.readingError != null -> Column(Modifier.padding(24.dp)) {
-                            Text(state.readingError!!)
-                            TextButton(onClick = vm::closeReader) { Text("Back") }
-                        }
-
-                        // Downloaded, but not something this reader can draw. Saying so and
-                        // offering it to an app that can is the whole of the fix: the file
-                        // is on the device either way.
-                        state.readingUnsupported != null -> UnsupportedFile(
-                            file = state.readingUnsupported!!,
-                            onBack = vm::closeReader,
-                        )
-                        file == null -> Box(
-                            Modifier.fillMaxSize(),
-                            contentAlignment = androidx.compose.ui.Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                androidx.compose.material3.CircularProgressIndicator()
-                                Text("Fetching the PDF", style = MaterialTheme.typography.labelSmall)
+            // The reader view keeps a light or dark of its own when the reader picks one, so a
+            // paper can be read on a light page in an app that follows a dark system. The
+            // PDF keeps the app's: its pages are white whatever the theme.
+            ReaderThemed(
+                dark = if (state.article.showing) ReaderTheme.dark(state.articleTheme, dark) else dark,
+                appDark = dark,
+                state = state,
+            ) {
+                Scaffold { inner ->
+                    Box(Modifier.padding(inner)) {
+                        when {
+                            state.readingError != null -> Column(Modifier.padding(24.dp)) {
+                                Text(state.readingError!!)
+                                TextButton(onClick = vm::closeReader) { Text("Back") }
                             }
+
+                            // Downloaded, but not something this reader can draw. Saying so and
+                            // offering it to an app that can is the whole of the fix: the file
+                            // is on the device either way.
+                            state.readingUnsupported != null -> UnsupportedFile(
+                                file = state.readingUnsupported!!,
+                                onBack = vm::closeReader,
+                            )
+                            file == null -> Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                    androidx.compose.material3.CircularProgressIndicator()
+                                    Text("Fetching the PDF", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            else -> PdfReaderScreen(
+                                file = file,
+                                title = reading.displayTitle,
+                                store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) },
+                                initialPage = state.readingPage,
+                                onPageChanged = { vm.rememberPage(reading.id, it) },
+                                onBack = vm::closeReader,
+                                sourceName = si.jakobkreft.aftergleam.data.Source.label(reading.source),
+                                onOpenSource = { openUrl(context, reading.absUrl) },
+                                liked = state.likedFlag(reading.id),
+                                saved = state.reactions[reading.id]?.saved == true,
+                                onSteer = { vm.steer(reading.id, it) },
+                                onSave = { vm.toggleSave(reading.id) },
+                                // The same share, and the same signal, as the abstract screen.
+                                onShareLink = { sharePaper(context, reading); vm.share(reading.id) },
+                                onShared = { vm.share(reading.id) },
+                                onRedownload = { vm.redownload(reading) },
+                                paperId = reading.id,
+                                article = state.article,
+                                articleTextZoom = state.articleTextZoom,
+                                onShowArticle = { vm.showArticle(reading) },
+                                onShowPdf = { vm.showPdf(reading.id) },
+                                onArticlePosition = { vm.rememberArticlePosition(reading.id, it) },
+                                onArticleTextZoom = vm::setArticleTextZoom,
+                                articleDark = ReaderTheme.dark(state.articleTheme, dark),
+                                onToggleArticleTheme = { vm.toggleArticleTheme(dark) },
+                            )
                         }
-                        else -> PdfReaderScreen(
-                            file = file,
-                            title = reading.displayTitle,
-                            store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) },
-                            initialPage = state.readingPage,
-                            onPageChanged = { vm.rememberPage(reading.id, it) },
-                            onBack = vm::closeReader,
-                            sourceName = si.jakobkreft.aftergleam.data.Source.label(reading.source),
-                            onOpenSource = { openUrl(context, reading.absUrl) },
-                            liked = state.likedFlag(reading.id),
-                            saved = state.reactions[reading.id]?.saved == true,
-                            onSteer = { vm.steer(reading.id, it) },
-                            onSave = { vm.toggleSave(reading.id) },
-                            // The same share, and the same signal, as the abstract screen.
-                            onShareLink = { sharePaper(context, reading); vm.share(reading.id) },
-                            onShared = { vm.share(reading.id) },
-                            onRedownload = { vm.redownload(reading) },
-                            paperId = reading.id,
-                            article = state.article,
-                            articleTextZoom = state.articleTextZoom,
-                            onShowArticle = { vm.showArticle(reading) },
-                            onShowPdf = { vm.showPdf(reading.id) },
-                            onArticlePosition = { vm.rememberArticlePosition(reading.id, it) },
-                            onArticleTextZoom = vm::setArticleTextZoom,
-                        )
                     }
                 }
             }
@@ -690,6 +702,39 @@ private fun App(vm: FeedViewModel = viewModel()) {
             }
         }
     }
+}
+
+/**
+ * The reader in its own light or dark, see [ReaderTheme.dark].
+ *
+ * The app's theme sets the status bar's icons to suit its background, and so does this one;
+ * when the reader closes they are set back for the app, whose own theme has no reason to set
+ * them again.
+ */
+@Composable
+private fun ReaderThemed(
+    dark: Boolean,
+    appDark: Boolean,
+    state: si.jakobkreft.aftergleam.ui.FeedState,
+    content: @Composable () -> Unit,
+) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val app by androidx.compose.runtime.rememberUpdatedState(appDark)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            (view.context as? android.app.Activity)?.window?.let { window ->
+                androidx.core.view.WindowCompat.getInsetsController(window, view)
+                    .isAppearanceLightStatusBars = !app
+            }
+        }
+    }
+    AftergleamTheme(
+        dark = dark,
+        dynamic = state.dynamicColour,
+        paperSerif = state.paperSerif,
+        interfaceSerif = state.interfaceSerif,
+        content = content,
+    )
 }
 
 /**

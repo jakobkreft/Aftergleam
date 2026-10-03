@@ -17,7 +17,8 @@ import si.jakobkreft.aftergleam.data.Html
 import si.jakobkreft.aftergleam.data.PdfFind
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.ui.ArticleDocument
-import si.jakobkreft.aftergleam.ui.pinchedTextZoom
+import si.jakobkreft.aftergleam.ui.PdfZoom
+import si.jakobkreft.aftergleam.ui.ReaderTheme
 import java.io.File
 
 /**
@@ -211,13 +212,36 @@ class ReaderTest {
     }
 
     @Test
-    fun `a pinch moves the text size at least one step its way, and a twitch does nothing`() {
-        assertEquals(100, pinchedTextZoom(100, 1.03f))
-        assertEquals(115, pinchedTextZoom(100, 1.1f))
-        assertEquals(150, pinchedTextZoom(100, 1.5f))
-        assertEquals(90, pinchedTextZoom(100, 0.9f))
-        assertEquals("no smaller than the smallest", 80, pinchedTextZoom(80, 0.5f))
-        assertEquals(200, pinchedTextZoom(175, 3f))
+    fun `the reader's page follows the app until the reader picks the other, and back`() {
+        assertTrue("follows a dark app", ReaderTheme.dark(null, appDark = true))
+        assertFalse(ReaderTheme.dark(null, appDark = false))
+        val light = ReaderTheme.toggled(null, appDark = true)
+        assertEquals("a light page in a dark app is remembered", "light", light)
+        assertFalse(ReaderTheme.dark(light, appDark = true))
+        assertFalse("still light when the system turns light", ReaderTheme.dark(light, appDark = false))
+        assertNull("choosing the app's own again follows it", ReaderTheme.toggled(light, appDark = true))
+        assertEquals("dark", ReaderTheme.toggled(null, appDark = false))
+        val prefs = Prefs(ctx)
+        prefs.articleTheme = "light"
+        assertEquals("light", prefs.articleTheme)
+        prefs.articleTheme = null
+        assertNull(prefs.articleTheme)
+    }
+
+    @Test
+    fun `the zoom button steps from wherever a pinch left it, and the point between the fingers stays put`() {
+        assertEquals(1.5f, PdfZoom.next(1f))
+        assertEquals("from a pinched 137%", 1.5f, PdfZoom.next(1.37f))
+        assertEquals(3f, PdfZoom.next(2.6f))
+        assertEquals("fit again after the last", 1f, PdfZoom.next(3f))
+        assertTrue(PdfZoom.atMost(3f))
+        assertFalse(PdfZoom.atMost(2.6f))
+        assertEquals(1f, PdfZoom.clamp(0.4f))
+        assertEquals(3f, PdfZoom.clamp(5f))
+        // Content 300 px into a page scrolled by 100, under a finger 200 px from the edge,
+        // doubled: it is now 600 px in, so the page scrolls to 400 to keep it under the finger.
+        assertEquals(400f, PdfZoom.scrollAfter(scroll = 100f, focus = 200f, ratio = 2f), 1e-4f)
+        assertEquals(-50f, PdfZoom.scrollAfter(scroll = 0f, focus = 100f, ratio = 0.5f), 1e-4f)
     }
 
     @Test

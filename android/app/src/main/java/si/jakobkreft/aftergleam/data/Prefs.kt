@@ -160,6 +160,18 @@ class Prefs(context: Context) {
         e.putStringSet("article_keys", seen).apply()
     }
 
+    /**
+     * The reader view's own "light" or "dark", or null to follow the app. See
+     * [si.jakobkreft.aftergleam.ui.ReaderTheme].
+     */
+    var articleTheme: String?
+        get() = sp.getString("article_theme", null)
+        set(v) {
+            val e = sp.edit()
+            if (v == null) e.remove("article_theme") else e.putString("article_theme", v)
+            e.apply()
+        }
+
     /** Text size in the reader view, in percent. One for every paper, as in a browser. */
     var articleTextZoom: Int
         get() = sp.getInt("article_text_zoom", 100)
