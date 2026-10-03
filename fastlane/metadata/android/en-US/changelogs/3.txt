@@ -1,0 +1,6 @@
+- Keywords: papers that mention a name you watch for, such as U-Net or C. elegans, come first, from any field
+- Find in paper: search a PDF, with every match highlighted
+- Reader view for arXiv papers: text that fits the screen at the size you choose, in light or dark
+- Pinch to zoom a PDF to any size
+- Online search covers every preprint server
+- A clearer first survey, and your first digest is built while you answer it

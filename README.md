@@ -70,3 +70,6 @@ it on [Ko-fi](https://ko-fi.com/jakobk).
 ## License
 
 [GNU General Public License v3.0 or later](LICENSE).
+
+The reader view's stylesheet, in `android/app/src/main/assets/reader/`, is
+[ar5iv-css](https://github.com/dginev/ar5iv-css) by Deyan Ginev, under the MIT licence.
