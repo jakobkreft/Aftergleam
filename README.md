@@ -1,8 +1,8 @@
-<p align="center">
-  <img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Aftergleam" width="100%">
-</p>
-
 # Aftergleam
+
+![Platform](https://img.shields.io/badge/platform-Android-green) ![Min SDK](https://img.shields.io/badge/min%20SDK-26-blue) ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-lightgrey) [![Latest release](https://img.shields.io/github/v/release/jakobkreft/Aftergleam?color=orange&label=release)](https://github.com/jakobkreft/Aftergleam/releases) [![F-Droid](https://img.shields.io/f-droid/v/si.jakobkreft.aftergleam?label=F-Droid)](https://f-droid.org/packages/si.jakobkreft.aftergleam/)
+
+[<img width="100%" height="auto" src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Aftergleam feature graphic" />](https://f-droid.org/packages/si.jakobkreft.aftergleam/)
 
 A private reader for new research papers, ranked on your phone.
 
@@ -11,6 +11,15 @@ A private reader for new research papers, ranked on your phone.
 Hundreds of new papers appear every day. Aftergleam reads them and shows you the few worth
 your time. It learns what you like from how you react, and the model is trained on your
 device. There is no account and nothing about your reading leaves your phone.
+
+<div>
+  <a href="https://f-droid.org/packages/si.jakobkreft.aftergleam/">
+    <img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="80">
+  </a>
+  <a href="https://github.com/jakobkreft/Aftergleam/releases/latest">
+    <img src=".github/badge_github.png" alt="Get it on GitHub" height="80">
+  </a>
+</div>
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="15%" alt="For you">
