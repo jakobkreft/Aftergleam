@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 16 September 2026.
+Effective 3 October 2026.
 
 Aftergleam is a reader for research preprints. It has no account, no server of its own, no
 analytics, no crash reporting, no advertising and no third-party tracking code. The developer
@@ -13,7 +13,7 @@ Everything the app knows about you is stored only on your phone:
 - the subjects you follow and your settings
 - your reactions to papers, what you opened, saved and downloaded
 - the reading model, which is trained on your phone from those reactions
-- downloaded PDFs
+- downloaded PDFs, and the HTML versions of papers opened in the reader view
 - any library you import
 
 Uninstalling the app, or clearing its data, deletes all of it.
@@ -26,7 +26,7 @@ from Aftergleam. The app only contacts the servers your subjects need.
 
 | Server | What it receives |
 |---|---|
-| **arXiv** (arxiv.org) | the arXiv categories you follow, and a few related ones for suggestions outside your usual reading; your search terms; the titles in a library you import, to match them; the identifiers of papers from your past digests, three to twelve months later, to check whether they have since been published; and the identifier of any paper whose PDF you open |
+| **arXiv** (arxiv.org) | the arXiv categories you follow, and a few related ones for suggestions outside your usual reading; your search terms; the titles in a library you import, to match them; the identifiers of papers from your past digests, three to twelve months later, to check whether they have since been published; and the identifier of any paper whose PDF you open. While a paper is open, the app asks whether arXiv has an HTML version of it, and fetches that version and its figures if you open the reader view |
 | **bioRxiv and medRxiv** (biorxiv.org, medrxiv.org) | a range of dates, and the identifier of any paper whose PDF you open. Your subjects are not sent: papers are filtered on your phone |
 | **OSF**, which hosts PsyArXiv, SocArXiv, EdArXiv and Law Archive (osf.io) | the name of the server and a date, and the identifier of any paper whose PDF you open. Your subjects are not sent. OSF stores its files with Google Cloud, so a PDF download is completed by storage.googleapis.com, which also receives that request |
 | **Crossref** (crossref.org), for ChemRxiv, and for searching bioRxiv, medRxiv, ChemRxiv, PsyArXiv, SocArXiv, EdArXiv and Law Archive | a date and the app's contact address; and your search terms when you search online |

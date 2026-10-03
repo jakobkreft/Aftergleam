@@ -132,6 +132,39 @@ class Prefs(context: Context) {
         e.putStringSet("page_keys", seen).apply()
     }
 
+    /**
+     * How far through the reader view a paper was read, as a fraction of its length, or null
+     * when it was last read as a PDF. The paper reopens the way it was left, at the same place.
+     *
+     * A fraction rather than a scroll offset, because the offset of the same sentence moves
+     * whenever the text size does. Bounded like the pages.
+     */
+    fun articlePosition(paperId: String): Float? =
+        if (sp.contains("article_$paperId")) sp.getFloat("article_$paperId", 0f) else null
+
+    fun setArticlePosition(paperId: String, position: Float?) {
+        val seen = (sp.getStringSet("article_keys", emptySet()) ?: emptySet()).toMutableSet()
+        val e = sp.edit()
+        if (position == null) {
+            seen -= paperId
+            e.remove("article_$paperId")
+        } else {
+            seen += paperId
+            e.putFloat("article_$paperId", position.coerceIn(0f, 1f))
+            if (seen.size > MAX_REMEMBERED_PAGES) {
+                val drop = seen.first { it != paperId }
+                seen -= drop
+                e.remove("article_$drop")
+            }
+        }
+        e.putStringSet("article_keys", seen).apply()
+    }
+
+    /** Text size in the reader view, in percent. One for every paper, as in a browser. */
+    var articleTextZoom: Int
+        get() = sp.getInt("article_text_zoom", 100)
+        set(v) = sp.edit().putInt("article_text_zoom", v).apply()
+
     var lastFetchMillis: Long
         get() = sp.getLong("last_fetch", 0L)
         set(v) = sp.edit().putLong("last_fetch", v).apply()

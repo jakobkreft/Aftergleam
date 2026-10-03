@@ -16,7 +16,8 @@ Only the servers your subjects need are contacted.
 * Explore, for papers just outside your usual reading
 * Popular, for what other people are reading
 * Each paper says why it was picked
-* Read PDFs in the app and keep them offline
+* Read PDFs in the app, find any word in them, and keep them offline
+* A reader view for arXiv papers, with text that fits your screen at the size you choose
 * Save papers, search, and import a BibTeX or RIS library from Zotero
 * Export and restore your reading history as a plain file
 * Light and dark themes, with an optional serif font for papers

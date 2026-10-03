@@ -33,6 +33,7 @@ python3 -m venv .venv
 | `sim_prep.py` | Builds simulated readers for the app's digest simulation |
 | `focus_eval.py` | Measures ways of using a typed interest ("earth observation") to rank papers |
 | `keyword_audit.py` | Checks a keyword rule against real papers for twenty keywords across fields |
+| `reader_audit.py` | Lays out arXiv HTML papers at phone width as the reader view does, and lists anything cut off |
 
 ## Running the evaluation
 

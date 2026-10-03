@@ -1,12 +1,15 @@
 package si.jakobkreft.aftergleam.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,29 +19,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.res.painterResource
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Button
-import androidx.compose.material3.IconButton
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material.icons.filled.MoreVert
-import android.content.Intent
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,8 +48,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,14 +58,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import si.jakobkreft.aftergleam.data.ArticleStore
+import si.jakobkreft.aftergleam.data.PdfFind
 import si.jakobkreft.aftergleam.data.PdfStore
 import java.io.File
 import kotlin.math.roundToInt
@@ -100,7 +115,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPi
 }
 
 /**
- * Full-screen PDF reader.
+ * Full-screen reader: the PDF, or arXiv's HTML version of it in the reader view.
  *
  * Zoom re-renders the page at the wider size rather than magnifying a bitmap, so text stays
  * sharp at any level; that is the whole reason to zoom a paper. Zoom levels are discrete and
@@ -109,6 +124,13 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPi
  *
  * Horizontal panning when zoomed is an ordinary horizontal scroll of content that is simply
  * wider than the screen, so it needs no gesture handling of its own.
+ *
+ * The reader view is the other way to read the same paper: text that wraps to the screen at
+ * whatever size the reader picks, so a phone is read by scrolling down and nothing else. It
+ * exists only where arXiv has made an HTML version, and the menu says so where it has not,
+ * rather than offering a view built by guessing at the PDF's text. See [ArticleStore].
+ *
+ * Find in paper works in both, with the same bar.
  */
 @Composable
 fun PdfReaderScreen(
@@ -131,11 +153,22 @@ fun PdfReaderScreen(
     onShared: () -> Unit,
     /** Deletes the copy on the phone and fetches it again, for a file that will not open. */
     onRedownload: () -> Unit,
+    paperId: String,
+    /** The reader view: whether there is one, and whether it is showing. */
+    article: ArticleUi,
+    articleTextZoom: Int,
+    onShowArticle: () -> Unit,
+    onShowPdf: () -> Unit,
+    onArticlePosition: (Float) -> Unit,
+    onArticleTextZoom: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    // Held here rather than with the pages, so that a trip to the reader view and back
+    // returns to the same page at the same zoom.
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
     val hScroll = rememberScrollState()
     var zoom by remember { mutableFloatStateOf(1f) }
+    val find = remember { FindState() }
 
     // Null while the document is opening, zero if it could not be. Starting at zero conflated
     // the two: a damaged PDF reported no pages and the reader showed its loading spinner for
@@ -153,6 +186,11 @@ fun PdfReaderScreen(
         onDispose { scope.launch { store.release() } }
     }
 
+    // Back closes the find bar first, as it closes a keyboard first.
+    BackHandler(enabled = find.open) { find.close() }
+    // Matches belong to the view they were found in, so switching views ends the search.
+    LaunchedEffect(article.showing) { find.close() }
+
     val baseWidthPx = with(LocalDensity.current) {
         androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
     }
@@ -160,10 +198,15 @@ fun PdfReaderScreen(
     // on every frame of the pinch.
     val step = ZOOM_STEPS.minByOrNull { kotlin.math.abs(it - zoom) } ?: 1f
     val renderWidth = (baseWidthPx * step).roundToInt()
+    val showingArticle = article.showing
+    val canFind = if (showingArticle) article.article != null
+        else PdfFind.supported && (pages ?: 0) > 0
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize()) {
-            Row(
+            if (find.open) {
+                FindBar(find)
+            } else Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -177,58 +220,254 @@ fun PdfReaderScreen(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    "${(step * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                TextButton(onClick = {
-                    zoom = ZOOM_STEPS.firstOrNull { it > step } ?: ZOOM_STEPS.first()
-                    scope.launch { hScroll.scrollTo(0) }
-                }) { Text(if (step >= ZOOM_STEPS.last()) "Fit" else "Zoom") }
+                if (showingArticle) {
+                    TextSizeButtons(articleTextZoom, onArticleTextZoom)
+                } else {
+                    Text(
+                        "${(step * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    TextButton(onClick = {
+                        zoom = ZOOM_STEPS.firstOrNull { it > step } ?: ZOOM_STEPS.first()
+                        scope.launch { hScroll.scrollTo(0) }
+                    }) { Text(if (step >= ZOOM_STEPS.last()) "Fit" else "Zoom") }
+                }
                 ReaderMenu(
                     file, title, store, sourceName, onOpenSource,
                     liked, saved, onSteer, onSave, onShareLink, onShared,
+                    canFind = canFind,
+                    onFind = { find.open = true },
+                    article = article,
+                    onShowArticle = onShowArticle,
+                    onShowPdf = onShowPdf,
                 )
             }
 
-            Box(
-                Modifier
-                    .weight(1f)
-                    .pointerInput(Unit) {
-                        detectPinchOnly { factor ->
-                            zoom = (zoom * factor)
-                                .coerceIn(ZOOM_STEPS.first(), ZOOM_STEPS.last())
-                        }
-                    }
-            ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().horizontalScroll(hScroll),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(pages ?: 0) { index ->
-                        PdfPage(store, file, index, renderWidth, baseWidthPx.roundToInt())
-                    }
-                }
-
-                if (pages == null) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                } else if (pages == 0) {
-                    Unreadable(file, store, onRedownload)
+            Box(Modifier.weight(1f)) {
+                if (showingArticle) {
+                    ArticleContent(
+                        paperId, article, articleTextZoom, find,
+                        onShowArticle, onShowPdf, onArticlePosition, onArticleTextZoom,
+                    )
                 } else {
-                    Text(
-                        "${listState.firstVisibleItemIndex + 1} / $pages",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(12.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    PdfPages(
+                        file, store, pages, listState, hScroll, find,
+                        renderWidth = renderWidth,
+                        baseWidthPx = baseWidthPx,
+                        onPinch = { factor ->
+                            zoom = (zoom * factor).coerceIn(ZOOM_STEPS.first(), ZOOM_STEPS.last())
+                        },
+                        onRedownload = onRedownload,
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Smaller and larger text, for the reader view.
+ *
+ * Two letters A in two sizes, the convention of every reading app, rather than a percentage:
+ * the text itself changes as they are pressed, and that is the feedback.
+ */
+@Composable
+private fun TextSizeButtons(zoom: Int, onZoom: (Int) -> Unit) {
+    val smaller = ARTICLE_TEXT_STEPS.lastOrNull { it < zoom }
+    val larger = ARTICLE_TEXT_STEPS.firstOrNull { it > zoom }
+    IconButton(
+        onClick = { smaller?.let(onZoom) },
+        enabled = smaller != null,
+        modifier = Modifier.semantics { contentDescription = "Smaller text" },
+    ) { Text("A", fontSize = 14.sp) }
+    IconButton(
+        onClick = { larger?.let(onZoom) },
+        enabled = larger != null,
+        modifier = Modifier.semantics { contentDescription = "Larger text" },
+    ) { Text("A", fontSize = 21.sp) }
+}
+
+/** The reader view, or why it is not there yet. */
+@Composable
+private fun ArticleContent(
+    paperId: String,
+    article: ArticleUi,
+    textZoom: Int,
+    find: FindState,
+    onRetry: () -> Unit,
+    onShowPdf: () -> Unit,
+    onPosition: (Float) -> Unit,
+    onTextZoom: (Int) -> Unit,
+) {
+    val loaded = article.article
+    when {
+        article.error != null -> Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(article.error, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(20.dp))
+            if (article.availability != ArticleStore.Availability.NONE) {
+                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Try again") }
+                Spacer(Modifier.height(8.dp))
+            }
+            TextButton(onClick = onShowPdf, modifier = Modifier.fillMaxWidth()) {
+                Text("Back to the PDF")
+            }
+        }
+
+        loaded == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(8.dp))
+                Text("Fetching the HTML version", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+
+        // Keyed on the theme too: the page is built with the app's colours, so a switch to
+        // dark mode while reading builds it again rather than leaving it light.
+        else -> key(loaded, MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
+            ArticleView(
+                paperId = paperId,
+                article = loaded,
+                textZoom = textZoom,
+                position = article.position,
+                find = find,
+                onPosition = onPosition,
+                onPinch = { factor -> onTextZoom(pinchedTextZoom(textZoom, factor)) },
+            )
+        }
+    }
+}
+
+/** The PDF's pages, with find in paper's highlights over them. */
+@Composable
+private fun PdfPages(
+    file: File,
+    store: PdfStore,
+    pages: Int?,
+    listState: LazyListState,
+    hScroll: ScrollState,
+    find: FindState,
+    renderWidth: Int,
+    baseWidthPx: Float,
+    onPinch: (Float) -> Unit,
+    onRedownload: () -> Unit,
+) {
+    var matches by remember { mutableStateOf<List<PdfFind.Match>>(emptyList()) }
+    val byPage = remember(matches) { matches.groupBy { it.page } }
+
+    // Searched a page at a time, in order, with the count shown as it grows, and the first
+    // match at or after the page being read shown as soon as it is found. A new letter typed
+    // restarts the effect, which cancels the search that was under way.
+    LaunchedEffect(find.open, find.query, pages) {
+        matches = emptyList()
+        find.clearResults()
+        val n = pages ?: return@LaunchedEffect
+        val variants = PdfFind.variants(find.query)
+        if (!find.open || variants.isEmpty() || n == 0) return@LaunchedEffect
+        delay(250)
+        find.searching = true
+        val from = listState.firstVisibleItemIndex
+        val found = ArrayList<PdfFind.Match>()
+        var capped = false
+        for (i in 0 until n) {
+            found += store.find(file, i, variants)
+            if (found.size >= PdfFind.MAX_MATCHES) {
+                capped = true
+                break
+            }
+            if (i % 4 == 3) {
+                matches = found.toList()
+                find.total = found.size
+                if (find.current < 0) {
+                    val k = found.indexOfFirst { it.page >= from }
+                    if (k >= 0) { find.current = k; find.jumps++ }
+                }
+            }
+        }
+        val all = found.take(PdfFind.MAX_MATCHES)
+        matches = all
+        find.total = all.size
+        find.capped = capped
+        if (find.current < 0) {
+            find.current = PdfFind.firstFrom(all, from)
+            if (find.current >= 0) find.jumps++
+        }
+        find.searching = false
+        if (all.isEmpty() && !store.hasText(file)) {
+            find.note = "This PDF has no text to search, so it is probably a scan."
+        }
+    }
+    find.step = { forward ->
+        if (find.total > 0) {
+            find.current = Math.floorMod(find.current + if (forward) 1 else -1, find.total)
+            find.jumps++
+        }
+    }
+
+    // Brings the current match on screen, a third of the way down, unless it is already
+    // comfortably in view; and across, when the page is zoomed wider than the screen.
+    LaunchedEffect(find.jumps) {
+        val m = matches.getOrNull(find.current) ?: return@LaunchedEffect
+        val r = m.rects.firstOrNull() ?: return@LaunchedEffect
+        val itemHeight = renderWidth * m.aspect
+        val viewport = listState.layoutInfo.viewportSize.height
+        val top = r.top * itemHeight
+        val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == m.page }
+        val inView = item != null &&
+            item.offset + top >= viewport * 0.08f &&
+            item.offset + r.bottom * itemHeight <= viewport * 0.85f
+        if (!inView) {
+            val offset = (top - viewport * 0.3f).roundToInt()
+            if (offset >= 0) {
+                listState.scrollToItem(m.page, offset)
+            } else {
+                listState.scrollToItem(m.page)
+                listState.scrollBy(offset.toFloat())
+            }
+        }
+        val x = r.centerX() * renderWidth
+        if (x < hScroll.value + baseWidthPx * 0.1f || x > hScroll.value + baseWidthPx * 0.9f) {
+            hScroll.scrollTo((x - baseWidthPx / 2).roundToInt().coerceIn(0, hScroll.maxValue))
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) { detectPinchOnly(onPinch) }
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().horizontalScroll(hScroll),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items(pages ?: 0) { index ->
+                PdfPage(
+                    store, file, index, renderWidth,
+                    marks = byPage[index].orEmpty(),
+                    current = matches.getOrNull(find.current)?.takeIf { it.page == index },
+                )
+            }
+        }
+
+        if (pages == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (pages == 0) {
+            Unreadable(file, store, onRedownload)
+        } else {
+            Text(
+                "${listState.firstVisibleItemIndex + 1} / $pages",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
         }
     }
 }
@@ -238,13 +477,23 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
     content: @Composable (Int) -> Unit,
 ) = items(count = count, key = { it }) { content(it) }
 
+/**
+ * Find in paper's marks: a highlighter's yellow on every match and orange on the current one,
+ * as browsers do. Multiplied into the page rather than painted over it, so the ink under a
+ * mark stays black and the mark reads as a highlighter's, not a sticker's. Pages are white in
+ * either theme, so the colours are fixed.
+ */
+private val MARK = Color(0xFFFFE45C)
+private val MARK_CURRENT = Color(0xFFFF9B3D)
+
 @Composable
 private fun PdfPage(
     store: PdfStore,
     file: File,
     index: Int,
     renderWidth: Int,
-    baseWidth: Int,
+    marks: List<PdfFind.Match>,
+    current: PdfFind.Match?,
 ) {
     // The aspect ratio is cheap to read and lets the placeholder take the page's real height,
     // so the list does not jump as pages arrive.
@@ -259,7 +508,21 @@ private fun PdfPage(
         Modifier
             .width(widthDp)
             .aspectRatio(1f / aspect)
-            .background(Color.White),
+            .background(Color.White)
+            .drawWithContent {
+                drawContent()
+                for (m in marks) {
+                    val colour = if (m == current) MARK_CURRENT else MARK
+                    for (r in m.rects) {
+                        drawRect(
+                            colour,
+                            topLeft = Offset(r.left * size.width, r.top * size.height),
+                            size = Size(r.width() * size.width, r.height() * size.height),
+                            blendMode = BlendMode.Multiply,
+                        )
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         if (bmp == null) CircularProgressIndicator()
@@ -281,9 +544,12 @@ private val ZOOM_STEPS = listOf(1f, 1.5f, 2f, 3f)
  * paper's title and the zoom control, and the title is the part that suffers: it is one line
  * and ellipsised before anything is added to it.
  *
- * Three groups, in the order they are wanted while reading.
+ * Four groups, in the order they are wanted while reading.
  *
- * The judgements come first. The reader is where an opinion about a paper is actually formed,
+ * How to read the paper comes first: finding a word in it, and the reader view. These are
+ * used over and over while reading, so they sit where the thumb lands.
+ *
+ * Then the judgements. The reader is where an opinion about a paper is actually formed,
  * and leaving it to find the heart on the card means losing the page. They are the card's own
  * three actions with the card's own icons, and each shows whether it is already on, because a
  * menu has no other way to say so. Choosing one that is on turns it off, as on the card.
@@ -311,6 +577,11 @@ private fun ReaderMenu(
     onSave: () -> Unit,
     onShareLink: () -> Unit,
     onShared: () -> Unit,
+    canFind: Boolean,
+    onFind: () -> Unit,
+    article: ArticleUi,
+    onShowArticle: () -> Unit,
+    onShowPdf: () -> Unit,
 ) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
@@ -328,6 +599,23 @@ private fun ReaderMenu(
             Icon(Icons.Filled.MoreVert, contentDescription = "More actions")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (canFind) {
+                DropdownMenuItem(
+                    text = { Text("Find in paper") },
+                    onClick = { open = false; onFind() },
+                )
+            }
+            if (article.showing) {
+                DropdownMenuItem(
+                    text = { Text("PDF view") },
+                    onClick = { open = false; onShowPdf() },
+                )
+            } else {
+                ReaderViewItem(article.availability, onClick = { open = false; onShowArticle() })
+            }
+
+            HorizontalDivider()
+
             Judgement(
                 icon = { tint -> Icon(Icons.Filled.Favorite, null, tint = tint) },
                 label = "More like this",
@@ -407,6 +695,39 @@ private fun ReaderMenu(
             )
         }
     }
+}
+
+/**
+ * The reader view, as a menu row that says what it is, or why it is not there.
+ *
+ * Shown greyed out rather than hidden when there is no HTML version, so that a reader who
+ * found it on one paper is not left wondering where it went on the next. The second line is
+ * the reason, in the reader's terms.
+ */
+@Composable
+private fun ReaderViewItem(availability: ArticleStore.Availability, onClick: () -> Unit) {
+    val (enabled, note) = when (availability) {
+        ArticleStore.Availability.READY,
+        ArticleStore.Availability.AVAILABLE -> true to "Text that fits the screen, from arXiv\u2019s HTML"
+        ArticleStore.Availability.CHECKING -> false to "Checking arXiv for an HTML version"
+        ArticleStore.Availability.NONE -> false to "arXiv has no HTML version of this paper"
+        ArticleStore.Availability.NOT_ARXIV -> false to "Only for arXiv papers"
+        ArticleStore.Availability.UNREACHABLE -> true to "Could not reach arXiv to check"
+    }
+    DropdownMenuItem(
+        enabled = enabled,
+        text = {
+            Column {
+                Text("Reader view")
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
+                )
+            }
+        },
+        onClick = onClick,
+    )
 }
 
 /**

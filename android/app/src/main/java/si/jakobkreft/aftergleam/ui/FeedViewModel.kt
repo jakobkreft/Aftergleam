@@ -36,6 +36,7 @@ import si.jakobkreft.aftergleam.data.Fetcher
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
@@ -64,6 +65,22 @@ enum class SearchScope(val label: String) {
     CACHED("On device"),
     KEPT("My library"),
 }
+
+/**
+ * The reader view, for the paper open in the reader.
+ *
+ * [availability] decides whether the menu offers it, greys it out or says why not; [showing]
+ * is whether it has been chosen over the PDF. The article itself arrives after that, from the
+ * phone or from arXiv, and [error] says why it did not.
+ */
+data class ArticleUi(
+    val availability: ArticleStore.Availability = ArticleStore.Availability.CHECKING,
+    val showing: Boolean = false,
+    val article: ArticleStore.Article? = null,
+    val error: String? = null,
+    /** Where to open it, as a fraction of its length. */
+    val position: Float = 0f,
+)
 
 data class FeedState(
     val loading: Boolean = false,
@@ -201,6 +218,9 @@ data class FeedState(
      */
     val readingUnsupported: java.io.File? = null,
     val readingPage: Int = 0,
+    /** The reader view of the paper being read: whether it can be offered, and whether it is on. */
+    val article: ArticleUi = ArticleUi(),
+    val articleTextZoom: Int = 100,
 ) {
     /**
      * What the reader has explicitly said about a paper: true, false, or nothing yet.
@@ -2107,13 +2127,26 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openReader(paper: Paper) {
         val store = PdfStore(getApplication())
+        val articles = ArticleStore(getApplication())
+        // A paper last read in the reader view opens in it, where it was left, as long as the
+        // copy is still on the phone. Otherwise it opens as the PDF, which is always there.
+        val position = prefs.articlePosition(paper.id)
+        val reopen = position != null && articles.isCached(paper.id)
         _state.value = _state.value.copy(
             reading = paper,
             readingFile = null,
             readingError = null,
             readingUnsupported = null,
             readingPage = prefs.lastPage(paper.id),
+            article = ArticleUi(showing = reopen, position = position ?: 0f),
+            articleTextZoom = prefs.articleTextZoom,
         )
+        articleJob?.cancel()
+        articleJob = viewModelScope.launch {
+            val availability = articles.availability(paper)
+            updateArticle(paper.id) { it.copy(availability = availability) }
+            if (reopen) loadArticle(paper)
+        }
         viewModelScope.launch {
             try {
                 val file = store.download(paper)
@@ -2152,9 +2185,72 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun closeReader() {
         readerDwell?.cancel()
         readerDwell = null
+        articleJob?.cancel()
         _state.value = _state.value.copy(
             reading = null, readingFile = null, readingError = null, readingUnsupported = null,
+            article = ArticleUi(),
         )
+    }
+
+    /** Fetches the reader view, or reads it from the phone. */
+    private var articleJob: Job? = null
+
+    private fun updateArticle(paperId: String, change: (ArticleUi) -> ArticleUi) {
+        val s = _state.value
+        if (s.reading?.id == paperId) _state.value = s.copy(article = change(s.article))
+    }
+
+    /** Switches the reader to arXiv's HTML version of the paper. */
+    fun showArticle(paper: Paper) {
+        updateArticle(paper.id) { it.copy(showing = true, error = null) }
+        prefs.setArticlePosition(paper.id, _state.value.article.position)
+        articleJob?.cancel()
+        articleJob = viewModelScope.launch { loadArticle(paper) }
+    }
+
+    private suspend fun loadArticle(paper: Paper) {
+        try {
+            val article = ArticleStore(getApplication()).load(paper)
+            updateArticle(paper.id) {
+                it.copy(article = article, availability = ArticleStore.Availability.READY)
+            }
+        } catch (e: ArticleStore.NoHtml) {
+            // The check said there was one, or could not ask. Now arXiv has answered, and the
+            // menu greys the item out with the reason rather than offering it again.
+            prefs.setArticlePosition(paper.id, null)
+            updateArticle(paper.id) {
+                it.copy(availability = ArticleStore.Availability.NONE, error = e.message)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            updateArticle(paper.id) { it.copy(error = humanError(e, "fetch the HTML version")) }
+        }
+    }
+
+    /** Back to the PDF. The paper opens as a PDF next time too. */
+    fun showPdf(paperId: String) {
+        articleJob?.cancel()
+        prefs.setArticlePosition(paperId, null)
+        updateArticle(paperId) { it.copy(showing = false, error = null) }
+    }
+
+    /**
+     * Where the reader stopped in the reader view.
+     *
+     * A fifth of the way through is roughly the third page of a PDF, which is the point where
+     * the PDF reader records that the paper was read rather than glanced at.
+     */
+    fun rememberArticlePosition(paperId: String, position: Float) {
+        if (!_state.value.article.showing) return
+        prefs.setArticlePosition(paperId, position)
+        updateArticle(paperId) { it.copy(position = position) }
+        if (position >= 0.2f) db.addSignal(paperId, Signal.READ_PAGES)
+    }
+
+    fun setArticleTextZoom(percent: Int) {
+        prefs.articleTextZoom = percent
+        _state.value = _state.value.copy(articleTextZoom = percent)
     }
 
     /** Where the reader stopped, so a long paper reopens where it was left. */

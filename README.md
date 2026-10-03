@@ -28,7 +28,9 @@ device. There is no account and nothing about your reading leaves your phone.
   "C. elegans", come first, from any field
 - Explore, for papers just outside your usual reading
 - Popular, for what other people are reading
-- Read PDFs in the app and keep them offline
+- Read PDFs in the app, find any word in them, and keep them offline
+- A reader view for arXiv papers: text that fits the screen at the size you choose, with
+  figures, tables and equations, from arXiv's own HTML version of the paper
 - Search, save, and import a BibTeX or RIS library from Zotero
 - Export and restore your reading history as a plain file
 

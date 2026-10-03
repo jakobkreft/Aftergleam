@@ -3,8 +3,12 @@ package si.jakobkreft.aftergleam.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.PdfRendererPreV
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.ext.SdkExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -57,17 +61,25 @@ class PdfStore(private val context: Context) {
 
     fun isCached(paperId: String) = cachedFile(paperId) != null
 
-    /** Bytes on disk for one paper, or zero if it is not downloaded. */
-    fun sizeOf(paperId: String): Long = cachedFile(paperId)?.length() ?: 0L
+    /**
+     * Bytes on disk for one paper, or zero if it is not downloaded. The reader view's copy
+     * counts too: to the reader both are the paper, kept for reading offline.
+     */
+    fun sizeOf(paperId: String): Long =
+        (cachedFile(paperId)?.length() ?: 0L) + articles.sizeOf(paperId)
 
     /** Everything the store is holding, which is the number a reader wants to see. */
-    fun totalBytes(): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L
+    fun totalBytes(): Long = (dir.listFiles()?.sumOf { it.length() } ?: 0L) + articles.totalBytes()
+
+    /** The reader view's copies, which are deleted with the PDF they were opened from. */
+    private val articles = ArticleStore(context)
 
     /**
      * Removes one downloaded paper.
      *
-     * The file only: a download is a cached copy, and a reader reclaiming space has not
-     * changed their mind about the paper. Saves and reactions are untouched.
+     * The files only, the PDF and the reader view's copy: a download is a cached copy, and a
+     * reader reclaiming space has not changed their mind about the paper. Saves and
+     * reactions are untouched.
      *
      * Releasing the renderer first is tidiness rather than necessity. Unlinking a file that
      * is still open is safe, and the instance doing the deleting is usually not the one
@@ -75,6 +87,7 @@ class PdfStore(private val context: Context) {
      * find again is the sort of thing that is fine until it is not.
      */
     suspend fun delete(paperId: String): Boolean {
+        withContext(Dispatchers.IO) { articles.delete(paperId) }
         val file = cachedFile(paperId) ?: return false
         if (openFile == file) release()
         return withContext(Dispatchers.IO) { file.delete() }
@@ -84,6 +97,7 @@ class PdfStore(private val context: Context) {
     suspend fun deleteAll(): Int {
         release()
         return withContext(Dispatchers.IO) {
+            articles.deleteAll()
             dir.listFiles()?.count { it.delete() } ?: 0
         }
     }
@@ -251,6 +265,94 @@ class PdfStore(private val context: Context) {
         runCatching { renderer?.close() }
         renderer = null
         openFile = null
+        runCatching { searcher?.close() }
+        searcher = null
+        searcherFile = null
+    }
+
+    // On Android 12 to 14 search lives in a second class, PdfRendererPreV, which the system's
+    // PDF module adds; the renderer that draws the pages cannot search there. It is opened on
+    // the same file when first needed and held under the same lock: pdfium is one library
+    // underneath both, and it is not safe to call from two threads at once. Held as
+    // AutoCloseable so that nothing names the class on a phone that does not have it.
+    private var searcher: AutoCloseable? = null
+    private var searcherFile: File? = null
+
+    /**
+     * Where any of [variants] occurs on one page, in reading order. Empty when it does not,
+     * when the page cannot be read, or when this phone cannot search ([PdfFind.supported]).
+     *
+     * One page per call, so that pages being drawn while a long paper is searched take their
+     * turn between pages rather than waiting for the whole search.
+     */
+    suspend fun find(file: File, index: Int, variants: List<String>): List<PdfFind.Match> =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                val r = rendererFor(file) ?: return@withLock emptyList()
+                if (index !in 0 until r.pageCount || variants.isEmpty()) return@withLock emptyList()
+                runCatching {
+                    withTextPage(file, r, index) { page ->
+                        PdfFind.onPage(index, page.width, page.height, variants.flatMap(page.search))
+                    }
+                }.getOrNull() ?: emptyList()
+            }
+        }
+
+    /**
+     * Whether the document has any text to search, for telling "no matches" from a scan.
+     *
+     * Asked only after a search found nothing, and of the first pages only: a paper with text
+     * has it on its first page, and a scanned one has none on any.
+     */
+    suspend fun hasText(file: File): Boolean = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val r = rendererFor(file) ?: return@withLock false
+            (0 until minOf(r.pageCount, 5)).any { index ->
+                runCatching { withTextPage(file, r, index) { it.hasText() } }.getOrNull() == true
+            }
+        }
+    }
+
+    /** A page opened for its text, whichever class this phone reads text with. */
+    private class TextPage(
+        /** In points, as the match rectangles are. */
+        val width: Float,
+        val height: Float,
+        /** Each match's start in the page's text, with its rectangles in points. */
+        val search: (String) -> List<Pair<Int, List<RectF>>>,
+        val hasText: () -> Boolean,
+    )
+
+    /** Runs [block] on page [index], or returns null on a phone that cannot read PDF text. */
+    private fun <T> withTextPage(file: File, r: PdfRenderer, index: Int, block: (TextPage) -> T): T? {
+        if (Build.VERSION.SDK_INT >= 35) {
+            r.openPage(index).use { page ->
+                return block(TextPage(
+                    page.width.toFloat(), page.height.toFloat(),
+                    search = { q -> page.searchText(q).map { it.textStartIndex to it.bounds } },
+                    hasText = { page.textContents.any { it.text.isNotBlank() } },
+                ))
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 31 &&
+            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 13
+        ) {
+            if (searcherFile != file || searcher == null) {
+                runCatching { searcher?.close() }
+                searcher = PdfRendererPreV(
+                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                )
+                searcherFile = file
+            }
+            (searcher as PdfRendererPreV).openPage(index).use { page ->
+                return block(TextPage(
+                    page.width.toFloat(), page.height.toFloat(),
+                    search = { q -> page.searchText(q).map { it.textStartIndex to it.bounds } },
+                    hasText = { page.textContents.any { it.text.isNotBlank() } },
+                ))
+            }
+        }
+        return null
     }
 
     suspend fun pageCount(file: File): Int = withContext(Dispatchers.IO) {

@@ -347,6 +347,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onShareLink = { sharePaper(context, reading); vm.share(reading.id) },
                             onShared = { vm.share(reading.id) },
                             onRedownload = { vm.redownload(reading) },
+                            paperId = reading.id,
+                            article = state.article,
+                            articleTextZoom = state.articleTextZoom,
+                            onShowArticle = { vm.showArticle(reading) },
+                            onShowPdf = { vm.showPdf(reading.id) },
+                            onArticlePosition = { vm.rememberArticlePosition(reading.id, it) },
+                            onArticleTextZoom = vm::setArticleTextZoom,
                         )
                     }
                 }

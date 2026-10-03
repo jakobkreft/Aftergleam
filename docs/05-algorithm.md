@@ -1657,3 +1657,73 @@ exactly the digest they had before.
 got ten of nineteen matches mentioning a keyword, from cs.CV, cs.CL, cs.NI and physics.geo-ph.
 A genomics reader with CRISPR, C. elegans and long COVID got twelve, from bioRxiv, medRxiv,
 ChemRxiv and arXiv, and every one of the twelve labels was found in its paper's text.
+
+## Find in paper, and the reader view
+
+Two requests: search a PDF with the matches highlighted, and a reader mode where the text and
+figures wrap to the screen at any size, so a phone is only ever scrolled down.
+
+**Find in paper.** The platform's own PDF renderer can search a page (Android 15, and 12 to 14
+once the system's PDF module reaches version 13). Measured on arXiv papers it takes about a
+millisecond a page, ignores capitals, finds phrases, and finds a word the paper hyphenated
+across two lines. It returns a rectangle per line of each match, which the reader draws over
+the page as a highlighter would: multiplied in, so the ink stays black, yellow for every match
+and orange for the current one. The first match shown is the first from the page being read,
+not from page 1. One gap: typed straight apostrophes did not match a paper's curly ones
+("camera's" found nothing in a paper printing "camera’s"), so both are searched for. A scanned
+PDF has no text, and the bar says so rather than reporting no matches. Line-numbered
+manuscripts, common on bioRxiv, put the line number into the text between two lines, so a
+phrase broken across them is not found; single words are.
+
+**Why the reader view is not built from the PDF.** The same renderer can give a page's text.
+It comes back as one string a page: lines already broken, words hyphenated, no paragraphs or
+headings, the labels inside figures read out as words ("H1 H2 Router E1 ... unused"),
+captions in the wrong place, and no figures at all. A reader could not tell which parts to
+trust, which fails the point of a reading mode.
+
+**Built from arXiv's HTML instead.** arXiv converts the LaTeX source of almost every paper into
+HTML with LaTeXML, with real paragraphs, headings, figures, tables and MathML equations. 30 of
+30 new mathematics papers had one, and 30 of 30 across ten other fields; papers submitted as a
+PDF alone have none, and arXiv answers 404. So the menu offers the reader view only where it
+exists: greyed out with "Only for arXiv papers" or "arXiv has no HTML version of this paper"
+otherwise, rather than hidden, so a reader who found it on one paper knows why it is missing
+from the next. Whether arXiv has one is asked with a HEAD request when the paper is opened.
+
+Only the `<article>` is kept: arXiv's header, menus, report form, footer and scripts go. It is
+shown in a web view with JavaScript off, the app's colours and paper font, and arXiv's own
+stylesheet for these pages (ar5iv-css 0.9.1, MIT) shipped in the app rather than fetched, with
+the app's rules over it. The page and every figure are requested by their arXiv addresses and
+answered by the app: figures are fetched once from the paper's own folder on arXiv and kept, and
+anything else is refused, so the view contacts nobody else and works offline once opened. The
+copy counts towards the paper's size on the offline shelf and is deleted with it.
+
+Text size is two buttons and a pinch, which changes the size rather than magnifying; the text
+wraps again and the same passage stays in view. Citations and footnotes jump within the paper
+and Back returns to where the reader was. Footnotes open under their line when tapped: the
+stylesheet's pop-up is made for a desktop's margin and opened mostly off the side of a phone. A
+paper last read in the reader view reopens in it, at the same place, kept as a fraction of the
+paper's length because offsets move with the text size. A fifth of the way through counts as
+reading it, as the third page of a PDF does.
+
+**Nothing cut off.** "Only scroll down" was checked by laying out 64 papers from twelve fields at
+phone width in Chromium (prototype/reader_audit.py) and listing anything past the edge that is
+not inside a box that scrolls. The stylesheet alone cut something off in about a third of them:
+display equations (the converter now writes them as spans, not tables), long formulas in
+running text, rows of sub-figures, fixed-width minipages, author blocks, notes. Wide things now
+scroll inside themselves or wrap, a long inline formula gets a box of its own (an inline flex
+box, which keeps it on the line's baseline where an inline block lifts it), and authors stack.
+At 100%, 63 of 64 papers have nothing cut off; the one left is a passage arXiv's own conversion
+garbled into a run of formulas. At 130% and 175% one more, a chart's axis label a few pixels
+past the edge inside its figure. Justified text opened wide gaps on a phone's narrow column, so
+it is set ragged, as the app sets abstracts.
+
+When LaTeXML could not convert something it marks it, and the page then opens with a note that
+those parts are shown in red and the PDF has them as written.
+
+**Two things found on the phone.** A regular expression wrapping long formulas took 34 seconds
+on a 3.4 MB paper that a desktop wraps in milliseconds; the phone's regex engine backtracks
+through every character of a lazy match. The HTML is now handled with plain string searches,
+and a unit test holds a paper of that size under a second. And the same paper drew nothing at
+all when handed to the web view as data, because data addresses are capped at 2 MB; it is now
+requested by its arXiv address and answered from the phone. It takes about two seconds to lay
+out on a Pixel, with a spinner until it has drawn; ordinary papers take well under one.
