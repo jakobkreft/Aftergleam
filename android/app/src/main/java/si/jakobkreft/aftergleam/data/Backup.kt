@@ -61,6 +61,7 @@ object Backup {
             put("qualityWeight", prefs.qualityWeight.toDouble())
             put("explorationRate", prefs.explorationRate.toDouble())
             put("diversity", prefs.diversity.toDouble())
+            put("keywords", JSONArray(prefs.keywords))
             put("reactions", reactions)
         }.toString(2)
     }
@@ -103,6 +104,13 @@ object Backup {
         number("qualityWeight", 0.0..1.0)?.let { prefs.qualityWeight = it.toFloat() }
         number("explorationRate", 0.0..0.4)?.let { prefs.explorationRate = it.toFloat() }
         number("diversity", 0.0..0.8)?.let { prefs.diversity = it.toFloat() }
+        // Keywords pass through the same rule as typing them, and no more than the screen allows.
+        root.optJSONArray("keywords")?.let { arr ->
+            prefs.keywords = (0 until arr.length())
+                .mapNotNull { Keywords.normalise(arr.optString(it)) }
+                .distinctBy { it.lowercase() }
+                .take(Keywords.MAX)
+        }
 
         // Read once. It used to be re-read for every saved paper, which is a full table scan
         // per entry and turns a large backup into a quadratic restore.

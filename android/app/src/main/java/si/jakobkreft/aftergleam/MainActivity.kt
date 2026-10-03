@@ -382,6 +382,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onRead = { vm.openReader(detail) },
                         onShare = { sharePaper(context, detail); vm.share(detail.id) },
                         onBack = vm::closeDetail,
+                        keywords = state.keywords,
                     )
                 }
             }
@@ -429,6 +430,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSteer = vm::steer,
                             onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
+                            onAddKeyword = vm::addKeyword,
                         )
                         }
                     }
@@ -515,6 +517,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             donationsAllowed = state.donationsAllowed,
                             supportReminder = state.supportReminder,
                             onSupportReminder = vm::setSupportReminder,
+                            keywords = state.keywords,
+                            onAddKeyword = vm::addKeyword,
+                            onRemoveKeyword = vm::removeKeyword,
+                            suggestKeyword = vm::keywordSuggestion,
+                            onPrepareSpelling = vm::prepareSpelling,
+                            keywordCounts = state.keywordCounts,
                             onDonate = {
                                 openUrl(context, Support.DONATE_URL)
                                 vm.supportActed()

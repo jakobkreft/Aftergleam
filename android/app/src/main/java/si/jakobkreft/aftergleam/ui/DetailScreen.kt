@@ -56,6 +56,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import si.jakobkreft.aftergleam.data.Keywords
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Source
@@ -87,6 +91,8 @@ fun DetailScreen(
     onRead: () -> Unit,
     onShare: () -> Unit,
     onBack: () -> Unit,
+    /** The reader's keywords, highlighted wherever the paper mentions them. */
+    keywords: List<String> = emptyList(),
 ) {
     val context = LocalContext.current
     val store = remember { PdfStore(context) }
@@ -135,7 +141,7 @@ fun DetailScreen(
                 )
             }
             Text(
-                paper.displayTitle,
+                highlighted(paper.displayTitle, keywords),
                 modifier = Modifier.clickable(onClick = open),
                 style = MaterialTheme.typography.titleLarge,
                 fontFamily = LocalPaperFont.current,
@@ -173,13 +179,23 @@ fun DetailScreen(
                 Spacer(Modifier.height(4.dp))
                 Text(paper.comments, style = MaterialTheme.typography.labelSmall)
             }
+            // Which keyword brought it here, and where: the mention may be deep in the abstract,
+            // and a label the reader cannot find on the page is a label they stop trusting.
+            Keywords.mentionedBy(paper, keywords)?.let { k ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Mentions your keyword \u201c$k\u201d, highlighted below",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
 
             // The whole abstract, not a preview. This is the point of the screen.
             Text(
-                paper.displayAbstract,
+                highlighted(paper.displayAbstract, keywords),
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = LocalPaperFont.current,
             )
@@ -278,5 +294,19 @@ private fun DetailAction(
             else MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(22.dp),
         )
+    }
+}
+
+/** [text] with every mention of the reader's keywords marked, the way a search marks a hit. */
+@Composable
+private fun highlighted(text: String, keywords: List<String>): AnnotatedString {
+    val ranges = remember(text, keywords) { Keywords.occurrences(text, keywords) }
+    val background = MaterialTheme.colorScheme.primaryContainer
+    val foreground = MaterialTheme.colorScheme.onPrimaryContainer
+    return remember(text, ranges, background, foreground) {
+        buildAnnotatedString {
+            append(text)
+            for (r in ranges) addStyle(SpanStyle(background = background, color = foreground), r.first, r.last + 1)
+        }
     }
 }

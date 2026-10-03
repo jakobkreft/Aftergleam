@@ -33,6 +33,7 @@ import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
 import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Fetcher
+import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.PdfStore
@@ -150,6 +151,10 @@ data class FeedState(
     val personalisation: Float = 0.5f,
     val searchScope: SearchScope = SearchScope.ONLINE,
     val drift: Drift.Report? = null,
+    /** The reader's keywords. See [Keywords]. */
+    val keywords: List<String> = emptyList(),
+    /** Recent papers on the device mentioning each keyword, once its fetch is done. */
+    val keywordCounts: Map<String, Int> = emptyMap(),
     /** The note that ends today's digest, if it is due. See [Support]. */
     val support: Support.Card? = null,
     /** False in a copy installed from Google Play, which asks for a rating instead of money. */
@@ -453,6 +458,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             theme = prefs.theme,
             topics = prefs.seedTopics,
             donationsAllowed = Support.donationsAllowed(app),
+            keywords = prefs.keywords,
             supportReminder = prefs.supportReminder,
         )
     )
@@ -582,7 +588,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun fillDeck(probes: List<Taste.Probe>) {
         val current = _state.value.survey
-        if (current.deck.size >= SURVEY_CARDS) return
 
         val pools = withContext(Dispatchers.IO) {
             probes.map { probe ->
@@ -597,7 +602,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        val seen = (current.deck.map { it.second.id } + current.liked.map { it.second.id })
+        // Everything already dealt, answered ones included. Only the liked ones used to be
+        // remembered, so a paper answered "Not for me" could be dealt again when more arrived.
+        val seen = (current.deck + current.history + current.liked).map { it.second.id }
             .toMutableSet()
         val deck = current.deck.toMutableList()
 
@@ -610,10 +617,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // an empty digest on the reader's first morning. The survey needs three keepers to
         // switch ranking on, and beyond that it can afford to leave the rest alone.
         val available = pools.flatMap { it.second }.distinctBy { it.id }.size
-        val cap = minOf(
+        // The total, answered cards included. Counting only the cards still to come let a deck
+        // refill as it was answered: papers from a second server arriving late took a survey
+        // of twelve to eighteen while the reader was on the seventh.
+        val cap = (minOf(
             SURVEY_CARDS,
             maxOf(Ranker.MIN_RATINGS, available - SURVEY_RESERVE),
-        )
+        ) - current.seen).coerceAtLeast(0)
 
         var depth = 0
         while (deck.size < cap && pools.any { depth < it.second.size }) {
@@ -625,7 +635,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             }
             depth++
         }
-        if (deck.size != current.deck.size) {
+        if (deck.map { it.second.id } != current.deck.map { it.second.id }) {
             _state.value = _state.value.copy(
                 survey = _state.value.survey.copy(deck = deck)
             )
@@ -947,6 +957,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         loadingLabel = "Got $n papers, checking what is popular"
                     )
                 }
+                val keywords = prefs.keywords
+                val keywordsDue = if (shouldFetch) keywords else keywords - prefs.keywordsFetched
+                if (networkAllowed && keywordsDue.isNotEmpty()) {
+                    _state.value = _state.value.copy(loadingLabel = "Looking for your keywords")
+                    runCatching { fetchKeywordsInto(keywordsDue, fresh = shouldFetch) }
+                }
                 if (networkAllowed && (shouldFetch || (firstDigest && extrasStale()))) {
                     fetchExtras(cats) { msg -> _state.value = _state.value.copy(loadingLabel = msg) }
                 }
@@ -970,6 +986,105 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * The newest papers mentioning [keywords], stored, and the keywords recorded as fetched.
+     *
+     * @param fresh true when this is the day's full fetch, which starts the record over so
+     *   that every keyword is asked again once something new has been announced.
+     */
+    private suspend fun fetchKeywordsInto(keywords: List<String>, fresh: Boolean = false) {
+        val done = Fetcher.fetchKeywords(keywords) { papers ->
+            if (papers.isNotEmpty()) withContext(Dispatchers.IO) { db.upsertPapers(papers) }
+        }
+        prefs.keywordsFetched = (if (fresh) emptySet() else prefs.keywordsFetched) + done
+    }
+
+    /** Adds a keyword as written. The reader has already seen any spelling question. */
+    fun addKeyword(raw: String) {
+        val keyword = Keywords.normalise(raw) ?: return
+        val current = prefs.keywords
+        if (current.size >= Keywords.MAX || current.any { it.equals(keyword, ignoreCase = true) }) return
+        setKeywords(current + keyword)
+    }
+
+    fun removeKeyword(keyword: String) = setKeywords(prefs.keywords - keyword)
+
+    /** Edits in progress: the next change cancels this and starts it again. */
+    private var keywordChange: Job? = null
+
+    /**
+     * Records the keywords and, once the reader stops editing for a moment, fetches any new
+     * keyword's papers and re-ranks today's digest, so the change shows where it matters.
+     */
+    private fun setKeywords(keywords: List<String>) {
+        prefs.keywords = keywords
+        prefs.keywordsFetched = prefs.keywordsFetched.intersect(keywords.toSet())
+        _state.value = _state.value.copy(keywords = keywords)
+        refreshKeywordCounts()
+        keywordChange?.cancel()
+        keywordChange = viewModelScope.launch {
+            delay(SELECTION_SETTLE_MS)
+            val due = keywords - prefs.keywordsFetched
+            if (due.isNotEmpty()) runCatching { fetchKeywordsInto(due) }
+            refreshKeywordCounts()
+            if (prefs.onboarded) rerank()
+        }
+    }
+
+    /** Words the papers on this device use, for questioning a likely misspelling. */
+    private var vocabulary: Map<String, Int>? = null
+    private var vocabularyKey: String? = null
+    private val vocabularyLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * The vocabulary, rebuilt first if papers have arrived since it was made.
+     *
+     * Waited for rather than read as it stands: "satelite" once went in unquestioned on a
+     * phone that by then held a paper about satellites, because the rebuild was still running
+     * when Enter was pressed.
+     */
+    private suspend fun currentVocabulary(): Map<String, Int> = vocabularyLock.withLock {
+        withContext(Dispatchers.Default) {
+            val key = db.recentPapers(limit = 1).firstOrNull()?.id.orEmpty()
+            vocabulary?.takeIf { key == vocabularyKey } ?: run {
+                val subjects = Topics.FIELDS.flatMap { it.topics }.map { "${it.label} ${it.seed}" }
+                Keywords.vocabulary(
+                    db.recentPapers(limit = 1500).asSequence().map { it.rankText } +
+                        subjects.asSequence()
+                ).also { vocabulary = it; vocabularyKey = key }
+            }
+        }
+    }
+
+    /** Builds the vocabulary ahead of need, so the check is instant when a keyword is added. */
+    fun prepareSpelling() {
+        viewModelScope.launch { currentVocabulary() }
+        refreshKeywordCounts()
+    }
+
+    /**
+     * How many recent papers mention each keyword, for the settings page.
+     *
+     * Only keywords already fetched: a new one counted while its papers are on the way would
+     * read "none" for a few seconds. A keyword that really finds none says so, since nothing
+     * else would: "satellite photos" mentioned in no paper on a phone holding eighteen about
+     * earth observation, because papers say images and imagery.
+     */
+    private fun refreshKeywordCounts() {
+        val keywords = prefs.keywords.filter { it in prefs.keywordsFetched }
+        viewModelScope.launch {
+            val since = LocalDate.now().minusDays(Keywords.WINDOW_DAYS).toString()
+            val counts = withContext(Dispatchers.IO) {
+                keywords.associateWith { db.keywordCandidates(listOf(it), since).size }
+            }
+            _state.value = _state.value.copy(keywordCounts = counts)
+        }
+    }
+
+    /** A respelling for the reader to accept or decline, or null. Never applied by itself. */
+    suspend fun keywordSuggestion(keyword: String): String? =
+        Keywords.suggest(keyword, currentVocabulary())
 
     /** When popularity and the papers for the "outside your usual" card last came in. */
     private var extrasAt = 0L

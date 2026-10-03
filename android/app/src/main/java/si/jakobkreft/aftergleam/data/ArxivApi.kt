@@ -73,6 +73,22 @@ object ArxivApi {
     }
 
     /**
+     * The newest papers mentioning a keyword, from any category.
+     *
+     * Asked as a phrase, newest first: a keyword asks what has appeared lately, not what was
+     * ever written. arXiv's own matching is looser than the app's, so the caller keeps only the
+     * papers that mention the keyword as written.
+     */
+    suspend fun recentMentioning(keyword: String, max: Int = Keywords.FETCH_PER_KEYWORD): List<Paper> {
+        val q = if (ARXIV_SYNTAX.containsMatchIn(keyword)) keyword
+        else "all:\"${keyword.replace("\"", "")}\""
+        return parse(get(
+            "$ENDPOINT?search_query=${enc(q)}&sortBy=submittedDate&sortOrder=descending" +
+                "&start=0&max_results=$max"
+        ))
+    }
+
+    /**
      * What is typed, as an arXiv query. Quoted phrases stay phrases, and words too common to
      * narrow anything are left out, since requiring "of" or "for" only loses results. Anybody
      * who writes arXiv's own syntax, `ti:` or `au:` or `AND`, gets exactly what they wrote.

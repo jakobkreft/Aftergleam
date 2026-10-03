@@ -170,6 +170,21 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("fetched_categories", emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet("fetched_categories", v).apply()
 
+    /**
+     * The reader's keywords, in the order they were added. See [Keywords].
+     *
+     * One string rather than a string set: a set has no order, and the keywords are shown, and
+     * take their turns in the digest, in the order the reader wrote them.
+     */
+    var keywords: List<String>
+        get() = sp.getString("keywords", null).orEmpty().split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("keywords", v.joinToString("\n")).apply()
+
+    /** Keywords fetched since the last full fetch, so a new one is fetched on its own. */
+    var keywordsFetched: Set<String>
+        get() = sp.getStringSet("keywords_fetched", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("keywords_fetched", v).apply()
+
     /** Whether the occasional support note may end the digest. See [Support]. */
     var supportReminder: Boolean
         get() = sp.getBoolean("support_reminder", true)

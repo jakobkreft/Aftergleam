@@ -1,6 +1,8 @@
 package si.jakobkreft.aftergleam.rank
 
 import si.jakobkreft.aftergleam.data.Db
+import si.jakobkreft.aftergleam.data.Keywords
+import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.ShownItem
 import si.jakobkreft.aftergleam.data.Topics
@@ -34,7 +36,24 @@ object DigestBuilder {
             evidence[p.id]?.label()?.let { RatedDoc(p.id, p.rankText, it) }
         }
         val seeds = Topics.seedsFor(prefs.seedTopics).map { RatedDoc(null, it, SEED_WEIGHT) }
+        // Keywords are not among them. They are names to find, not topics to learn, and
+        // through the ranker's tokens "H-Net" would have taught the model the word "net".
         return judged + seeds
+    }
+
+    /**
+     * The day's candidates: the newest papers, and recent papers mentioning a keyword.
+     *
+     * Four hundred newest is a day or less of a busy field, so a paper mentioning a keyword
+     * from earlier in the week, or from a category the reader does not follow, would never be
+     * considered without the second half.
+     */
+    fun candidates(db: Db, prefs: Prefs, today: LocalDate = LocalDate.now()): List<Paper> {
+        val recent = db.recentPapers(limit = 400)
+        val keywords = prefs.keywords
+        if (keywords.isEmpty()) return recent
+        val since = today.minusDays(Keywords.WINDOW_DAYS).toString()
+        return (recent + db.keywordCandidates(keywords, since)).distinctBy { it.id }
     }
 
     /** What a rebuild produced, so the caller can keep the model it fitted. */
@@ -53,7 +72,7 @@ object DigestBuilder {
         prebuilt: Ranker.Model? = null,
         store: Boolean = true,
     ): Built {
-        val candidates = db.recentPapers(limit = 400)
+        val candidates = candidates(db, prefs)
         // Easy negatives come from older papers, deliberately disjoint from the candidates
         // being scored so that training cannot mark a good candidate as a negative. Only as
         // many as the trainer will sample, rather than loading three thousand abstracts out
@@ -89,6 +108,7 @@ object DigestBuilder {
             evidenceCount = db.evidence().count { it.value.label() != null },
             topicHistory = db.topicHistory(subscribed = prefs.categories),
             prebuilt = model,
+            keywords = prefs.keywords,
         )
         if (store) {
             db.markShown(

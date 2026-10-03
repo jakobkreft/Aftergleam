@@ -32,9 +32,11 @@ from Aftergleam. The app only contacts the servers your subjects need.
 | **Crossref** (crossref.org), for ChemRxiv, and for searching bioRxiv, medRxiv, ChemRxiv, PsyArXiv, SocArXiv, EdArXiv and Law Archive | a date and the app's contact address; and your search terms when you search online |
 | **Hugging Face** (huggingface.co) | a request for its public list of the day's popular papers, which is the same for everyone. Nothing about you |
 
-Search terms and imported titles are the most revealing of these, because you wrote them or
-chose them. Imported titles go only to arXiv. Search terms go to arXiv and to Crossref, and
-only when you search online; the On device and My library searches send nothing.
+Search terms, keywords and imported titles are the most revealing of these, because you wrote
+them or chose them. Imported titles go only to arXiv. Search terms go to arXiv and to Crossref,
+and only when you search online; the On device and My library searches send nothing. Keywords,
+if you add any, go to arXiv and to Crossref with each fetch, to ask for new papers that mention
+them.
 
 Each of these services has its own privacy policy, which applies to the requests it receives.
 

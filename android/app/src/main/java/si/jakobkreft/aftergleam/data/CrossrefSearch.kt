@@ -43,10 +43,16 @@ object CrossrefSearch {
     /** An OSF id as the app stores it: five characters, and the version when there is one. */
     private val OSF_ID = Regex("[a-z0-9]{5}(_v\\d+)?")
 
-    suspend fun search(query: String, rows: Int = 60): List<Paper> = withContext(Dispatchers.IO) {
+    /** @param since only preprints posted on or after this day, for a keyword's fetch. */
+    suspend fun search(
+        query: String,
+        rows: Int = 60,
+        since: java.time.LocalDate? = null,
+    ): List<Paper> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.length < 2) return@withContext emptyList()
-        val filter = PREFIXES.joinToString(",") { "prefix:$it" } + ",type:posted-content"
+        val filter = PREFIXES.joinToString(",") { "prefix:$it" } + ",type:posted-content" +
+            (since?.let { ",from-posted-date:$it" } ?: "")
         val url = "https://api.crossref.org/works" +
             "?query.bibliographic=" + enc(q) +
             "&filter=" + enc(filter) +

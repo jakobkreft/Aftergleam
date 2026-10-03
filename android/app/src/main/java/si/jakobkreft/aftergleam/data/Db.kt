@@ -353,6 +353,41 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
     }
 
     /**
+     * Recent papers mentioning any of [keywords], newest first, the keywords taking turns.
+     *
+     * The digest's ordinary candidates are the four hundred newest papers on the device,
+     * which in a busy field is a day or less. A paper mentioning a keyword from three days ago,
+     * or from a category the reader does not follow, would never be among them; these are added
+     * alongside. Papers already shown on an earlier day are left out by the ranker, so such a
+     * paper is offered once, not every morning until it ages out.
+     */
+    fun keywordCandidates(keywords: List<String>, since: String, limit: Int = 200): List<Paper> {
+        val perKeyword = keywords.map { keywordMatches(it, since, limit) }
+        // Taking turns, so a busy keyword does not push a rare one out of the limit.
+        val out = LinkedHashMap<String, Paper>()
+        var i = 0
+        while (out.size < limit && perKeyword.any { i < it.size }) {
+            for (list in perKeyword) list.getOrNull(i)?.let { out.putIfAbsent(it.id, it) }
+            i++
+        }
+        return out.values.take(limit)
+    }
+
+    /** One keyword's recent papers, newest first. */
+    private fun keywordMatches(keyword: String, since: String, limit: Int): List<Paper> {
+        // Narrowed by SQL on the keyword's longest part, then checked properly: LIKE cannot
+        // tell "H-Net" from "U-Net", which both contain "net".
+        val longest = Keywords.parts(keyword).maxByOrNull { it.length }?.lowercase() ?: return emptyList()
+        return readableDatabase.rawQuery(
+            "SELECT * FROM papers WHERE (lower(title) LIKE ? OR lower(abstract) LIKE ?) " +
+                "AND published >= ? ORDER BY published DESC LIMIT ?",
+            arrayOf("%$longest%", "%$longest%", since, (limit * 10).toString()),
+        ).use { c ->
+            c.toPapers().filter { Keywords.mentions(it.title + "\n" + it.abstract, keyword) }.take(limit)
+        }
+    }
+
+    /**
      * The stored id of each paper whose versionless id is given, where one is stored.
      *
      * A search result and the copy fetched for a digest can name the same paper differently:

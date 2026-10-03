@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +60,7 @@ fun SearchScreen(
     onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
+    onAddKeyword: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -153,6 +155,22 @@ fun SearchScreen(
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text("closest to query", style = MaterialTheme.typography.labelSmall)
                 Text("closest to me", style = MaterialTheme.typography.labelSmall)
+            }
+            // A search that found what the reader wanted can go on finding it every morning.
+            // Offered only for an online search, which is the one that looks at new papers.
+            val query = si.jakobkreft.aftergleam.data.Keywords.normalise(state.searchQuery)
+            if (state.searchScope == SearchScope.ONLINE && query != null && !state.searching) {
+                val added = state.keywords.any { it.equals(query, ignoreCase = true) }
+                val full = state.keywords.size >= si.jakobkreft.aftergleam.data.Keywords.MAX
+                TextButton(onClick = { onAddKeyword(query) }, enabled = !added && !full) {
+                    Text(
+                        when {
+                            added -> "Watching for \u201c$query\u201d"
+                            full -> "Your keyword list is full"
+                            else -> "Watch for \u201c$query\u201d in new papers"
+                        }
+                    )
+                }
             }
         }
 

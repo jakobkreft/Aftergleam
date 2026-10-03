@@ -31,6 +31,8 @@ python3 -m venv .venv
 | `e2.py` | E2: TF-IDF against four small embedders, alone and combined, from a few liked papers |
 | `e2_device.py` | The same comparison on a copy of a phone's database |
 | `sim_prep.py` | Builds simulated readers for the app's digest simulation |
+| `focus_eval.py` | Measures ways of using a typed interest ("earth observation") to rank papers |
+| `keyword_audit.py` | Checks a keyword rule against real papers for twenty keywords across fields |
 
 ## Running the evaluation
 

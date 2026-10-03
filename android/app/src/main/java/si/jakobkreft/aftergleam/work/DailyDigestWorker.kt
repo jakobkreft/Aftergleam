@@ -50,11 +50,26 @@ class DailyDigestWorker(
 
         return try {
             val papers = mutableListOf<si.jakobkreft.aftergleam.data.Paper>()
-            si.jakobkreft.aftergleam.data.Fetcher.fetch(subscribed) { papers += it }
+            val outcome = si.jakobkreft.aftergleam.data.Fetcher.fetch(subscribed) { papers += it }
             val db = Db(applicationContext)
             db.upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
-            prefs.fetchedCategories = prefs.fetchedCategories + subscribed
+            // Only subjects whose server answered, as in the app: a refused request is not a
+            // fetch, and recording it as one stops the next run from asking again.
+            prefs.fetchedCategories = prefs.fetchedCategories + subscribed.filter {
+                si.jakobkreft.aftergleam.data.Source.label(
+                    si.jakobkreft.aftergleam.data.Source.of(it)
+                ) !in outcome.failed
+            }
+
+            // The newest papers mentioning the reader's keywords, from any category.
+            val keywords = prefs.keywords
+            if (keywords.isNotEmpty()) {
+                val done = runCatching {
+                    si.jakobkreft.aftergleam.data.Fetcher.fetchKeywords(keywords) { db.upsertPapers(it) }
+                }.getOrDefault(emptyList())
+                prefs.keywordsFetched = done.toSet()
+            }
 
             // What is everyone reading, joined locally. Enrichment: a failure here leaves
             // the digest exactly as it would have been.

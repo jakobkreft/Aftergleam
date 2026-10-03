@@ -21,6 +21,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.FlowRow
@@ -58,7 +61,7 @@ import si.jakobkreft.aftergleam.data.Venue
  * back gesture is handled here so that it closes the page before it closes settings.
  */
 private enum class Page(val title: String, val summary: String) {
-    SUBJECTS("Subjects", "What you follow, and what gets fetched"),
+    SUBJECTS("Subjects and keywords", "What you follow, and words to watch for"),
     APPEARANCE("Appearance", "Light and dark, colours, letterforms"),
     RANKING("Ranking", "How the digest is chosen, and how many"),
     NOTIFICATIONS("Notifications", "The daily digest and the reading reminder"),
@@ -122,6 +125,12 @@ fun TuneScreen(
     onShareApp: () -> Unit = {},
     /** Writes to the developer, from About and the support page. */
     onFeedback: () -> Unit = {},
+    keywords: List<String> = emptyList(),
+    onAddKeyword: (String) -> Unit = {},
+    onRemoveKeyword: (String) -> Unit = {},
+    suggestKeyword: suspend (String) -> String? = { null },
+    onPrepareSpelling: () -> Unit = {},
+    keywordCounts: Map<String, Int> = emptyMap(),
     onClose: () -> Unit,
 ) {
     var page by rememberSaveable {
@@ -154,7 +163,10 @@ fun TuneScreen(
                     it != (if (donationsAllowed) Page.HELP else Page.SUPPORT)
                 },
             ) { page = it }
-            Page.SUBJECTS -> SubjectsPage(topics, onTopics)
+            Page.SUBJECTS -> SubjectsPage(
+                topics, onTopics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
+                onPrepareSpelling, keywordCounts,
+            )
             Page.APPEARANCE -> AppearancePage(
                 theme, paperSerif, interfaceSerif, dynamicColour,
                 onTheme, onPaperSerif, onInterfaceSerif, onDynamicColour,
@@ -221,7 +233,59 @@ private fun PageBody(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun SubjectsPage(topics: Set<String>, onTopics: (Set<String>) -> Unit) = PageBody {
+private fun SubjectsPage(
+    topics: Set<String>,
+    onTopics: (Set<String>) -> Unit,
+    keywords: List<String>,
+    onAddKeyword: (String) -> Unit,
+    onRemoveKeyword: (String) -> Unit,
+    suggestKeyword: suspend (String) -> String?,
+    onPrepareSpelling: () -> Unit,
+    keywordCounts: Map<String, Int>,
+) = PageBody {
+    // Keywords first: the list is short. The rule is behind an info button, said in full when
+    // asked for and otherwise out of the way, since most readers glance at this page and leave.
+    var explained by rememberSaveable { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Keywords", style = MaterialTheme.typography.titleSmall)
+        IconButton(onClick = { explained = !explained }) {
+            Icon(
+                androidx.compose.material.icons.Icons.Outlined.Info,
+                contentDescription = if (explained) "Hide how keywords work" else "How keywords work",
+                tint = if (explained) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    androidx.compose.animation.AnimatedVisibility(explained) {
+        Column {
+            Text(
+                "Papers that mention one of these come first, from any field, marked with the " +
+                    "keyword. Matching is exact apart from capitals, hyphens and plurals: U-Net " +
+                    "also finds UNet, and RNA finds RNAs but never mRNA. Up to half of each digest.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Add each name a paper might use, such as C. elegans and Caenorhabditis elegans.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+    KeywordEditor(
+        keywords = keywords,
+        onAdd = onAddKeyword,
+        onRemove = onRemoveKeyword,
+        suggest = suggestKeyword,
+        placeholder = keywordExample(topics),
+        onReady = onPrepareSpelling,
+        counts = keywordCounts,
+    )
+    Spacer(Modifier.height(24.dp))
+    Text("Subjects", style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(4.dp))
     // Onboarding promises these can be changed later, so they must be changeable.
     Text(
         "These seed the ranking and decide which categories are fetched. Your reactions " +

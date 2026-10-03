@@ -1585,3 +1585,75 @@ Four changes after watching the onboarding survey on a phone.
   during the survey. The wait is labelled "Building your first digest" rather than "Nothing
   new announced", which meant nothing to somebody who had just arrived.
 
+## Keywords: names to watch for
+
+A scientist deep in one narrow area gets a digest of their whole field. Keywords let them name
+what to watch for: a method, a dataset, a gene, an organism, a mission.
+
+**First as topics, then as words.** The first version took a typed "focus" as a topic: matched
+through the ranker's tokens, widened by the words of the best-matching papers, and fed to the
+model. On eight narrow interests that ranked well (prototype/focus_eval.py: 18% of on-topic
+papers reaching the digest with subjects alone, 79% with the focus), but a reader typed
+"H-net", opened a paper labelled as on it, searched it and did not find the word. The ranker's
+tokens drop words of one or two letters and split at hyphens, so "H-net" had become "net".
+
+Twenty keywords across fields were then checked against real recent papers from every server
+(prototype/keyword_audit.py), comparing that rule with a literal one:
+
+| Keyword | First rule matched on | Wrong |
+|---|---|---|
+| H-Net | "net" | 21 of 35 |
+| U-Net | "net" | 17 of 61 |
+| Sentinel-2 | "sentinel" | 7 of 47, such as "sentinel sites" |
+| C. elegans | "elegans" | 10 of 79 |
+| RL | nothing | found none of 41 |
+| CRISPR, GDPR, long COVID, dark matter, JWST and ten more | as typed | none |
+
+For ordinary words the two rules agreed exactly; for names only the literal one was right. A
+label has to survive the reader checking it, so keywords are literal.
+
+**The rule.** A paper matches when its title or abstract contains the keyword as written,
+ignoring capitals, how its parts are joined (hyphen, space, dot, LaTeX's tilde, or nothing:
+H-Net, H Net and HNet are one name) and a plural. Never inside a longer word: H-Net does not
+find U-Net. Capitals are ignored because they hardly ever matter in practice: of the newest
+hundred arXiv papers found for "LoRA", ninety nine were about the method and none about the
+LoRa radio protocol. Synonyms are the reader's to add, and the settings page says so: C. elegans
+and Caenorhabditis elegans.
+
+**What it does.**
+
+- Each keyword fetches the newest papers mentioning it, from arXiv as a phrase and through
+  Crossref from every other server, kept to papers that really mention it within the last two
+  months. Two weeks was tried first: arXiv has fifteen papers that ever mention H-Net, the
+  newest six weeks old, and the page said none while that paper sat unseen. A digest never
+  shows a paper twice, so the longer window costs a busy keyword nothing.
+- Up to half of the digest's matches go to papers mentioning a keyword, the keywords taking
+  turns, chosen within each by the reader's ordinary interest score. They come first, each
+  marked `mentions "H-Net"`. The other half is the digest the reader would have had without
+  keywords; folding keywords into every paper's score made them win eighteen slots of
+  nineteen. A field with few papers keeps a full digest, since unused slots go back to the
+  subjects.
+- The paper's page says which keyword brought it there and highlights every mention in the
+  title and abstract.
+- Keywords do not train the model. Through the ranker's tokens "H-Net" would have taught it
+  the word "net". The model learns from how the reader reacts to the papers that mention
+  them, like everything else.
+
+**Spelling.** A literal keyword spelt wrongly finds nothing, so a word no paper on the device
+uses, with a near one that some paper does, is asked about: "Did you mean satellite imagery?",
+with the reader's own spelling one tap away. Never changed silently, and words that look
+deliberate (a capital inside, digits, a hyphen: LoRA, GNN, Sentinel-2) are not questioned.
+
+**Transparency.** The settings page counts each keyword's papers over the last two months,
+and says when one finds none, which can mean a rare name or one papers write another way.
+
+**Where it lives.** Settings, Subjects and keywords, and under an online search, "Watch for
+'anomaly detection' in new papers". Not in onboarding: a new reader asked for something more
+specific types topic descriptions such as "earth observation computer vision", which literally
+match nothing, and the survey already learns topics there. A reader who adds no keyword gets
+exactly the digest they had before.
+
+**Checked on a phone.** A computer vision reader with H-Net, Sentinel-2 and "satellite imagery"
+got ten of nineteen matches mentioning a keyword, from cs.CV, cs.CL, cs.NI and physics.geo-ph.
+A genomics reader with CRISPR, C. elegans and long COVID got twelve, from bioRxiv, medRxiv,
+ChemRxiv and arXiv, and every one of the twelve labels was found in its paper's text.

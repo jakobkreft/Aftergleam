@@ -24,6 +24,8 @@ device. There is no account and nothing about your reading leaves your phone.
 ## Features
 
 - A short daily digest, ranked for you, with the reason each paper was picked
+- Optional keywords: papers that mention a name you watch for, such as "H-Net" or
+  "C. elegans", come first, from any field
 - Explore, for papers just outside your usual reading
 - Popular, for what other people are reading
 - Read PDFs in the app and keep them offline

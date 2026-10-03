@@ -1,5 +1,7 @@
 package si.jakobkreft.aftergleam.data
 
+import kotlinx.coroutines.async
+
 /**
  * Fetches a subscription from whichever servers it actually mentions.
  *
@@ -93,6 +95,43 @@ object Fetcher {
     }
 
     /** Which servers a subscription would actually reach. Used by tests and diagnostics. */
+    /**
+     * The newest papers mentioning each keyword, from arXiv and, through Crossref, every other
+     * server, whatever their category.
+     *
+     * Kept to papers whose title or abstract actually mentions the keyword, within the keyword
+     * window. Both servers match more loosely than that: arXiv's search splits "H-Net" into
+     * "h" and "net", and Crossref's relevance returns papers for any one of the words.
+     *
+     * @return the keywords that were fetched, so one that failed is asked again next time.
+     */
+    suspend fun fetchKeywords(
+        keywords: List<String>,
+        today: java.time.LocalDate = java.time.LocalDate.now(),
+        store: suspend (List<Paper>) -> Unit,
+    ): List<String> {
+        val since = today.minusDays(Keywords.WINDOW_DAYS)
+        val done = mutableListOf<String>()
+        // Crossref is asked for every keyword at once, alongside arXiv, which has to go one
+        // request at a time. In turn, three took about a minute on a phone.
+        val crossref = kotlinx.coroutines.coroutineScope {
+            keywords.associateWith { k ->
+                async { runCatching { CrossrefSearch.search(k, rows = 30, since = since) } }
+            }.mapValues { it.value.await() }
+        }
+        for (keyword in keywords) {
+            if (Keywords.parts(keyword).isEmpty()) continue
+            val arxiv = runCatching { ArxivApi.recentMentioning(keyword) }
+            val others = crossref.getValue(keyword)
+            val found = (arxiv.getOrDefault(emptyList()) + others.getOrDefault(emptyList()))
+                .filter { it.published >= since.toString() }
+                .filter { Keywords.mentions(it.title + "\n" + it.abstract, keyword) }
+            store(found)
+            if (arxiv.isSuccess || others.isSuccess) done += keyword
+        }
+        return done
+    }
+
     fun serversFor(subscribed: Set<String>): Set<String> =
         (listOf(Source.ARXIV, Source.BIORXIV, Source.MEDRXIV, Source.CHEMRXIV) + OSF)
             .filter { Topics.categoriesOf(it, subscribed).isNotEmpty() }

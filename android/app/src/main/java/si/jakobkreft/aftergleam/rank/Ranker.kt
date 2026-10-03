@@ -1,5 +1,6 @@
 package si.jakobkreft.aftergleam.rank
 
+import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Attention
@@ -29,6 +30,8 @@ data class Scored(
     val storedReason: String? = null,
     /** True when venue or freshness, not predicted interest, put this card here. */
     val placedByQuality: Boolean = false,
+    /** The reader's keyword this paper's title or abstract mentions, if any. See [Keywords]. */
+    val keyword: String? = null,
 ) {
     /**
      * The "why" chip. With TF-IDF the explanation is the matching words themselves.
@@ -42,6 +45,7 @@ data class Scored(
         Slot.BRIDGE -> Source.display(paper.primaryCategory)
             .ifBlank { paper.sourceLabel ?: "another field" } + ", outside your usual"
         Slot.RELEVANCE -> when {
+            keyword != null -> "mentions \u201c$keyword\u201d"
             placedByQuality && reasonTerms.isNotEmpty() ->
                 "ranked up for its venue, matches " +
                     distinctTerms(reasonTerms).take(2).joinToString(", ")
@@ -242,6 +246,8 @@ class Ranker(private val weights: Weights = Weights()) {
         topicHistory: Map<String, Pair<Float, Float>> = emptyMap(),
         /** A model trained earlier, when the reader's signals have not changed since. */
         prebuilt: Model? = null,
+        /** The reader's keywords. Empty, and nothing here differs from a digest without them. */
+        keywords: List<String> = emptyList(),
     ): List<Scored> {
         // A paper the user has already judged is finished business. Leaving rated papers
         // in the pool made them dominate the top of the list, because the model scores its
@@ -301,6 +307,7 @@ class Ranker(private val weights: Weights = Weights()) {
                 vec = vec,
                 placedByQuality = hasModel && venue > 0f &&
                     weights.quality * venue * standing[i] > weights.recency * fresh,
+                keyword = Keywords.mentionedBy(paper, keywords),
             )
         }.sortedByDescending { it.score }
 
@@ -524,10 +531,14 @@ class Ranker(private val weights: Weights = Weights()) {
         // and rarely surface. For a reader who follows law it was the whole digest: four law
         // papers existed, and the morning was twenty five cards of cs.CY, cs.AI and q-fin,
         // none of which they had asked for and none of which was law.
+        //
+        // A paper mentioning one of the reader's keywords is in scope wherever it was filed.
+        // Earth observation is a third outside computer vision, and the reader named it.
         val inScope =
             if (subscribed.isEmpty()) scored
-            else scored.filter { s -> s.paper.categories.any { it in subscribed } }
-        val outside = scored.filter { s -> s.paper.categories.none { it in subscribed } }
+            else scored.filter { s -> s.keyword != null || s.paper.categories.any { it in subscribed } }
+        val inScopeIds = inScope.map { it.paper.id }.toHashSet()
+        val outside = scored.filter { it.paper.id !in inScopeIds }
 
         val picked = LinkedHashMap<String, Scored>()
         // With no trained model every relevance is zero, so an "exploration" card would
@@ -557,12 +568,46 @@ class Ranker(private val weights: Weights = Weights()) {
         // bandit decides how much of the morning each area gets, and the width of its
         // posterior does the exploring, so an area nothing is known about is tried because it
         // is unknown rather than because a slider said to.
-        val remaining = inScope.filter { it.paper.id !in picked }
         // One scale for every draw, so a paper's chances do not depend on which topic's
         // pool it happens to be drawn from.
         val scale = Sampling.Scale(inScope.map { it.score })
+
+        // Up to half the matches go to papers mentioning a keyword, before the topics share
+        // out the rest. A preference rather than a filter: a field that posts a few papers a
+        // week still fills the digest from everything else, and a keyword with more papers
+        // than that still leaves half the morning for the reader's wider subjects. Folding
+        // keywords into every paper's score instead made them win eighteen slots of nineteen.
+        //
+        // The keywords take turns, so a busy one does not crowd out a rare one: LoRA has dozens
+        // of papers a week and earth observation a handful, and drawn together the first
+        // digest with both was thirteen LoRA papers to five. Within each, the reader's own
+        // interest decides, the same score the rest of the digest is ranked by.
+        val byKeyword = inScope.filter { it.keyword != null && it.paper.id !in picked }
+            .groupBy { it.keyword!! }
+            .mapValues { it.value.toMutableList() }
+        val nKeyword = minOf(byKeyword.values.sumOf { it.size }, (nRelevance + 1) / 2)
+        if (nKeyword > 0) {
+            val chosen = mutableListOf<Scored>()
+            while (chosen.size < nKeyword && byKeyword.values.any { it.isNotEmpty() }) {
+                for (pool in byKeyword.values) {
+                    if (chosen.size >= nKeyword) break
+                    val pick = selectDiverse(pool, 1, model, random, scale, earlier = chosen)
+                        .firstOrNull() ?: continue
+                    pool.remove(pick)
+                    chosen += pick
+                }
+            }
+            chosen.forEach { picked[it.paper.id] = it }
+        }
+
+        // The rest of the digest is the digest the reader would have had without keywords.
+        // Papers mentioning one beyond its share are left out of it, so the share is what the
+        // settings page says it is; and those from categories the reader does not follow
+        // would each be a topic with no history, which wins slots for being untried.
+        val remaining = inScope.filter { s -> s.paper.id !in picked && s.keyword == null }
         val allocated = allocateByTopic(
-            remaining, nRelevance, model, random, topicHistory, scale, subscribed,
+            remaining, nRelevance - picked.count { it.value.slot == Slot.RELEVANCE },
+            model, random, topicHistory, scale, subscribed,
         )
         allocated.forEach { picked[it.paper.id] = it }
 
@@ -608,7 +653,9 @@ class Ranker(private val weights: Weights = Weights()) {
      * is seen rather than buried at the bottom.
      */
     private fun arrange(cards: List<Scored>): List<Scored> {
-        val matches = cards.filter { it.slot == Slot.RELEVANCE }.sortedByDescending { it.score }
+        // Papers mentioning a keyword first, so the cards saying so are together at the top.
+        val matches = cards.filter { it.slot == Slot.RELEVANCE }
+            .sortedWith(compareByDescending<Scored> { it.keyword != null }.thenByDescending { it.score })
         val detours = ArrayDeque(
             cards.filter { it.slot == Slot.BRIDGE } +
                 cards.filter { it.slot == Slot.EXPLORATION }.sortedByDescending { it.score }
@@ -707,6 +754,7 @@ class Ranker(private val weights: Weights = Weights()) {
          * double this; it is the middle of that range.
          */
         private const val SIMILARITY_COST = 6f
+
     }
 
     /** Exponential decay with a one-week half-life. */
