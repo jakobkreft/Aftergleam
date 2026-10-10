@@ -1738,3 +1738,52 @@ nothing; when they lift, the pages are rendered again at exactly that size, so t
 sharp, and the point between the fingers stays where it was. Recorded on a phone, the frames
 change evenly through the pinch, and the release changes almost nothing. The first try showed
 a frame with the right of the page black, where a shift meant for the page moved the whole view.
+
+## A feed that would not load (1.1.1)
+
+A reader on GrapheneOS reported that after updating to 1.1.0 their feed would not load and
+their saved papers were gone, and that clearing the cache to fix it removed their offline
+papers as well.
+
+**What was ruled out.** Both releases were built from their tags under a separate package name
+and run on the same version of GrapheneOS, with an update from one to the other on the next day.
+The database schema did not change between them, the F-Droid and GitHub APKs are signed with the
+same key so the update needs no reinstall, and a phone with the app's network permission
+switched off still builds the digest from the papers already stored. None of these lost anything.
+
+**What was found.** Saved papers reached the screen only together with the day's digest. On a
+morning whose digest had not been built yet the library showed none at all until it was, which
+on a phone was "Saved 0" for as long as the fetch took, and for good if the build failed. They
+were in the database the whole time. A failed build then said "Could not reach arXiv" whatever
+had failed. Network failures never reach that message (each server's fetch catches its own and
+the digest is built from what is stored), so it only ever appeared for something else and named
+the network for it. And downloads were kept in the cache, which is exactly what a reader clears
+when something looks wrong. The developer's own phone, mid-investigation, turned out to have an
+empty download folder that nobody had cleared on purpose.
+
+**What changed.**
+
+- Saved papers and reactions are read from the database when the app starts, on their own, and
+  the library reads them from the database rather than from the screen's state.
+- A failed build says why. Network failures are named as such, with the reader's own servers
+  ("Could not reach arXiv or bioRxiv") and the possibility, on GrapheneOS, that the app is not
+  allowed the network. Anything else is "Could not build today's digest", in plain words for a
+  full disk or a busy database, and otherwise with the exception's type and message so that a
+  report quotes what failed. Exception names are kept through R8 for that reason.
+- The last digest stays on screen under a card saying what went wrong, its header naming the
+  day ("Yesterday, 25 papers"), instead of an empty screen behind a message.
+- Downloads and reader-view copies are kept in the app's private files instead of its cache.
+  No permission is needed for that, nothing outside the app can read them, and the backup rules
+  already leave them out of cloud backups and device transfers. Clearing the cache, or the system
+  freeing space, no longer touches them; the offline shelf shows their size and deletes them.
+  Downloads already in the cache are moved on the next start, by copying and then removing, not
+  by renaming: Android counts an app's cache by a group the files carry, and renamed files kept
+  it, so the storage settings still listed them as cache. Until a file is moved it is read where
+  it is, and one that cannot be moved, on a full disk, stays readable there.
+- An interrupted download is removed rather than left behind, and is never taken for the paper.
+  It was "<id>.part", which matched the paper's name before the dot.
+
+Checked on a phone: during a slow next-day sync the library now shows the saved papers; with the
+digest build made to fail, the feed shows yesterday's digest under the reason and recovers on the
+next build; a paper downloaded with 1.1.0 is moved, opens, opens in another app, and survives
+clearing the cache.

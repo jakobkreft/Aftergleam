@@ -5,7 +5,9 @@
   another app at all, so it goes out as a content URI scoped to this one folder.
 -->
 <paths>
-    <cache-path name="downloads" path="pdf/" />
+    <files-path name="downloads" path="pdf/" />
+    <!-- Where downloads were kept before 1.1.1, until each is moved to the line above. -->
+    <cache-path name="cached-downloads" path="pdf/" />
     <!-- Copies named after the paper, for sending to somebody else. -->
     <cache-path name="shared" path="share/" />
 </paths>

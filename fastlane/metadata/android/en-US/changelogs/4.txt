@@ -1,0 +1,3 @@
+- Saved papers always show, even on a day the digest cannot be built
+- When the digest cannot be built, the app says why and shows your last digest instead of an empty screen
+- Offline papers are no longer removed when the app's cache is cleared or storage runs low

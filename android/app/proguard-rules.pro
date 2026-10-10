@@ -16,3 +16,8 @@
 # original file names, which are the only part worth obfuscating here.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Exceptions keep their names. When today's digest cannot be built the feed shows the
+# exception's type with its message, so that a report quotes what actually failed; renamed by
+# R8 that would read "a: null".
+-keepnames class * extends java.lang.Throwable

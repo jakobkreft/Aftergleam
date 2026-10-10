@@ -200,7 +200,7 @@ private fun DayList(
  * A date the reader has to decode is a date they will not use, and the weekday is the part
  * they actually remember about which morning they missed.
  */
-private fun dayName(day: String): String = runCatching {
+internal fun dayName(day: String): String = runCatching {
     val d = LocalDate.parse(day)
     val weekday = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
     val month = d.month.getDisplayName(TextStyle.FULL, Locale.getDefault())

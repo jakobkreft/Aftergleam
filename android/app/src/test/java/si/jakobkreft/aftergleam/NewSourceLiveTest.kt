@@ -121,7 +121,10 @@ class NewSourceLiveTest {
             "markup survived into an abstract: " +
                 papers.first { tag.containsMatchIn(it.abstract) }.abstract.take(120)
         }
-        assert(papers.all { it.authors.isNotEmpty() }) { "authors were dropped" }
+        // Nearly all, not all: ChemRxiv's records at Crossref occasionally carry no authors at
+        // all (10.26434/chemrxiv.15010182/v1, October 2026), and that is the record, not the
+        // parser. Dropping them in parsing would empty far more than one in ten.
+        assert(papers.count { it.authors.isNotEmpty() } >= papers.size * 9 / 10) { "authors were dropped" }
     }
 
     @Test
