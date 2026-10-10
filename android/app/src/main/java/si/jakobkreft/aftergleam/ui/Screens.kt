@@ -37,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,8 +76,10 @@ fun FeedScreen(
     when {
         state.loading -> DigestSkeleton(state.loadingLabel.ifBlank { "Working" })
 
-        state.error != null ->
-            Message("Could not reach arXiv", state.error, "Try again", onRefresh)
+        // A full screen only when there is nothing else to show: no digest has ever been built
+        // on this phone. Otherwise the problem is a card above the last digest, below.
+        state.problem != null && state.cards.isEmpty() ->
+            Message(state.problem.headline, state.problem.detail, "Try again", onRefresh)
 
         // An empty feed is usually normal rather than a failure, so it does not show an
         // error. It has to name the right reason, though. This said "arXiv does not announce
@@ -126,8 +129,9 @@ fun FeedScreen(
                 Column {
                     Text(
                         // A narrow field really does produce one paper some days, and the
-                        // header said "Today, 1 papers".
-                        "Today, ${state.cards.size} " +
+                        // header said "Today, 1 papers". An earlier digest, kept on screen
+                        // because today's failed, says which day it is.
+                        (state.cardsDay?.let { dayName(it) } ?: "Today") + ", ${state.cards.size} " +
                             if (state.cards.size == 1) "paper" else "papers",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
@@ -141,6 +145,9 @@ fun FeedScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            state.problem?.let { problem ->
+                item(key = "problem") { ProblemCard(problem, state.cardsDay, onRefresh) }
             }
             // Above the papers, because the reader who was away needs to know before they
             // start reading today that there is a "before today". Only when there is a real
@@ -329,6 +336,44 @@ private fun AwayCard(count: Int, onOpen: () -> Unit) {
     }
 }
 
+/**
+ * Today's digest could not be built, said above the digest shown instead.
+ *
+ * A card in the list rather than a screen of its own, so the papers stay readable and the
+ * reader can see straight away that nothing they kept has gone. The real reason is in it,
+ * worded for the reader, with the exception's own words where there are no better ones, so a
+ * report quotes what actually failed.
+ */
+@Composable
+private fun ProblemCard(problem: Problem, day: String?, onRetry: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        elevation = flatCard(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp)) {
+            Text(problem.headline, style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(problem.detail, style = MaterialTheme.typography.bodySmall)
+            if (day != null) {
+                val from = dayName(day).let { if (it == "Yesterday") "yesterday" else it }
+                Spacer(Modifier.height(4.dp))
+                Text("Below is your last digest, from $from.", style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(
+                onClick = onRetry,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+            ) { Text("Try again", fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
 @Composable
 private fun EndCard(
     state: FeedState,
@@ -339,7 +384,10 @@ private fun EndCard(
     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp)) {
         // Says outright that the digest has ended. It read "That is today", which was meant as
         // "that is all of today's papers" and left readers wondering what it referred to.
-        Text("That's all for today", style = MaterialTheme.typography.titleMedium)
+        Text(
+            if (state.cardsDay == null) "That's all for today" else "That's all for now",
+            style = MaterialTheme.typography.titleMedium,
+        )
         Spacer(Modifier.height(6.dp))
         Text(
             when {

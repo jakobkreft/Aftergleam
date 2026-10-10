@@ -5,7 +5,8 @@
   Reading history and the model follow the reader to a new phone during the direct transfer,
   and never go to a cloud backup account. The app's promise is that nothing about what you read
   leaves the device, and a backup uploaded to someone else's server would break it quietly.
-  Downloaded PDFs live in the cache, which is never backed up, and can be fetched again.
+  Downloaded PDFs are in the app's files, which neither list includes: they can always be
+  fetched again, and would make a transfer slow for nothing.
 -->
 <data-extraction-rules>
     <cloud-backup>

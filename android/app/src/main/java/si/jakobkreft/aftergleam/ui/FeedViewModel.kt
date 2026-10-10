@@ -37,6 +37,7 @@ import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.ArticleStore
+import si.jakobkreft.aftergleam.data.OfflineFiles
 import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
@@ -86,8 +87,14 @@ data class FeedState(
     val loading: Boolean = false,
     val loadingLabel: String = "",
     val cards: List<Scored> = emptyList(),
+    /**
+     * The day [cards] are from when it is not today: the last digest, kept on screen because
+     * today's could not be built. Null when they are today's.
+     */
+    val cardsDay: String? = null,
     val reactions: Map<String, Reaction> = emptyMap(),
-    val error: String? = null,
+    /** Why today's digest could not be built, or null. See [Problems.digest]. */
+    val problem: Problem? = null,
     val emptyDay: Boolean = false,
     /**
      * Servers that did not answer during the last fetch.
@@ -511,6 +518,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             interfaceSerif = prefs.interfaceSerif,
             dynamicColour = prefs.dynamicColour,
         )
+        // Downloads kept in the cache by 1.1.0 and earlier, moved to where clearing the cache
+        // does not reach them. The stores read both places until this is done.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { OfflineFiles.moveFromCache(getApplication()) }
+        }
         if (prefs.onboarded) {
             // Before anything else, so a cold start with no fetch due still knows what the
             // field was reading. Popular has nothing else to rank by, and ranking it before
@@ -833,18 +845,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Reopen today's digest from disk. No network, works on a train. */
     private fun restore() {
         viewModelScope.launch {
-            val today = LocalDate.now().toString()
-            val restored = withContext(Dispatchers.IO) {
-                val items = db.digestFor(today)
-                val byId = db.papersById(items.map { it.paperId }).associateBy { it.id }
-                items.mapNotNull { item ->
-                    byId[item.paperId]?.let {
-                        Scored(it, 0f, item.confidence, runCatching { Slot.valueOf(item.slot) }
-                            .getOrDefault(Slot.RELEVANCE), storedReason = item.reason)
-                    }
-                } to db.allReactions()
-            }
-            val (cards, reactions) = restored
+            // First, and on its own. Saves and reactions used to arrive with the digest, so
+            // on a morning whose digest failed to build the library showed no saved papers at
+            // all: a reader who found their feed would not load also found everything they had
+            // saved apparently gone, though every one of them was still in the database.
+            loadLedger()
+            val cards = withContext(Dispatchers.IO) { storedDigest(LocalDate.now().toString()) }
             if (cards.isNotEmpty()) {
                 // The resurfaced card has to be computed here too, not only when the digest
                 // is rebuilt. Reopening the app is the common path, and a feature that only
@@ -852,11 +858,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val resurfaced = withContext(Dispatchers.IO) { findResurfaced() }
                 _state.value = _state.value.copy(
                     cards = cards,
-                    reactions = reactions,
-                    evidence = db.evidence(),
-                    ratedCount = evidenceCount(),
-                    judgedCount = judgedCount(),
-                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
+                    cardsDay = null,
                     resurfaced = resurfaced,
                     drift = withContext(Dispatchers.IO) { computeDrift() },
                     support = withContext(Dispatchers.IO) { supportCard() },
@@ -865,6 +867,34 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 prewarm()
             } else {
                 sync(force = false)
+            }
+        }
+    }
+
+    /**
+     * Everything the reader has told the app, straight from the database: what they saved,
+     * opened and reacted to, and the counts the screens show.
+     */
+    private suspend fun loadLedger() {
+        val (reactions, evidence) = withContext(Dispatchers.IO) { db.allReactions() to db.evidence() }
+        val rated = evidence.count { it.value.label() != null }
+        _state.value = _state.value.copy(
+            reactions = reactions,
+            evidence = evidence,
+            ratedCount = rated,
+            judgedCount = evidence.count { it.value.explicit },
+            modelActive = rated >= Ranker.MIN_RATINGS,
+        )
+    }
+
+    /** A stored digest as cards, in the order it was shown. Empty if there is none for [day]. */
+    private fun storedDigest(day: String): List<Scored> {
+        val items = db.digestFor(day)
+        val byId = db.papersById(items.map { it.paperId }).associateBy { it.id }
+        return items.mapNotNull { item ->
+            byId[item.paperId]?.let {
+                Scored(it, 0f, item.confidence, runCatching { Slot.valueOf(item.slot) }
+                    .getOrDefault(Slot.RELEVANCE), storedReason = item.reason)
             }
         }
     }
@@ -958,7 +988,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 force -> "Nothing new announced, re-ranking what you have"
                 else -> "Re-ranking"
             },
-            error = null,
+            problem = null,
             emptyDay = false,
         )
 
@@ -1000,13 +1030,42 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     ensureModelShared(ratedDocs())
                     rebuild(cats)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    loading = false,
-                    error = e.message ?: "Could not reach arXiv",
-                )
+                showFailure(e, cats)
             }
         }
+    }
+
+    /**
+     * Today's digest could not be built: says why, and keeps something to read on screen.
+     *
+     * The cards already showing stay if there are any, which is the case when a re-rank of
+     * today's digest fails. Otherwise the last digest that was built comes back, from
+     * yesterday or whenever the app was last opened, marked with its day. Before this a
+     * failure left an empty screen behind a message, as if the reader had nothing at all.
+     */
+    private suspend fun showFailure(e: Exception, cats: List<String>) {
+        android.util.Log.w("Aftergleam", "Could not build the digest", e)
+        val servers = Fetcher.serversFor(cats.toSet()).map { Source.label(it) }.sorted()
+        val current = _state.value
+        val (cards, day) = if (current.cards.isNotEmpty()) {
+            current.cards to current.cardsDay
+        } else {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val today = LocalDate.now().toString()
+                    db.lastDigestDayBefore(today)?.let { day -> storedDigest(day) to day }
+                }
+            }.getOrNull() ?: (emptyList<Scored>() to null)
+        }
+        _state.value = _state.value.copy(
+            loading = false,
+            problem = Problems.digest(e, servers),
+            cards = cards,
+            cardsDay = day.takeIf { cards.isNotEmpty() },
+        )
     }
 
     /**
@@ -1174,6 +1233,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             loading = false,
             cards = cards,
+            cardsDay = null,
+            problem = null,
             // The digest just changed, so what is left over has changed with it. Dropping
             // both lets Explore look again; without this, a tab that had run out stayed run
             // out even after a fetch brought new papers in.
@@ -1410,9 +1471,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Everything the user has accumulated: saved, downloaded, and rated. */
     fun loadLibrary() {
         viewModelScope.launch {
-            val reactions = _state.value.reactions
             val store = PdfStore(getApplication())
             val loaded = withContext(Dispatchers.IO) {
+                // From the database rather than from the screen's state, which is filled in
+                // by other screens and may not be yet. The library is where a reader checks
+                // that what they kept is still there, so it reads what is actually kept.
+                val reactions = db.allReactions()
                 val saved = db.papersById(reactions.filterValues { it.saved }.keys)
                 // Explicit judgements only. The shelf's promise is "everything you told it,
                 // where you can change your mind", and a paper you merely opened is not
@@ -1486,7 +1550,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
-                    libraryMessage = humanError(e, "fetch that PDF")
+                    libraryMessage = humanError(e, "fetch that PDF", Source.label(paper.source))
                 )
             } finally {
                 _state.value = _state.value.copy(
@@ -1795,14 +1859,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * the one person who cannot use that information. Being offline is the expected case
      * here, not a fault, and it is the only case with an obvious next step.
      */
-    private fun humanError(e: Exception, action: String): String = when (e) {
-        is java.net.UnknownHostException, is java.net.ConnectException ->
-            "You are offline, so the app cannot $action. Everything already downloaded " +
-                "still works."
-        is java.net.SocketTimeoutException ->
-            "arXiv did not answer in time. Worth another try in a moment."
-        else -> e.message ?: "Could not $action."
-    }
+    private fun humanError(e: Exception, action: String, server: String = "the server"): String =
+        if (Problems.isNetwork(e)) "Could not $action. " + Problems.connection(e, server)
+        else e.message ?: "Could not $action."
 
     /** Pending dwell timers, cancelled the moment their screen closes. */
     private var dwell: Job? = null
@@ -2180,7 +2239,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                         (paper.id to store.sizeOf(paper.id)),
                 )
             } catch (e: Exception) {
-                _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF"))
+                _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF", Source.label(paper.source)))
             }
         }
     }
@@ -2227,7 +2286,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            updateArticle(paper.id) { it.copy(error = humanError(e, "fetch the HTML version")) }
+            updateArticle(paper.id) { it.copy(error = humanError(e, "fetch the HTML version", "arXiv")) }
         }
     }
 

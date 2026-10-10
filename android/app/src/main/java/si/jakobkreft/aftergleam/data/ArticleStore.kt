@@ -30,7 +30,10 @@ import java.security.MessageDigest
  */
 class ArticleStore(context: Context) {
 
-    private val root = File(context.cacheDir, "html")
+    private val root = OfflineFiles.dir(context, OfflineFiles.HTML)
+
+    /** Where articles were before 1.1.1, read until [OfflineFiles.moveFromCache] empties it. */
+    private val legacy = OfflineFiles.legacyDir(context, OfflineFiles.HTML)
 
     /** What the reader view can do for a paper. */
     enum class Availability {
@@ -61,7 +64,12 @@ class ArticleStore(context: Context) {
     /** arXiv answered that it has no HTML version of this paper. */
     class NoHtml : Exception("arXiv has no HTML version of this paper")
 
-    private fun dir(paperId: String) = File(root, paperId.replace('/', '_'))
+    /** A paper's folder: where it already is, or else where a new one goes. */
+    private fun dir(paperId: String): File {
+        val name = paperId.replace('/', '_')
+        return listOf(File(root, name), File(legacy, name)).firstOrNull { it.isDirectory }
+            ?: File(root, name)
+    }
 
     fun isCached(paperId: String): Boolean = File(dir(paperId), ARTICLE).length() > 0
 
@@ -160,15 +168,19 @@ class ArticleStore(context: Context) {
     }
 
     /** Removes one paper's article and figures. */
-    fun delete(paperId: String): Boolean = dir(paperId).deleteRecursively()
+    fun delete(paperId: String): Boolean {
+        val name = paperId.replace('/', '_')
+        return listOf(File(root, name), File(legacy, name)).map { it.deleteRecursively() }.all { it }
+    }
 
     /** Removes every article. */
-    fun deleteAll(): Int = root.listFiles()?.count { it.deleteRecursively() } ?: 0
+    fun deleteAll(): Int = listOf(root, legacy).sumOf { d -> d.listFiles()?.count { it.deleteRecursively() } ?: 0 }
 
     /** Bytes kept for one paper. */
     fun sizeOf(paperId: String): Long = dir(paperId).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
-    fun totalBytes(): Long = root.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+    fun totalBytes(): Long =
+        listOf(root, legacy).sumOf { d -> d.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }
 
     private fun open(url: String) = (URL(url).openConnection() as HttpURLConnection).apply {
         setRequestProperty("User-Agent", Http.USER_AGENT)

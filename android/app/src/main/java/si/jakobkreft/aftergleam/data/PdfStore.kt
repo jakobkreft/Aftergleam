@@ -24,13 +24,15 @@ import java.net.URL
  * since API 21, adds no dependency, ships no native blob, and keeps the build F-Droid clean.
  * A bundled renderer would be several megabytes and another reproducibility risk for nothing.
  *
- * Files land in the cache directory, so the system can reclaim them under pressure and the
- * user is never asked for storage permission. A paper read on a train is still there on the
- * way home; one read a month ago may not be, which is the right trade.
+ * Files are kept in the app's own storage, where only the reader removes them: see
+ * [OfflineFiles] for why not the cache. No storage permission is needed for either.
  */
 class PdfStore(private val context: Context) {
 
-    private val dir = File(context.cacheDir, "pdf").apply { mkdirs() }
+    private val dir = OfflineFiles.dir(context, OfflineFiles.PDF).apply { mkdirs() }
+
+    /** Where downloads were before 1.1.1, read until [OfflineFiles.moveFromCache] empties it. */
+    private val legacy = OfflineFiles.legacyDir(context, OfflineFiles.PDF)
 
     /**
      * The cache name for a paper, without an extension.
@@ -53,10 +55,24 @@ class PdfStore(private val context: Context) {
         File(dir, base(paperId) + "." + extension)
 
     /** The downloaded file for a paper, whatever type it turned out to be, or null. */
-    fun cachedFile(paperId: String): File? {
+    fun cachedFile(paperId: String): File? = downloads(paperId).firstOrNull()
+
+    /**
+     * Every copy of a paper's download, the current place first.
+     *
+     * One, normally. Two only for a moment while a file is moved out of the cache, which is
+     * why deleting takes them all. A download still arriving is not one: it used to match,
+     * being "<id>.part" with the paper's name before the dot, so an interrupted download was
+     * offered to the reader as the paper.
+     */
+    private fun downloads(paperId: String): List<File> {
         val stem = base(paperId)
-        return dir.listFiles()
-            ?.firstOrNull { it.name.substringBeforeLast('.') == stem && it.length() > 0 }
+        return listOf(dir, legacy).flatMap { d ->
+            d.listFiles().orEmpty().filter {
+                it.isFile && it.length() > 0 && OfflineFiles.isFinished(it) &&
+                    it.name.substringBeforeLast('.') == stem
+            }
+        }
     }
 
     fun isCached(paperId: String) = cachedFile(paperId) != null
@@ -69,7 +85,9 @@ class PdfStore(private val context: Context) {
         (cachedFile(paperId)?.length() ?: 0L) + articles.sizeOf(paperId)
 
     /** Everything the store is holding, which is the number a reader wants to see. */
-    fun totalBytes(): Long = (dir.listFiles()?.sumOf { it.length() } ?: 0L) + articles.totalBytes()
+    fun totalBytes(): Long =
+        listOf(dir, legacy).sumOf { d -> d.listFiles()?.sumOf { it.length() } ?: 0L } +
+            articles.totalBytes()
 
     /** The reader view's copies, which are deleted with the PDF they were opened from. */
     private val articles = ArticleStore(context)
@@ -88,9 +106,10 @@ class PdfStore(private val context: Context) {
      */
     suspend fun delete(paperId: String): Boolean {
         withContext(Dispatchers.IO) { articles.delete(paperId) }
-        val file = cachedFile(paperId) ?: return false
-        if (openFile == file) release()
-        return withContext(Dispatchers.IO) { file.delete() }
+        val files = withContext(Dispatchers.IO) { downloads(paperId) }
+        if (files.isEmpty()) return false
+        if (openFile in files) release()
+        return withContext(Dispatchers.IO) { files.map { it.delete() }.all { it } }
     }
 
     /** Removes every download. Returns how many files went. */
@@ -98,7 +117,7 @@ class PdfStore(private val context: Context) {
         release()
         return withContext(Dispatchers.IO) {
             articles.deleteAll()
-            dir.listFiles()?.count { it.delete() } ?: 0
+            listOf(dir, legacy).sumOf { d -> d.listFiles()?.count { it.delete() } ?: 0 }
         }
     }
 
@@ -120,18 +139,19 @@ class PdfStore(private val context: Context) {
             connectTimeout = 20_000
             readTimeout = 60_000
         }
+        // Written under a temporary name first, so an interrupted download cannot leave a
+        // truncated file that later looks downloaded and renders as a corrupt document; and
+        // removed if anything goes wrong, since downloads are no longer in a cache that the
+        // system tidies.
+        val partial = File(dir, base(paper.id) + OfflineFiles.PART)
         try {
             if (conn.responseCode != 200) {
                 throw DownloadError(
                     "${Source.label(paper.source)} returned HTTP ${conn.responseCode}"
                 )
             }
-            // Write to a temporary name first, so an interrupted download cannot leave a
-            // truncated file that later looks cached and renders as a corrupt document.
-            val partial = File(dir, base(paper.id) + ".part")
             // Refused outright when the server says it is too large, and cut off if it lies.
-            // Without a ceiling one broken or hostile response could fill the phone's storage,
-            // and the cache is only reclaimed by the system after the damage is done.
+            // Without a ceiling one broken or hostile response could fill the phone's storage.
             if (conn.contentLengthLong > MAX_DOWNLOAD_BYTES) {
                 throw DownloadError("The file is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB")
             }
@@ -144,7 +164,6 @@ class PdfStore(private val context: Context) {
                         if (n < 0) break
                         total += n
                         if (total > MAX_DOWNLOAD_BYTES) {
-                            out.close(); partial.delete()
                             throw DownloadError(
                                 "The file is larger than ${MAX_DOWNLOAD_BYTES / 1_000_000} MB"
                             )
@@ -162,12 +181,10 @@ class PdfStore(private val context: Context) {
             val ext = extensionFor(named, partial)
             val target = fileFor(paper.id, ext)
             target.delete()
-            if (!partial.renameTo(target)) {
-                partial.delete()
-                throw DownloadError("Could not save the download")
-            }
+            if (!partial.renameTo(target)) throw DownloadError("Could not save the download")
             target
         } finally {
+            partial.delete()
             conn.disconnect()
         }
     }
