@@ -249,10 +249,9 @@ private fun Shelf(
                     Column(Modifier.weight(1f)) {
                         Text(
                             p.displayTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontFamily = LocalPaperFont.current,
+                            style = paperStyle(MaterialTheme.typography.titleSmall),
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 2,
+                            maxLines = paperLines(2),
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(

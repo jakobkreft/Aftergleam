@@ -1787,3 +1787,28 @@ Checked on a phone: during a slow next-day sync the library now shows the saved 
 digest build made to fail, the feed shows yesterday's digest under the reason and recovers on the
 next build; a paper downloaded with 1.1.0 is moved, opens, opens in another app, and survives
 clearing the cache.
+
+## Text size for papers
+
+Settings, Appearance, Text: "Size of titles and abstracts", thirteen sizes from 90% to 150%, applied
+wherever a paper's own words appear: feed cards, search, Explore, Popular, earlier digests, the
+paper's page, the library, the survey and the import list.
+
+Only the paper's words, not the app around them. Android's own font size already scales every
+piece of text in the app, which follows it, so that is where the whole app grows. An in-app
+scale for everything would multiply with it, and was tried on a phone at its own 115%: at the
+equivalent of 130% and 150% on top, the search field's placeholder wrapped onto two lines inside
+its box, the reason above each card was cut off sooner, and the screen held fewer papers, mostly
+because the controls around them had grown. Scaling only the paper spends the space on what is
+read: at 150% the feed still shows more than two papers to a screen with the controls unchanged.
+The setting says where the rest is controlled.
+
+It is set as Android sets its own font size: a slider with a stop every 5%, and a minus and a
+plus at its ends for one step at a time. Steps of 10% were tried first and were coarser than a
+reader wanted near the app's own size; 5% is about the smallest change still visible in a title.
+The range is the point: two steps smaller for seeing more of a digest at once, then up to half as
+large again, beyond which a card is little more than its title. Line spacing scales with the
+letters, and title line limits grow with the size
+so that a title which fit at 100% still fits at 150%; abstract previews keep their two lines,
+since a preview is expected to be cut and a title is not. The reader view keeps its own size
+control, and the PDF its zoom.

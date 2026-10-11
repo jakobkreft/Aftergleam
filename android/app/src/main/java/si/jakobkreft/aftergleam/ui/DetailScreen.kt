@@ -143,8 +143,7 @@ fun DetailScreen(
             Text(
                 highlighted(paper.displayTitle, keywords),
                 modifier = Modifier.clickable(onClick = open),
-                style = MaterialTheme.typography.titleLarge,
-                fontFamily = LocalPaperFont.current,
+                style = paperStyle(MaterialTheme.typography.titleLarge),
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
@@ -196,8 +195,7 @@ fun DetailScreen(
             // The whole abstract, not a preview. This is the point of the screen.
             Text(
                 highlighted(paper.displayAbstract, keywords),
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = LocalPaperFont.current,
+                style = paperStyle(MaterialTheme.typography.bodyMedium),
             )
             Spacer(Modifier.height(16.dp))
 

@@ -78,6 +78,14 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("serif_font", v).apply()
 
     /**
+     * How large a paper's title and abstract are set, in percent of the app's own text. See
+     * [si.jakobkreft.aftergleam.ui.PaperTextSize] for why only the paper's words.
+     */
+    var paperTextSize: Int
+        get() = sp.getInt("paper_text_size", 100)
+        set(v) = sp.edit().putInt("paper_text_size", v).apply()
+
+    /**
      * Whether the app around them is too.
      *
      * Off by default, which is the ordinary editorial arrangement: the article is set in a

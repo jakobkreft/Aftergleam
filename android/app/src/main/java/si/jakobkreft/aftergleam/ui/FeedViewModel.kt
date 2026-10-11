@@ -200,6 +200,8 @@ data class FeedState(
     val searchOpen: Boolean = false,
     val theme: String = "system",
     val paperSerif: Boolean = true,
+    /** [PaperTextSize], in percent. */
+    val paperTextSize: Int = PaperTextSize.DEFAULT,
     val interfaceSerif: Boolean = false,
     val dynamicColour: Boolean = false,
     /**
@@ -515,6 +517,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             reminderEnabled = prefs.reminderEnabled,
             reminderHour = prefs.reminderHour,
             paperSerif = prefs.paperSerif,
+            paperTextSize = PaperTextSize.nearest(prefs.paperTextSize),
             interfaceSerif = prefs.interfaceSerif,
             dynamicColour = prefs.dynamicColour,
         )
@@ -1617,6 +1620,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun markNotificationsAsked() { prefs.notificationsAsked = true }
 
     fun notificationsAsked() = prefs.notificationsAsked
+    fun setPaperTextSize(percent: Int) {
+        val size = PaperTextSize.nearest(percent)
+        prefs.paperTextSize = size
+        _state.value = _state.value.copy(paperTextSize = size)
+    }
+
     fun setPaperSerif(v: Boolean) {
         prefs.paperSerif = v
         _state.value = _state.value.copy(paperSerif = v)

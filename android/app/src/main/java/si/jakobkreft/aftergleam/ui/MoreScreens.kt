@@ -5,29 +5,32 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -42,10 +45,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import si.jakobkreft.aftergleam.R
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
 
@@ -87,6 +94,7 @@ fun TuneScreen(
     reminderEnabled: Boolean,
     theme: String,
     paperSerif: Boolean,
+    paperTextSize: Int,
     interfaceSerif: Boolean,
     dynamicColour: Boolean,
     topics: Set<String>,
@@ -104,6 +112,7 @@ fun TuneScreen(
     onReminder: (Boolean, Int) -> Unit,
     onTheme: (String) -> Unit,
     onPaperSerif: (Boolean) -> Unit,
+    onPaperTextSize: (Int) -> Unit,
     onInterfaceSerif: (Boolean) -> Unit,
     onDynamicColour: (Boolean) -> Unit,
     onTopics: (Set<String>) -> Unit,
@@ -168,8 +177,8 @@ fun TuneScreen(
                 onPrepareSpelling, keywordCounts,
             )
             Page.APPEARANCE -> AppearancePage(
-                theme, paperSerif, interfaceSerif, dynamicColour,
-                onTheme, onPaperSerif, onInterfaceSerif, onDynamicColour,
+                theme, paperSerif, paperTextSize, interfaceSerif, dynamicColour,
+                onTheme, onPaperSerif, onPaperTextSize, onInterfaceSerif, onDynamicColour,
             )
             Page.RANKING -> RankingPage(
                 digestSize, quality, exploration, diversity,
@@ -304,10 +313,12 @@ private fun SubjectsPage(
 private fun AppearancePage(
     theme: String,
     paperSerif: Boolean,
+    paperTextSize: Int,
     interfaceSerif: Boolean,
     dynamicColour: Boolean,
     onTheme: (String) -> Unit,
     onPaperSerif: (Boolean) -> Unit,
+    onPaperTextSize: (Int) -> Unit,
     onInterfaceSerif: (Boolean) -> Unit,
     onDynamicColour: (Boolean) -> Unit,
 ) = PageBody {
@@ -366,7 +377,90 @@ private fun AppearancePage(
         Switch(checked = interfaceSerif, onCheckedChange = onInterfaceSerif)
         Text("  Serif for the app as well", style = MaterialTheme.typography.bodyMedium)
     }
+
+    Spacer(Modifier.height(16.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Size of titles and abstracts",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text("$paperTextSize%", style = MaterialTheme.typography.bodyMedium)
+    }
+    PaperTextSizeRow(paperTextSize, onPaperTextSize)
+    Spacer(Modifier.height(8.dp))
+    PaperTextPreview()
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Only the papers' own words. The rest of the app follows your phone's font size, " +
+            "in Android's display settings.",
+        style = MaterialTheme.typography.bodySmall,
+    )
     Spacer(Modifier.height(32.dp))
+}
+
+/**
+ * The paper text size as Android sets its own font size: a slider with a stop for each size,
+ * and a minus and a plus at its ends for a step at a time. The stops can be dragged across
+ * quickly; the buttons are for the small adjustment, and need no aim.
+ */
+@Composable
+private fun PaperTextSizeRow(selected: Int, onSelect: (Int) -> Unit) {
+    val sizes = PaperTextSize.SIZES
+    val index = sizes.indexOf(PaperTextSize.nearest(selected))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onSelect(sizes[index - 1]) }, enabled = index > 0) {
+            Icon(painterResource(R.drawable.ic_remove), contentDescription = "Smaller")
+        }
+        Slider(
+            value = index.toFloat(),
+            onValueChange = { v ->
+                val i = v.roundToInt().coerceIn(0, sizes.lastIndex)
+                if (i != index) onSelect(sizes[i])
+            },
+            valueRange = 0f..sizes.lastIndex.toFloat(),
+            // Stops between the two ends, so seven positions.
+            steps = sizes.size - 2,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { stateDescription = "${sizes[index]}%" },
+        )
+        IconButton(onClick = { onSelect(sizes[index + 1]) }, enabled = index < sizes.lastIndex) {
+            Icon(Icons.Filled.Add, contentDescription = "Larger")
+        }
+    }
+}
+
+/**
+ * A paper card's title and abstract at the chosen size, so the choice is seen rather than
+ * guessed at. Set exactly as the feed sets them, through the same style.
+ */
+@Composable
+private fun PaperTextPreview() {
+    Card(
+        Modifier.fillMaxWidth(),
+        elevation = flatCard(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                "Reading on a phone: the right size for a paper's text",
+                style = paperStyle(MaterialTheme.typography.titleMedium),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = paperLines(3),
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "The right size is the one you stop noticing. Titles and abstracts in the feed, " +
+                    "in search and on a paper's own page are set like this.",
+                style = paperStyle(MaterialTheme.typography.bodySmall),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 @Composable

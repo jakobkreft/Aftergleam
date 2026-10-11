@@ -20,7 +20,7 @@ Only the servers your subjects need are contacted.
 * A reader view for arXiv papers, with text that fits your screen at the size you choose
 * Save papers, search, and import a BibTeX or RIS library from Zotero
 * Export and restore your reading history as a plain file
-* Light and dark themes, with an optional serif font for papers
+* Light and dark themes, and a serif font and text size of your choice for papers
 
 <b>Privacy</b>
 Your reading history and the model stay on your device. To fetch papers, the app has to ask the preprint servers for them, so those servers see the requests it makes. The privacy policy lists exactly what is sent.

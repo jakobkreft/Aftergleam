@@ -14,13 +14,16 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.core.view.WindowCompat
 
 /**
@@ -196,12 +199,72 @@ val dynamicColourAvailable: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_COD
  */
 val LocalPaperFont = staticCompositionLocalOf<FontFamily> { FontFamily.Serif }
 
+/**
+ * The size of a paper's own words relative to the app's, from the reader's setting: 1 is the
+ * app's own size. See [PaperTextSize].
+ */
+val LocalPaperScale = staticCompositionLocalOf { 1f }
+
+/**
+ * How large a paper's title and abstract are set, as a percentage of the app's own text.
+ *
+ * Only the paper's words, not the app around them. Android already scales every piece of text
+ * in the app with its own font size setting, and the app follows it, so that is where the whole
+ * app grows. A second, in-app scale on top of it would multiply with that one: at a phone's
+ * 115% and an app setting of 150%, the search field's placeholder wrapped onto two lines inside
+ * its own box, the reason above each card was cut off sooner, and the screen held fewer papers,
+ * mostly because the controls around them had grown. Scaling only the paper spends the space
+ * on what is being read.
+ *
+ * Thirteen stops on a slider, 5% apart, like Android's own font size: two a little smaller, for
+ * seeing more of a digest at once, then up to half as large again. Steps of 5% are about the
+ * smallest change that is still visible in a title. Beyond 150% a feed card shows little more
+ * than its title.
+ */
+object PaperTextSize {
+    val SIZES = (90..150 step 5).toList()
+    const val DEFAULT = 100
+
+    /** The nearest size offered, for a stored value from elsewhere. */
+    fun nearest(percent: Int): Int = SIZES.minBy { kotlin.math.abs(it - percent) }
+}
+
+/** [base] in the paper's face, at the reader's paper text size. */
+@Composable
+@ReadOnlyComposable
+fun paperStyle(base: TextStyle): TextStyle =
+    base.forPaper(LocalPaperFont.current, LocalPaperScale.current)
+
+/**
+ * [base], scaled to [scale], in [family]. The line height scales with the letters, or larger
+ * text would be set on the old spacing and its lines would touch.
+ */
+fun TextStyle.forPaper(family: FontFamily, scale: Float): TextStyle = copy(
+    fontFamily = family,
+    fontSize = if (fontSize.isSpecified) fontSize * scale else fontSize,
+    lineHeight = if (lineHeight.isSpecified) lineHeight * scale else lineHeight,
+)
+
+/**
+ * A line limit for paper text, grown with its size: as many lines as hold the same words that
+ * [lines] held at the app's size. Otherwise a feed card's three title lines would cut off the
+ * end of a title at exactly the size chosen to read titles more easily.
+ */
+@Composable
+@ReadOnlyComposable
+fun paperLines(lines: Int): Int = paperLinesFor(lines, LocalPaperScale.current)
+
+fun paperLinesFor(lines: Int, scale: Float): Int =
+    kotlin.math.max(lines, kotlin.math.ceil(lines * scale - 0.25f).toInt())
+
 @Composable
 fun AftergleamTheme(
     dark: Boolean,
     dynamic: Boolean,
     paperSerif: Boolean,
     interfaceSerif: Boolean,
+    /** [PaperTextSize], in percent. */
+    paperTextSize: Int,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -234,6 +297,7 @@ fun AftergleamTheme(
         CompositionLocalProvider(
             LocalPaperFont provides
                 if (paperSerif) FontFamily.Serif else FontFamily.SansSerif,
+            LocalPaperScale provides PaperTextSize.nearest(paperTextSize) / 100f,
             content = content,
         )
     }

@@ -216,6 +216,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
         dynamic = state.dynamicColour,
         paperSerif = state.paperSerif,
         interfaceSerif = state.interfaceSerif,
+        paperTextSize = state.paperTextSize,
     ) {
         // Declared above the import's early return: anything declared after it is unmounted
         // while the import owns the screen, and coming back from a ten minute import to a
@@ -478,6 +479,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             reminderEnabled = state.reminderEnabled,
                             theme = state.theme,
                             paperSerif = state.paperSerif,
+                            paperTextSize = state.paperTextSize,
                             interfaceSerif = state.interfaceSerif,
                             dynamicColour = state.dynamicColour,
                             topics = state.topics,
@@ -490,6 +492,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onDiversity = vm::setDiversity,
                             onTheme = vm::setTheme,
                             onPaperSerif = vm::setPaperSerif,
+                            onPaperTextSize = vm::setPaperTextSize,
                             onInterfaceSerif = vm::setInterfaceSerif,
                             onDynamicColour = vm::setDynamicColour,
                             onTopics = vm::setTopics,
@@ -733,6 +736,7 @@ private fun ReaderThemed(
         dynamic = state.dynamicColour,
         paperSerif = state.paperSerif,
         interfaceSerif = state.interfaceSerif,
+        paperTextSize = state.paperTextSize,
         content = content,
     )
 }

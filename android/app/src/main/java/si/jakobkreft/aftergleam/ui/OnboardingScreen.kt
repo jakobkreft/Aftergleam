@@ -250,8 +250,7 @@ private fun Question(
             Column(Modifier.padding(16.dp).verticalScroll(scroll)) {
                 Text(
                     paper.displayTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontFamily = LocalPaperFont.current,
+                    style = paperStyle(MaterialTheme.typography.titleMedium),
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -263,8 +262,9 @@ private fun Question(
                 // little of a long abstract on screen at once.
                 Text(
                     paper.displayAbstract,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 19.sp),
-                    fontFamily = LocalPaperFont.current,
+                    style = paperStyle(
+                        MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 19.sp)
+                    ),
                 )
             }
         }

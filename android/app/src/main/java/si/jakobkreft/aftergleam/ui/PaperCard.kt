@@ -93,19 +93,17 @@ fun PaperCard(
 
             Text(
                 paper.displayTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = LocalPaperFont.current,
+                style = paperStyle(MaterialTheme.typography.titleMedium),
                 fontWeight = if (viewed) FontWeight.Normal else FontWeight.SemiBold,
                 color = if (viewed) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
+                maxLines = paperLines(3),
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 paper.displayAbstract,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = LocalPaperFont.current,
+                style = paperStyle(MaterialTheme.typography.bodySmall),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

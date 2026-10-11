@@ -279,10 +279,9 @@ private fun ResurfacedCard(
             Spacer(Modifier.height(6.dp))
             Text(
                 resurfaced.paper.displayTitle,
-                fontFamily = LocalPaperFont.current,
-                style = MaterialTheme.typography.titleSmall,
+                style = paperStyle(MaterialTheme.typography.titleSmall),
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 3,
+                maxLines = paperLines(3),
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clickable { onOpen() },
             )

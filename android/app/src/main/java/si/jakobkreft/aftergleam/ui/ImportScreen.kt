@@ -137,9 +137,8 @@ private fun Running(progress: LibraryImport.Progress?, onStop: () -> Unit) {
         ) { title ->
             Text(
                 title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = LocalPaperFont.current,
-                maxLines = 2,
+                style = paperStyle(MaterialTheme.typography.bodyMedium),
+                maxLines = paperLines(2),
                 overflow = TextOverflow.Ellipsis,
             )
         }
