@@ -17,7 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.width
@@ -65,10 +69,23 @@ fun SearchScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // After a reorder the best result is at the top, and leaving the reader parked halfway
-    // down the old ranking hides the very change they asked for.
-    LaunchedEffect(state.searchHits.firstOrNull()?.paper?.id) {
-        if (state.searchHits.isNotEmpty()) listState.animateScrollToItem(0)
+    // After a new search or a reorder the best result is at the top, and leaving the reader
+    // parked halfway down the old ranking hides the very change they asked for.
+    //
+    // Only when the top result has actually changed, though, and that is remembered with the
+    // scroll position rather than inferred from the effect running. Opening a paper takes this
+    // screen out of composition, so coming back runs every effect again: keyed on the top
+    // result alone, this one scrolled to the top on every return, and a reader halfway down
+    // the results started again from the first one after each paper they looked at.
+    var scrolledFor by rememberSaveable { mutableStateOf<String?>(null) }
+    val top = state.searchHits.firstOrNull()?.paper?.id
+    LaunchedEffect(top) {
+        // Recorded before scrolling: a finger on the list stops the animation, and anything
+        // after it would then not run. Null is recorded too, so a new search that happens to
+        // bring the same paper to the top still starts at the top.
+        val fresh = top != scrolledFor
+        scrolledFor = top
+        if (top != null && fresh) listState.animateScrollToItem(0)
     }
 
     val keyboard = LocalSoftwareKeyboardController.current
