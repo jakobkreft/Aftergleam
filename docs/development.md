@@ -1,29 +1,23 @@
 # Development
 
-## Build
+## Build and test
 
-Any JDK 17 or newer will start the build. Gradle provisions the JDK it runs on by itself,
-from `android/gradle/gradle-daemon-jvm.properties`.
+Any JDK 17 or newer starts the build. Gradle fetches the JDK it runs on.
 
 ```sh
 cd android
-./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # unit tests
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
 ./gradlew lintDebug
 ```
 
-If the daemon reports "JDK home directory does not exist" after an Android Studio update,
-run `./gradlew --stop`.
+If Android Studio is open, stop the daemon after building from a terminal (`./gradlew --stop`).
+Otherwise Android Studio may pick up that daemon and fail to sync.
 
-### Release builds
+## Signing
 
-```sh
-./gradlew assembleRelease
-```
-
-Without signing settings this produces `app-release-unsigned.apk`, which is what F-Droid
-builds from. To sign, set these in the environment or in `~/.gradle/gradle.properties`.
-Never commit them.
+`./gradlew assembleRelease` gives an unsigned APK, which is what F-Droid builds. To sign, set
+these in the environment or in `~/.gradle/gradle.properties`, never in the repository:
 
 | Environment | Gradle property |
 |---|---|
@@ -32,101 +26,39 @@ Never commit them.
 | `AFTERGLEAM_KEY_ALIAS` | `aftergleam.keyAlias` |
 | `AFTERGLEAM_KEY_PASSWORD` | `aftergleam.keyPassword` |
 
-The build leaves the git hash and the dependency blob out of the APK so that two checkouts of
-the same commit produce the same bytes.
+## Releasing
 
-### Releasing
+F-Droid rebuilds each tag and only ships it if the result matches the APK on GitHub, so always
+build from the tag.
 
-F-Droid builds each tagged release from source and publishes the APK signed with your key
-only if its own build is identical to the one on the GitHub release. So every release is built
-from the tag, never from a working tree.
-
-1. Raise `versionCode` and `versionName` in `android/app/build.gradle.kts` and write
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, under 500 characters.
-2. Commit, tag and push:
+1. Raise `versionCode` and `versionName` in `android/app/build.gradle.kts`, and write
+   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` (under 500 characters).
+2. Commit, then `git tag -a vX.Y.Z -m "Aftergleam X.Y.Z"` and push the tag.
+3. Build from a clean clone of the tag, with signing set and `ANDROID_HOME` exported:
    ```sh
-   git tag -a v1.0.0 -m "Aftergleam 1.0.0"
-   git push origin main v1.0.0
-   ```
-3. Build the signed APK from a clean clone of the tag, with the signing settings above and
-   `ANDROID_HOME` set, since a fresh clone has no `local.properties`:
-   ```sh
-   git clone --branch v1.0.0 . /tmp/aftergleam-release
+   git clone --branch vX.Y.Z . /tmp/aftergleam-release
    cd /tmp/aftergleam-release/android && ./gradlew assembleRelease
    ```
-4. Check the signature. The SHA-256 must be the `AllowedAPKSigningKeys` value in F-Droid's
-   metadata for the app:
-   ```sh
-   apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
-   ```
-5. Attach it to a GitHub release for the tag as `aftergleam-1.0.0.apk`, the name F-Droid's
-   `Binaries` pattern expects.
-
-F-Droid's build server deletes `gradle/gradle-daemon-jvm.properties` and runs Gradle on its own
-JDK, OpenJDK 21, where local builds use the JDK 25 that file pins. For 1.0.0 both produced the
-same unsigned APK. After a large toolchain or dependency update it is worth checking again:
-remove that file in a scratch copy, set `JAVA_HOME` to a JDK 21, build, and compare the
-unsigned APK with one built normally.
+4. `apksigner verify --print-certs` must show the SHA-256 in F-Droid's `AllowedAPKSigningKeys`.
+5. Attach it to the GitHub release as `aftergleam-X.Y.Z.apk`.
 
 ## Layout
 
 ```
 android/app/src/main/java/si/jakobkreft/aftergleam/
-  data/   sources (arXiv, bioRxiv, medRxiv, OSF, ChemRxiv), storage, subjects, signals
-  rank/   TF-IDF, logistic regression, digest composition, explanations
-  ui/     Compose screens and the view model
-  work/   the nightly digest, metadata refresh and reading reminder
-prototype/  the Python harness the ranking choices were measured with
-docs/       design notes and the measurements behind them
+  data/   servers, storage, subjects, signals
+  rank/   TF-IDF, logistic regression, building the digest
+  ui/     screens and the view model
+  work/   the nightly fetch and the reminder
+prototype/  Python scripts used to measure ranking choices
 ```
 
-## Decisions worth knowing
+## Testing on a phone
 
-Each of these was measured rather than assumed. The reasoning is in
-[`05-algorithm.md`](05-algorithm.md).
-
-**TF-IDF, not an embedding model.** On a real 38 paper library, TF-IDF placed 21 of 24
-held-out papers in the top ten of 301 candidates, against 19 of 24 for a quantised MiniLM.
-The difference is not significant at that size, so the cheaper model wins: no download, no
-native libraries, and explanations that quote real words.
-
-**Everything is local.** The model is retrained on the device from the reader's reactions.
-The only network traffic is fetching papers and the public Hugging Face daily list.
-
-**Venue multiplies interest, it is not added to it.** Added, a conference acceptance
-outweighed predicted interest and the digest became a list of recently accepted papers. As a
-multiplier, a well published paper on a topic the reader dislikes still ranks low.
-
-**Only the servers a reader needs are contacted.** A computer scientist never waits on the
-servers for law or psychology. `Fetcher` decides this in one place.
-
-**arXiv announces once per weekday.** Fetching again between announcements returns the same
-papers, so re-ranking is local and fetching is skipped for ten minutes after a fetch unless
-a new subject was added.
-
-**All arXiv requests share one rate limiter.** arXiv allows one request every three seconds.
-Two callers pacing themselves separately exceeded it together.
-
-## Testing on a device
-
-The screen must be unlocked, or screenshots come back black and UI dumps come back empty.
+The screen must be unlocked, or screenshots come back black. Check layouts with three-button
+navigation as well as gestures; the button bar covers more.
 
 ```sh
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb exec-out run-as si.jakobkreft.aftergleam cat databases/aftergleam.db > app.db
 ```
-
-Take a copy of the app's data before clearing it, and keep the copy outside any temporary
-directory. `run-as` can read the data directory but cannot write back into it on current
-Android, so a copy is for reference rather than for restoring.
-
-Check layouts under three button navigation as well as gestures. The button bar is taller
-than the gesture pill and covers content the pill does not.
-
-```sh
-adb shell cmd overlay enable com.android.internal.systemui.navbar.threebutton
-adb shell cmd overlay enable com.android.internal.systemui.navbar.gestural
-```
-
-Horizontal swipes sent with `adb shell input swipe` must start away from the screen edges,
-where the system back gesture takes them.

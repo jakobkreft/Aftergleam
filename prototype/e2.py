@@ -1,6 +1,6 @@
 """E2: does a dense embedding rank a reader's papers better than the app's TF-IDF model?
 
-E1 (docs/03-e1-results.md) compared TF-IDF against one small embedder on a single split and
+E1 (docs/results.md) compared TF-IDF against one small embedder on a single split and
 found no significant difference. This asks the question the app actually faces:
 
   * few ratings: 3, 5, 10 and 20 liked papers, which is the first weeks of use;

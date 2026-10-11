@@ -70,8 +70,9 @@ cd android
 ./gradlew assembleDebug
 ```
 
-Any JDK 17 or newer will do. See [docs/development.md](docs/development.md) for tests, release
-signing and the reasoning behind the design.
+Any JDK 17 or newer will do. See [docs/development.md](docs/development.md) for tests and
+releases, [docs/how-it-works.md](docs/how-it-works.md) for the ranking, and
+[docs/results.md](docs/results.md) for what was measured.
 
 ## Support
 

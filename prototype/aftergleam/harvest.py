@@ -2,7 +2,7 @@
 
 Uses the `arXivRaw` metadata prefix. It carries the abstract, categories, journal-ref,
 the free-text `comments` field where venue acceptance appears ("ICLR 2025 Oral", see
-docs/01-findings.md F3), and a full per-version date history.
+docs/results.md, Citations and venues), and a full per-version date history.
 
 Three gotchas, all verified live on 2026-09-08:
 

@@ -6,7 +6,7 @@ they can be measured again.
 
 It answered the question the whole project depended on: do abstracts carry enough signal to
 tell a reader's papers apart from everything else? They do. The results are in
-[`docs/03-e1-results.md`](../docs/03-e1-results.md).
+[`docs/results.md`](../docs/results.md).
 
 ## Setup
 

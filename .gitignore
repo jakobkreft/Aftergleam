@@ -1,3 +1,5 @@
+dx/
+
 # Prototype data and outputs are large and regenerable
 prototype/data/*
 !prototype/data/.gitkeep
