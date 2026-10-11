@@ -1,0 +1,2 @@
+- Choose the size of paper titles and abstracts in Settings, Appearance
+- Search results stay where you left them when you come back from a paper
