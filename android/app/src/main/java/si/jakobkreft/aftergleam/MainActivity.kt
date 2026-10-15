@@ -62,6 +62,7 @@ import si.jakobkreft.aftergleam.ui.OnboardingScreen
 import si.jakobkreft.aftergleam.ui.PdfReaderScreen
 import si.jakobkreft.aftergleam.ui.ReaderTheme
 import si.jakobkreft.aftergleam.ui.LibraryScreen
+import si.jakobkreft.aftergleam.ui.LibraryShelf
 import si.jakobkreft.aftergleam.ui.ExploreScreen
 import si.jakobkreft.aftergleam.ui.PopularScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
@@ -699,6 +700,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onDownload = vm::downloadInBackground,
                         onShare = { p -> sharePaper(context, p); vm.share(p.id) },
                         onDismissMessage = vm::clearLibraryMessage,
+                        actedAt = mapOf(
+                            LibraryShelf.SAVED to state.savedAt,
+                            LibraryShelf.DOWNLOADED to state.downloadedAt,
+                            LibraryShelf.RATED to state.reactedAt,
+                        ),
+                        orders = state.libraryOrders,
+                        onOrder = vm::setLibraryOrder,
                     )
                 }
                 }

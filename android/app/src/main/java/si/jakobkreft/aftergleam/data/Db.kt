@@ -459,6 +459,22 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
             null,
         ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
 
+    /**
+     * When each paper last received any of [signals], in milliseconds. A signal keeps the time
+     * it was first given, and removing one and giving it again records the new time, so for
+     * SAVED this is when the paper was last saved.
+     */
+    fun signalTimes(vararg signals: Signal): Map<String, Long> {
+        if (signals.isEmpty()) return emptyMap()
+        val ph = signals.joinToString(",") { "?" }
+        return readableDatabase.rawQuery(
+            "SELECT paper_id, MAX(ts) FROM signals WHERE signal IN ($ph) GROUP BY paper_id",
+            signals.map { it.name }.toTypedArray(),
+        ).use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getLong(1)) }
+        }
+    }
+
     fun evidence(): Map<String, Evidence> =
         readableDatabase.rawQuery("SELECT paper_id, signal FROM signals", null).use { c ->
             val acc = HashMap<String, MutableSet<Signal>>()

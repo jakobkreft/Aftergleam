@@ -140,6 +140,12 @@ data class FeedState(
     /** A short line under the shelf chips, for the things that can go wrong out of sight. */
     val libraryMessage: String? = null,
     val ratedPapers: List<Pair<Paper, Float>> = emptyList(),
+    /** When each library paper was saved, downloaded or reacted to, for ordering the shelves. */
+    val savedAt: Map<String, Long> = emptyMap(),
+    val downloadedAt: Map<String, Long> = emptyMap(),
+    val reactedAt: Map<String, Long> = emptyMap(),
+    /** The order each shelf is shown in. A shelf missing here is in [LibraryOrder.RECENT]. */
+    val libraryOrders: Map<LibraryShelf, LibraryOrder> = emptyMap(),
     val evidence: Map<String, Evidence> = emptyMap(),
     val attention: Map<String, Int> = emptyMap(),
     val resurfaced: Resurfaced? = null,
@@ -518,6 +524,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             reminderHour = prefs.reminderHour,
             paperSerif = prefs.paperSerif,
             paperTextSize = PaperTextSize.nearest(prefs.paperTextSize),
+            libraryOrders = LibraryShelf.entries.associateWith { shelf ->
+                LibraryOrder.entries.firstOrNull { it.name == prefs.libraryOrder(shelf.name) }
+                    ?: LibraryOrder.RECENT
+            },
             interfaceSerif = prefs.interfaceSerif,
             dynamicColour = prefs.dynamicColour,
         )
@@ -1469,6 +1479,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val downloaded: List<Paper>,
         val rated: List<Pair<Paper, Float>>,
         val sizes: Map<String, Long>,
+        val savedAt: Map<String, Long>,
+        val downloadedAt: Map<String, Long>,
+        val reactedAt: Map<String, Long>,
     )
 
     /** Everything the user has accumulated: saved, downloaded, and rated. */
@@ -1489,20 +1502,27 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 val ratings = judged.mapValues { (_, e) -> e.label() ?: 0f }
                 val rated = db.papersById(ratings.keys)
                     .mapNotNull { p -> ratings[p.id]?.let { p to it } }
-                    .sortedByDescending { it.second }
                 // Downloaded is a property of the cache, not of any table, so it is asked
                 // of the store directly rather than tracked in a column that could drift.
                 val downloaded = db.papersById(
                     (reactions.keys + ratings.keys + judged.keys).filter { store.isCached(it) }
                 )
                 val sizes = downloaded.associate { it.id to store.sizeOf(it.id) }
-                Shelves(saved, downloaded, rated, sizes)
+                Shelves(
+                    saved, downloaded, rated, sizes,
+                    savedAt = db.signalTimes(Signal.SAVED),
+                    downloadedAt = downloaded.mapNotNull { p -> store.downloadedAt(p.id)?.let { p.id to it } }.toMap(),
+                    reactedAt = db.signalTimes(Signal.LIKED, Signal.DISLIKED),
+                )
             }
             _state.value = _state.value.copy(
                 saved = loaded.saved,
                 downloaded = loaded.downloaded,
                 ratedPapers = loaded.rated,
                 downloadedBytes = loaded.sizes,
+                savedAt = loaded.savedAt,
+                downloadedAt = loaded.downloadedAt,
+                reactedAt = loaded.reactedAt,
             )
         }
     }
@@ -1520,6 +1540,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(
                 downloaded = _state.value.downloaded.filterNot { it.id == paperId },
                 downloadedBytes = _state.value.downloadedBytes - paperId,
+                downloadedAt = _state.value.downloadedAt - paperId,
             )
         }
     }
@@ -1550,6 +1571,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     else _state.value.downloaded + paper,
                     downloadedBytes = _state.value.downloadedBytes +
                         (paper.id to store.sizeOf(paper.id)),
+                    // From the file, so reopening a paper downloaded last week leaves it where
+                    // it was on the shelf rather than bringing it to the top.
+                    downloadedAt = _state.value.downloadedAt +
+                        (paper.id to (store.downloadedAt(paper.id) ?: System.currentTimeMillis())),
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -1574,6 +1599,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(
                 downloaded = emptyList(),
                 downloadedBytes = emptyMap(),
+                downloadedAt = emptyMap(),
             )
         }
     }
@@ -1620,6 +1646,11 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun markNotificationsAsked() { prefs.notificationsAsked = true }
 
     fun notificationsAsked() = prefs.notificationsAsked
+    fun setLibraryOrder(shelf: LibraryShelf, order: LibraryOrder) {
+        prefs.setLibraryOrder(shelf.name, order.name)
+        _state.value = _state.value.copy(libraryOrders = _state.value.libraryOrders + (shelf to order))
+    }
+
     fun setPaperTextSize(percent: Int) {
         val size = PaperTextSize.nearest(percent)
         prefs.paperTextSize = size
@@ -1915,18 +1946,28 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val paper = _state.value.ratedPapers.firstOrNull { it.first.id == paperId }?.first
             ?: _state.value.paperById(paperId)
         val rest = _state.value.ratedPapers.filterNot { it.first.id == paperId }
-        // Newest judgement at the top, matching the order the shelf is loaded in. Sorting by
-        // label here instead dropped the paper into a block of identical scores and moved
-        // everything the reader was looking at.
+        // Which papers are on the shelf, not their order: the screen orders them, see
+        // [LibrarySort].
         val shelf =
             if (liked == null || paper == null) rest
-            else listOf(paper to (ev[paperId]?.label() ?: 0f)) + rest
+            else rest + (paper to (ev[paperId]?.label() ?: 0f))
+        // A paper reacted to for the first time goes to the top of "recently reacted". One
+        // already on the shelf keeps its place until the library is next opened: the shelf is
+        // where reactions are changed, and a row that jumped to the top under the reader's
+        // finger at every change would be impossible to work down.
+        val times = _state.value.reactedAt
+        val reactedAt = when {
+            liked == null -> times - paperId
+            paperId in times -> times
+            else -> times + (paperId to System.currentTimeMillis())
+        }
         _state.value = _state.value.copy(
             evidence = ev,
             ratedCount = judged,
             judgedCount = judgedCount(),
             modelActive = judged >= Ranker.MIN_RATINGS,
             ratedPapers = shelf,
+            reactedAt = reactedAt,
         )
     }
 
@@ -2246,6 +2287,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     else _state.value.downloaded + paper,
                     downloadedBytes = _state.value.downloadedBytes +
                         (paper.id to store.sizeOf(paper.id)),
+                    // From the file, so reopening a paper downloaded last week leaves it where
+                    // it was on the shelf rather than bringing it to the top.
+                    downloadedAt = _state.value.downloadedAt +
+                        (paper.id to (store.downloadedAt(paper.id) ?: System.currentTimeMillis())),
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF", Source.label(paper.source)))

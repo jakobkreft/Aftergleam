@@ -77,6 +77,12 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("serif_font", true)
         set(v) = sp.edit().putBoolean("serif_font", v).apply()
 
+    /** The order a library shelf is shown in, by [shelf]'s name, or null for the default. */
+    fun libraryOrder(shelf: String): String? = sp.getString("library_order_$shelf", null)
+
+    fun setLibraryOrder(shelf: String, order: String) =
+        sp.edit().putString("library_order_$shelf", order).apply()
+
     /**
      * How large a paper's title and abstract are set, in percent of the app's own text. See
      * [si.jakobkreft.aftergleam.ui.PaperTextSize] for why only the paper's words.

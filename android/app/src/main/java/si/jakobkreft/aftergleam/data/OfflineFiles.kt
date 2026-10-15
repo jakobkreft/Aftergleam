@@ -75,6 +75,12 @@ object OfflineFiles {
         temp.deleteRecursively()
         return try {
             from.copyRecursively(temp, overwrite = true)
+            // With their own dates, which a copy does not keep: the offline shelf orders by
+            // when each paper was downloaded, and every moved paper would otherwise read as
+            // downloaded at the moment of the move.
+            from.walkTopDown().forEach { f ->
+                File(temp, f.relativeTo(from).path).setLastModified(f.lastModified())
+            }
             if (temp.renameTo(to)) {
                 from.deleteRecursively()
                 true

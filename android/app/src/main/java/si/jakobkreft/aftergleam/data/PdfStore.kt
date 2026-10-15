@@ -77,6 +77,9 @@ class PdfStore(private val context: Context) {
 
     fun isCached(paperId: String) = cachedFile(paperId) != null
 
+    /** When the paper was downloaded, from its file, or null if it is not. */
+    fun downloadedAt(paperId: String): Long? = cachedFile(paperId)?.lastModified()?.takeIf { it > 0 }
+
     /**
      * Bytes on disk for one paper, or zero if it is not downloaded. The reader view's copy
      * counts too: to the reader both are the paper, kept for reading offline.

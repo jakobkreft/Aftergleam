@@ -2,42 +2,53 @@ package si.jakobkreft.aftergleam.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
-import kotlin.math.roundToInt
 
 /** The system's own wording for file sizes, so the app agrees with Android's storage screen. */
 private fun formatSize(context: android.content.Context, bytes: Long): String =
@@ -52,10 +63,6 @@ private fun downloadNote(
 ): String? = when {
     paper.id in downloading -> "downloading…"
     else -> sizes[paper.id]?.takeIf { it > 0 }?.let { formatSize(context, it) }
-}
-
-private enum class Shelf(val label: String) {
-    SAVED("Saved"), DOWNLOADED("Offline"), RATED("Reacted to")
 }
 
 /**
@@ -82,19 +89,31 @@ fun LibraryScreen(
     onDownload: (Paper) -> Unit,
     onShare: (Paper) -> Unit,
     onDismissMessage: () -> Unit,
+    /** When each paper was saved, downloaded and reacted to, by shelf. */
+    actedAt: Map<LibraryShelf, Map<String, Long>>,
+    orders: Map<LibraryShelf, LibraryOrder>,
+    onOrder: (LibraryShelf, LibraryOrder) -> Unit,
 ) {
-    var shelf by rememberSaveable { mutableStateOf(Shelf.SAVED) }
+    var shelf by rememberSaveable { mutableStateOf(LibraryShelf.SAVED) }
     var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val order = orders[shelf] ?: LibraryOrder.RECENT
+    val times = actedAt[shelf].orEmpty()
+    val papers = when (shelf) {
+        LibraryShelf.SAVED -> saved
+        LibraryShelf.DOWNLOADED -> downloaded
+        LibraryShelf.RATED -> rated.map { it.first }
+    }
+    val shown = remember(papers, order, times) { LibrarySort.sort(papers, order, times) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Shelf.entries.forEach { s ->
+            LibraryShelf.entries.forEach { s ->
                 val count = when (s) {
-                    Shelf.SAVED -> saved.size
-                    Shelf.DOWNLOADED -> downloaded.size
-                    Shelf.RATED -> rated.size
+                    LibraryShelf.SAVED -> saved.size
+                    LibraryShelf.DOWNLOADED -> downloaded.size
+                    LibraryShelf.RATED -> rated.size
                 }
                 FilterChip(
                     selected = shelf == s,
@@ -111,7 +130,12 @@ fun LibraryScreen(
                 color = MaterialTheme.colorScheme.error)
             TextButton(onClick = onDismissMessage) { Text("Dismiss") }
         }
-        Spacer(Modifier.height(12.dp))
+
+        if (papers.isNotEmpty()) {
+            OrderRow(shelf = shelf, order = order, onOrder = { onOrder(shelf, it) })
+        } else {
+            Spacer(Modifier.height(12.dp))
+        }
 
         /** One menu for every row, told what is true of the paper rather than which shelf. */
         val menu: @Composable (Paper) -> Unit = { p ->
@@ -127,38 +151,37 @@ fun LibraryScreen(
             )
         }
 
+        /**
+         * The row's date line. In the order the reader acted, the date is when they did, so
+         * the order can be seen; otherwise it is when the paper appeared.
+         */
+        val date: (Paper) -> String = { p ->
+            times[p.id]?.takeIf { order == LibraryOrder.RECENT }
+                ?.let { LibrarySort.actedLabel(shelf, it) }
+                ?: p.published
+        }
+
+        // Keyed on the order too, so choosing another one starts at the top of the list
+        // rather than somewhere in the middle of the new order.
+        key(shelf, order) {
         when (shelf) {
-            Shelf.SAVED -> Shelf(
-                papers = saved,
+            LibraryShelf.SAVED -> Shelf(
+                papers = shown,
                 empty = "Nothing saved yet. Saving is separate from reacting: react to teach " +
                     "the model, save to come back to it.",
                 onOpen = onOpen,
+                date = date,
                 meta = { p -> downloadNote(context, p, sizes, downloading) },
                 trailing = menu,
             )
 
-            // The only shelf that costs anything, so it is the only one that says what it
-            // costs. A reader wondering why the app is taking up space is asking about
-            // these files, and the answer belongs where the files are listed rather than
-            // buried in settings.
-            Shelf.DOWNLOADED -> Shelf(
-                // Heaviest first. The order the papers arrive in is whatever SQLite
-                // returned, and on a screen whose job is reclaiming space the useful
-                // order is the one that puts the twenty-four megabyte paper at the top.
-                papers = downloaded.sortedByDescending { sizes[it.id] ?: 0L },
+            LibraryShelf.DOWNLOADED -> Shelf(
+                papers = shown,
                 empty = "No PDFs downloaded. Open a paper and read it once, and it stays " +
                     "here for trains and planes.",
                 onOpen = onOpen,
+                date = date,
                 meta = { p -> downloadNote(context, p, sizes, downloading) },
-                header = {
-                    Text(
-                        "${downloaded.size} " +
-                            (if (downloaded.size == 1) "paper" else "papers") +
-                            " · " + formatSize(context, sizes.values.sum()),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
                 footer = {
                     Spacer(Modifier.height(8.dp))
                     // Confirmed in place, because on a train these are unreplaceable until
@@ -189,11 +212,12 @@ fun LibraryScreen(
             // control for changing it is the row's own affordance rather than something
             // behind a tap: it shows which way you went and moves in one press. The other
             // three actions are a menu away on the shelves where they are the point.
-            Shelf.RATED -> Shelf(
-                papers = rated.map { it.first },
+            LibraryShelf.RATED -> Shelf(
+                papers = shown,
                 empty = "Nothing yet. React to papers in the digest, or import a library, " +
                     "and they all show up here where you can change your mind.",
                 onOpen = onOpen,
+                date = date,
                 meta = { p -> downloadNote(context, p, sizes, downloading) },
             ) { p ->
                 Row {
@@ -211,6 +235,54 @@ fun LibraryScreen(
                 }
             }
         }
+        }
+    }
+}
+
+/**
+ * The shelf's order, as a line between the shelf chips and the list: what it is now, and a
+ * menu of the others. Its own line rather than a button in the chip row, which already fills
+ * the width at a large font size.
+ */
+@Composable
+private fun OrderRow(
+    shelf: LibraryShelf,
+    order: LibraryOrder,
+    onOrder: (LibraryOrder) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.weight(1f))
+        Box {
+            // Grey, not the accent green: it is a setting the reader looks at now and then,
+            // and in green it competed with the papers below it.
+            TextButton(
+                onClick = { open = true },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                modifier = Modifier.semantics { contentDescription = "Order: ${order.label(shelf)}" },
+            ) {
+                // Small, like the date line on each row: it labels the list, it is not a heading.
+                Text(order.label(shelf), style = MaterialTheme.typography.labelMedium)
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                LibraryOrder.entries.forEach { o ->
+                    DropdownMenuItem(
+                        text = { Text(o.label(shelf)) },
+                        onClick = { open = false; onOrder(o) },
+                        trailingIcon = if (o == order) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Current order") }
+                        } else null,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -219,9 +291,10 @@ private fun Shelf(
     papers: List<Paper>,
     empty: String,
     onOpen: (Paper) -> Unit,
+    /** The date at the start of the row's second line. */
+    date: (Paper) -> String,
     /** An extra fact for the row's second line, such as what the download weighs. */
     meta: ((Paper) -> String?)? = null,
-    header: @Composable (() -> Unit)? = null,
     footer: @Composable (() -> Unit)? = null,
     trailing: @Composable ((Paper) -> Unit)? = null,
 ) {
@@ -230,7 +303,6 @@ private fun Shelf(
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        header?.let { item { it() } }
         items(papers, key = { it.id }) { p ->
             // The same surface and lift as a digest card. These were left on Material's
             // default, which is a step lighter in light and a step darker in dark, so two
@@ -255,7 +327,7 @@ private fun Shelf(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            listOfNotNull(p.published, Venue.of(p), meta?.invoke(p))
+                            listOfNotNull(date(p), Venue.of(p), meta?.invoke(p))
                                 .joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall,
                         )
