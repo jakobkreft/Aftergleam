@@ -114,16 +114,28 @@ object Fetcher {
         val done = mutableListOf<String>()
         // Crossref is asked for every keyword at once, alongside arXiv, which has to go one
         // request at a time. In turn, three took about a minute on a phone.
+        //
+        // One request per word of a combined keyword, not one for the whole: Crossref's search
+        // has no AND, and asked for "hypoxia sleep apnea" it returned sixty papers of which
+        // none mentioned both. Asked word by word, the rarest word comes back whole, and the
+        // check below keeps only the papers that mention every word.
         val crossref = kotlinx.coroutines.coroutineScope {
             keywords.associateWith { k ->
-                async { runCatching { CrossrefSearch.search(k, rows = 30, since = since) } }
-            }.mapValues { it.value.await() }
+                Keywords.terms(k).map { term ->
+                    async { runCatching { CrossrefSearch.search(term, rows = 30, since = since) } }
+                }
+            }.mapValues { (_, rows) ->
+                val results = rows.map { it.await() }
+                if (results.isNotEmpty() && results.all { it.isFailure }) results.first()
+                else Result.success(results.flatMap { it.getOrDefault(emptyList()) })
+            }
         }
         for (keyword in keywords) {
-            if (Keywords.parts(keyword).isEmpty()) continue
+            if (Keywords.terms(keyword).none { Keywords.parts(it).isNotEmpty() }) continue
             val arxiv = runCatching { ArxivApi.recentMentioning(keyword) }
             val others = crossref.getValue(keyword)
             val found = (arxiv.getOrDefault(emptyList()) + others.getOrDefault(emptyList()))
+                .distinctBy { it.id }
                 .filter { it.published >= since.toString() }
                 .filter { Keywords.mentions(it.title + "\n" + it.abstract, keyword) }
             store(found)

@@ -72,6 +72,13 @@ splits at hyphens. Checked against real papers:
 
 For ordinary words the two methods agreed, so keywords now match as written.
 
+## Combined keywords
+
+arXiv's search takes AND and OR: "lanosterol + hypoxia" found 2 recent papers, against 116 for
+hypoxia alone. Crossref's does not. Asked for "hypoxia sleep apnea", it returned 60 papers and
+none mentioned both. So Crossref is asked once for each part of a keyword, and the phone keeps
+the papers that mention every part.
+
 ## Reader view
 
 Most new arXiv papers have an HTML version: 30 of 30 new mathematics papers, 38 of 43 in cs.CY

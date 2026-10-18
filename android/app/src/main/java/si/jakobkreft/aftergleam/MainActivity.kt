@@ -546,6 +546,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             suggestKeyword = vm::keywordSuggestion,
                             onPrepareSpelling = vm::prepareSpelling,
                             keywordCounts = state.keywordCounts,
+                            onReplaceKeywords = vm::replaceKeywords,
+                            keywordCount = vm::keywordMatchCount,
                             onDonate = {
                                 openUrl(context, Support.DONATE_URL)
                                 vm.supportActed()

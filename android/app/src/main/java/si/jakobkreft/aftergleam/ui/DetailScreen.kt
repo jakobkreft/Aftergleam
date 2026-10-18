@@ -95,6 +95,11 @@ fun DetailScreen(
     keywords: List<String> = emptyList(),
 ) {
     val context = LocalContext.current
+    // Only the keywords this paper matches as a whole. A word of a combined keyword the
+    // paper does not satisfy would otherwise be highlighted as if it were the reason.
+    val matched = remember(paper, keywords) {
+        keywords.filter { Keywords.mentions(paper.title + "\n" + paper.abstract, it) }
+    }
     val store = remember { PdfStore(context) }
     // Already downloaded means already wanted: asking a second time for a file that is
     // sitting on disk is a button whose only function is to be pressed.
@@ -141,7 +146,7 @@ fun DetailScreen(
                 )
             }
             Text(
-                highlighted(paper.displayTitle, keywords),
+                highlighted(paper.displayTitle, matched),
                 modifier = Modifier.clickable(onClick = open),
                 style = paperStyle(MaterialTheme.typography.titleLarge),
                 fontWeight = FontWeight.SemiBold,
@@ -180,10 +185,11 @@ fun DetailScreen(
             }
             // Which keyword brought it here, and where: the mention may be deep in the abstract,
             // and a label the reader cannot find on the page is a label they stop trusting.
-            Keywords.mentionedBy(paper, keywords)?.let { k ->
+            matched.firstOrNull()?.let { k ->
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Mentions your keyword \u201c$k\u201d, highlighted below",
+                    (if (Keywords.isCombined(k)) "Matches" else "Mentions") +
+                        " your keyword \u201c$k\u201d, highlighted below",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -194,7 +200,7 @@ fun DetailScreen(
 
             // The whole abstract, not a preview. This is the point of the screen.
             Text(
-                highlighted(paper.displayAbstract, keywords),
+                highlighted(paper.displayAbstract, matched),
                 style = paperStyle(MaterialTheme.typography.bodyMedium),
             )
             Spacer(Modifier.height(16.dp))

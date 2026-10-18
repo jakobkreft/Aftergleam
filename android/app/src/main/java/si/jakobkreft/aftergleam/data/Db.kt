@@ -375,9 +375,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
 
     /** One keyword's recent papers, newest first. */
     private fun keywordMatches(keyword: String, since: String, limit: Int): List<Paper> {
-        // Narrowed by SQL on the keyword's longest part, then checked properly: LIKE cannot
-        // tell "H-Net" from "U-Net", which both contain "net".
-        val longest = Keywords.parts(keyword).maxByOrNull { it.length }?.lowercase() ?: return emptyList()
+        // Narrowed by SQL on the keyword's longest part, then checked properly: LIKE cannot tell
+        // "H-Net" from "U-Net", which both contain "net". A combined keyword needs every word,
+        // so the longest part of any of them is as fair a first cut, and narrows the most.
+        val longest = Keywords.terms(keyword).flatMap(Keywords::parts).maxByOrNull { it.length }
+            ?.lowercase() ?: return emptyList()
         return readableDatabase.rawQuery(
             "SELECT * FROM papers WHERE (lower(title) LIKE ? OR lower(abstract) LIKE ?) " +
                 "AND published >= ? ORDER BY published DESC LIMIT ?",

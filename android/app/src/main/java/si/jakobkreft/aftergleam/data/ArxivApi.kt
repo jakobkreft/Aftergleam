@@ -80,13 +80,21 @@ object ArxivApi {
      * papers that mention the keyword as written.
      */
     suspend fun recentMentioning(keyword: String, max: Int = Keywords.FETCH_PER_KEYWORD): List<Paper> {
-        val q = if (ARXIV_SYNTAX.containsMatchIn(keyword)) keyword
-        else "all:\"${keyword.replace("\"", "")}\""
+        val q = keywordQuery(keyword) ?: return emptyList()
         return parse(get(
             "$ENDPOINT?search_query=${enc(q)}&sortBy=submittedDate&sortOrder=descending" +
                 "&start=0&max_results=$max"
         ))
     }
+
+    /**
+     * A keyword as one arXiv query, every word required: "lanosterol + hypoxia" is
+     * all:"lanosterol" AND all:"hypoxia". Each word is a quoted phrase, since arXiv splits
+     * "H-Net" into "h" and "net" otherwise.
+     */
+    internal fun keywordQuery(keyword: String): String? = Keywords.terms(keyword)
+        .joinToString(" AND ") { "all:\"${it.replace("\"", "")}\"" }
+        .ifBlank { null }
 
     /**
      * What is typed, as an arXiv query. Quoted phrases stay phrases, and words too common to
@@ -111,7 +119,7 @@ object ArxivApi {
 
     private val ARXIV_SYNTAX = Regex("""\b(AND|OR|ANDNOT)\b|\b(ti|au|abs|co|jr|cat|rn|id|all):""")
 
-    private val STOP_WORDS = setOf(
+    internal val STOP_WORDS = setOf(
         "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "is", "of", "on",
         "or", "the", "to", "via", "with",
     )

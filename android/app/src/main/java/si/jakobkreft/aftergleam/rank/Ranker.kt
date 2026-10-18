@@ -45,7 +45,8 @@ data class Scored(
         Slot.BRIDGE -> Source.display(paper.primaryCategory)
             .ifBlank { paper.sourceLabel ?: "another field" } + ", outside your usual"
         Slot.RELEVANCE -> when {
-            keyword != null -> "mentions \u201c$keyword\u201d"
+            // Word by word, as they are found on the page: “lanosterol” and “hypoxia”.
+            keyword != null -> "mentions " + Keywords.describe(keyword)
             placedByQuality && reasonTerms.isNotEmpty() ->
                 "ranked up for its venue, matches " +
                     distinctTerms(reasonTerms).take(2).joinToString(", ")

@@ -140,6 +140,8 @@ fun TuneScreen(
     suggestKeyword: suspend (String) -> String? = { null },
     onPrepareSpelling: () -> Unit = {},
     keywordCounts: Map<String, Int> = emptyMap(),
+    onReplaceKeywords: (List<String>) -> Unit = {},
+    keywordCount: suspend (String) -> Int = { 0 },
     onClose: () -> Unit,
 ) {
     var page by rememberSaveable {
@@ -174,7 +176,7 @@ fun TuneScreen(
             ) { page = it }
             Page.SUBJECTS -> SubjectsPage(
                 topics, onTopics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
-                onPrepareSpelling, keywordCounts,
+                onPrepareSpelling, keywordCounts, onReplaceKeywords, keywordCount,
             )
             Page.APPEARANCE -> AppearancePage(
                 theme, paperSerif, paperTextSize, interfaceSerif, dynamicColour,
@@ -251,6 +253,8 @@ private fun SubjectsPage(
     suggestKeyword: suspend (String) -> String?,
     onPrepareSpelling: () -> Unit,
     keywordCounts: Map<String, Int>,
+    onReplaceKeywords: (List<String>) -> Unit,
+    keywordCount: suspend (String) -> Int,
 ) = PageBody {
     // Keywords first: the list is short. The rule is behind an info button, said in full when
     // asked for and otherwise out of the way, since most readers glance at this page and leave.
@@ -276,7 +280,9 @@ private fun SubjectsPage(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Add each name a paper might use, such as C. elegans and Caenorhabditis elegans.",
+                "Add each name a paper might use, such as C. elegans and Caenorhabditis elegans. " +
+                    "To find two words together, tap a keyword and add the other: " +
+                    "lanosterol + hypoxia finds only papers that mention both.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -291,6 +297,8 @@ private fun SubjectsPage(
         placeholder = keywordExample(topics),
         onReady = onPrepareSpelling,
         counts = keywordCounts,
+        onReplace = onReplaceKeywords,
+        count = keywordCount,
     )
     Spacer(Modifier.height(24.dp))
     Text("Subjects", style = MaterialTheme.typography.titleSmall)

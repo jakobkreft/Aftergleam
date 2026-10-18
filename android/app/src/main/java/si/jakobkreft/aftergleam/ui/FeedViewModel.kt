@@ -1104,6 +1104,24 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeKeyword(keyword: String) = setKeywords(prefs.keywords - keyword)
 
+    /**
+     * The keywords as the reader left them after combining, in their order. One change when
+     * the combining is done, so a combination's papers are fetched once, not for every step.
+     */
+    fun replaceKeywords(keywords: List<String>) {
+        val updated = keywords.mapNotNull(Keywords::normalise).distinctBy { it.lowercase() }.take(Keywords.MAX)
+        if (updated != prefs.keywords) setKeywords(updated)
+    }
+
+    /**
+     * How many recent papers already on the phone [keyword] matches, for the count shown as
+     * it is combined. The fetch after it is saved looks further.
+     */
+    suspend fun keywordMatchCount(keyword: String): Int = withContext(Dispatchers.IO) {
+        val since = LocalDate.now().minusDays(Keywords.WINDOW_DAYS).toString()
+        db.keywordCandidates(listOf(keyword), since, limit = 500).size
+    }
+
     /** Edits in progress: the next change cancels this and starts it again. */
     private var keywordChange: Job? = null
 

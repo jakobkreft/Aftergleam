@@ -3,7 +3,18 @@ package si.jakobkreft.aftergleam.data
 import kotlin.math.abs
 
 /**
- * Words the reader watches for: "H-Net", "Sentinel-2", "C. elegans", "long COVID".
+ * Words the reader watches for: "H-Net", "Sentinel-2", "C. elegans", "long COVID", and
+ * combinations of them: "lanosterol + hypoxia".
+ *
+ * A paper is shown for any one of the reader's keywords, so the list itself is the "or": two
+ * spellings of a name are two keywords. A keyword of several words joined by " + " needs all
+ * of them, for an idea that is only one in combination, lanosterol for a reader who cares
+ * about it under hypoxia. There is no "or" inside a keyword, which would be a second way of
+ * saying what the list already says. One word alone is how every keyword before combinations
+ * was stored, so those are read unchanged. Written the way the chip shows it, so that
+ * storage, backups and the per-keyword counts stay lists of text.
+ *
+ * Inside a word "+" keeps its meaning: only the spaced form joins, so Ca2+ is one word.
  *
  * Literal, on purpose. A paper matches when its title or abstract contains the keyword as
  * written, ignoring only capitals, how its parts are joined (a hyphen, a space, a dot, LaTeX's
@@ -26,6 +37,12 @@ object Keywords {
     const val MAX = 8
     const val MAX_LENGTH = 60
 
+    /** Words in one keyword. Past this a keyword is a query language. */
+    const val MAX_TERMS = 4
+
+    /** Between the words of a keyword, every one of which a paper must mention. */
+    const val AND = " + "
+
     /**
      * How far back a keyword's papers are looked for, when fetching and when ranking.
      *
@@ -39,12 +56,98 @@ object Keywords {
     /** Papers asked of arXiv per keyword per fetch: the newest ones. */
     const val FETCH_PER_KEYWORD = 40
 
-    /** One typed keyword: trimmed, spaces collapsed, length bounded. */
-    fun normalise(raw: String): String? =
-        raw.trim().replace(Regex("\\s+"), " ").take(MAX_LENGTH).trim().ifBlank { null }
+    /**
+     * One keyword in its stored form, or null when nothing is left of it. AND, in capitals as
+     * PubMed writes it, joins words as " + " does. [split] reads the rest of a typed query.
+     */
+    fun normalise(raw: String): String? = join(raw.replace(TYPED_AND, AND).split(SPLIT_AND))
 
-    /** Typed text as keywords. Commas, semicolons and new lines separate them. */
-    fun split(raw: String): List<String> = raw.split(Regex("[,;\\n]+")).mapNotNull(::normalise)
+    /** The words of [keyword], every one of which a paper must mention. */
+    fun terms(keyword: String): List<String> =
+        keyword.split(SPLIT_AND).map { it.trim() }.filter { it.isNotEmpty() }
+
+    /**
+     * [terms] as a stored keyword: spaces collapsed, each word bounded in length, repeats
+     * dropped, no more than [MAX_TERMS]. Null when nothing is left.
+     */
+    fun join(terms: List<String>): String? = terms
+        .map { it.trim().replace(Regex("\\s+"), " ").take(MAX_LENGTH).trim() }
+        .filter { it.isNotEmpty() && parts(it).isNotEmpty() }
+        .distinctBy { it.lowercase() }
+        .take(MAX_TERMS)
+        .joinToString(AND)
+        .ifBlank { null }
+
+    /** Whether [keyword] is several words that must all be mentioned. */
+    fun isCombined(keyword: String): Boolean = terms(keyword).size > 1
+
+    /**
+     * Typed text as keywords. Commas, semicolons, new lines and OR separate them; AND and
+     * " + " join words into one.
+     *
+     * With AND or OR in it, brackets group, and are multiplied out the way anybody writing
+     * them means: "(sterols OR lanosterol) AND hypoxia" is sterols + hypoxia and lanosterol +
+     * hypoxia, since a keyword holds no "or" of its own. So a search copied from PubMed
+     * becomes the keywords it describes. AND and OR count in capitals only, as PubMed writes
+     * them, so "salt and pepper" stays one phrase; without them a bracket is part of a name.
+     */
+    fun split(raw: String): List<String> {
+        val text = raw.replace(TYPED_AND, " $JOIN ").replace(SPLIT_AND, " $JOIN ")
+            .replace(TYPED_OR, " $EITHER ")
+        val grouped = JOIN in text || EITHER in text
+        val tokens = (if (grouped) GROUPED_TOKEN else PLAIN_TOKEN).findAll(text)
+            .map { if (it.value.length == 1 && it.value[0] in ",;\n") EITHER else it.value.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        return Query(tokens).keywords().mapNotNull(::join).distinctBy { it.lowercase() }
+    }
+
+    /** AND before OR, brackets first. Each result is the words of one keyword. */
+    private class Query(private val tokens: List<String>) {
+        private var i = 0
+
+        fun keywords(): List<List<String>> {
+            val out = mutableListOf<List<String>>()
+            while (i < tokens.size) {
+                out += either()
+                if (tokens.getOrNull(i) == ")") i++
+            }
+            return out
+        }
+
+        private fun either(): List<List<String>> {
+            val out = all().toMutableList()
+            while (tokens.getOrNull(i) == EITHER) {
+                i++
+                out += all()
+            }
+            return out
+        }
+
+        private fun all(): List<List<String>> {
+            var out = listOf(emptyList<String>())
+            while (true) {
+                when (val t = tokens.getOrNull(i)) {
+                    null, EITHER, ")" -> return out
+                    JOIN -> i++
+                    "(" -> {
+                        i++
+                        val inner = either()
+                        if (tokens.getOrNull(i) == ")") i++
+                        out = times(out, inner)
+                    }
+                    else -> {
+                        i++
+                        out = times(out, listOf(listOf(t)))
+                    }
+                }
+            }
+        }
+
+        // Every way of taking one from each, and no more than a reader may keep.
+        private fun times(a: List<List<String>>, b: List<List<String>>) =
+            a.flatMap { x -> b.map { y -> x + y } }.take(MAX)
+    }
 
     /** The keyword's letters and digits, in runs: "C. elegans" is C and elegans. */
     fun parts(keyword: String): List<String> = PART.findAll(keyword).map { it.value }.toList()
@@ -74,8 +177,36 @@ object Keywords {
             .joinToString("|", "(?:", ")") { Regex.escape(it) }
     }
 
-    /** Whether [text] mentions [keyword]. */
-    fun mentions(text: String, keyword: String): Boolean = pattern(keyword)?.containsMatchIn(text) == true
+    /** Whether [text] mentions [keyword]: every one of its words. */
+    fun mentions(text: String, keyword: String): Boolean {
+        val terms = terms(keyword)
+        return terms.isNotEmpty() && terms.all { pattern(it)?.containsMatchIn(text) == true }
+    }
+
+    /** [keyword]'s words quoted for a label: “H-Net”, or “lanosterol” and “hypoxia”. */
+    fun describe(keyword: String): String {
+        val quoted = terms(keyword).map { "\u201c$it\u201d" }
+        return if (quoted.size <= 1) quoted.joinToString() else
+            quoted.dropLast(1).joinToString(", ") + " and " + quoted.last()
+    }
+
+    /**
+     * A keyword for what a search asked for. The search requires every word, so the keyword
+     * does too, and a quoted phrase stays one word. It used to watch for the whole query as a
+     * single exact phrase, which almost nothing matched.
+     */
+    fun fromSearch(query: String, stopWords: Set<String> = emptySet()): String? {
+        val phrases = Regex("\"([^\"]+)\"").findAll(query).map { it.groupValues[1] }.toList()
+        val words = query.replace(Regex("\"[^\"]*\"?"), " ")
+            .split(Regex("[^\\p{L}\\p{N}+#.\\-]+"))
+            .map { it.trim('-', '.') }
+            .filter { it.length > 1 && it.lowercase() !in stopWords }
+        val terms = (phrases + words).distinctBy { it.lowercase() }
+        // More words than a keyword holds: watched as the phrase it was typed as, rather than
+        // as the first few words with the rest silently dropped.
+        if (terms.size > MAX_TERMS) return normalise(query.replace("\"", ""))
+        return join(terms)
+    }
 
     /** The first of [keywords], in the reader's order, that the paper's title or abstract mentions. */
     fun mentionedBy(paper: Paper, keywords: List<String>): String? {
@@ -84,9 +215,14 @@ object Keywords {
         return keywords.firstOrNull { mentions(text, it) }
     }
 
-    /** Where any of [keywords] occurs in [text], for highlighting, sorted and not overlapping. */
+    /**
+     * Where any word of [keywords] occurs in [text], for highlighting, sorted and not
+     * overlapping. Pass only the keywords a paper matches, or a word of an unmatched
+     * combination would be marked on its own.
+     */
     fun occurrences(text: String, keywords: List<String>): List<IntRange> {
-        val found = keywords.flatMap { k -> pattern(k)?.findAll(text)?.map { it.range }?.toList().orEmpty() }
+        val found = keywords.flatMap(::terms)
+            .flatMap { k -> pattern(k)?.findAll(text)?.map { it.range }?.toList().orEmpty() }
             .sortedBy { it.first }
         val out = mutableListOf<IntRange>()
         for (r in found) {
@@ -166,6 +302,16 @@ object Keywords {
     }
 
     private val PART = Regex("[\\p{L}\\p{N}]+")
+    private val SPLIT_AND = Regex("\\s+\\+\\s+")
+    private val TYPED_AND = Regex("\\s+AND\\s+")
+    private val TYPED_OR = Regex("\\s+OR\\s+")
+
+    // What [split] reads AND and OR as, so that a bracket or a comma inside a word is told
+    // apart from one between words.
+    private const val JOIN = "\u0001"
+    private const val EITHER = "\u0002"
+    private val GROUPED_TOKEN = Regex("[()\u0001\u0002,;\\n]|[^()\u0001\u0002,;\\n]+")
+    private val PLAIN_TOKEN = Regex("[,;\\n]|[^,;\\n]+")
 
     /** Between two parts: up to two of hyphen, dashes, space, dot, slash or LaTeX's tilde. */
     private const val SEPARATOR = "[\\s\\-\\u2010\\u2011\\u2013\\u2014./~]{0,2}"

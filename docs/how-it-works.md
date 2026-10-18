@@ -36,7 +36,8 @@ Scores are compared within the day's papers, then sampled rather than taken from
 the digest changes from day to day and the model does not narrow onto one topic. A topic bandit
 shares the slots among your subjects. Most cards are matches; a few are near misses, and one
 comes from a neighbouring field. Papers that mention one of your keywords, matched as written,
-can take up to half of the matches.
+can take up to half of the matches. A keyword can combine words: "lanosterol + hypoxia" needs
+both.
 
 ## Reading
 

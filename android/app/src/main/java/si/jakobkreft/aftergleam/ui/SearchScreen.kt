@@ -175,7 +175,10 @@ fun SearchScreen(
             }
             // A search that found what the reader wanted can go on finding it every morning.
             // Offered only for an online search, which is the one that looks at new papers.
-            val query = si.jakobkreft.aftergleam.data.Keywords.normalise(state.searchQuery)
+            // Every word, as the search itself required them, not the query as one exact phrase.
+            val query = si.jakobkreft.aftergleam.data.Keywords.fromSearch(
+                state.searchQuery, si.jakobkreft.aftergleam.data.ArxivApi.STOP_WORDS,
+            )
             if (state.searchScope == SearchScope.ONLINE && query != null && !state.searching) {
                 val added = state.keywords.any { it.equals(query, ignoreCase = true) }
                 val full = state.keywords.size >= si.jakobkreft.aftergleam.data.Keywords.MAX
