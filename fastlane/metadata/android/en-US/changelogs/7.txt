@@ -1,0 +1,5 @@
+- Combine words in a keyword: tap it and add another, so a paper must mention both, such as lanosterol + hypoxia
+- Ring a keyword's bell to get a note when a new paper mentions it
+- A quiet daily note names the first paper of your digest, only on days you have not opened the app. It replaces the early morning notification and the evening reminder
+- Notification permission is asked for only when you turn one on
+- Settings pages have a Back button like the rest of the app
