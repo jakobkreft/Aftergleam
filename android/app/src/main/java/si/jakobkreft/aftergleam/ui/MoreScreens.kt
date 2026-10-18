@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import si.jakobkreft.aftergleam.R
+import si.jakobkreft.aftergleam.data.KeywordAlerts
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
 
@@ -71,7 +76,7 @@ private enum class Page(val title: String, val summary: String) {
     SUBJECTS("Subjects and keywords", "What you follow, and words to watch for"),
     APPEARANCE("Appearance", "Light and dark, colours, letterforms"),
     RANKING("Ranking", "How the digest is chosen, and how many"),
-    NOTIFICATIONS("Notifications", "The daily digest and the reading reminder"),
+    NOTIFICATIONS("Notifications", "The daily note and keyword alerts"),
     LIBRARY("Your library", "Import from Zotero, export and restore"),
     MODEL("The model", "What it has learned, and how to clear it"),
     ABOUT("About", "Where the papers come from"),
@@ -89,7 +94,6 @@ fun TuneScreen(
     exploration: Float,
     diversity: Float,
     digestHour: Int,
-    notifyEnabled: Boolean,
     reminderHour: Int,
     reminderEnabled: Boolean,
     theme: String,
@@ -108,7 +112,6 @@ fun TuneScreen(
     onDigestHour: (Int) -> Unit,
     notificationsAllowed: Boolean,
     onOpenSystemSettings: () -> Unit,
-    onNotifyEnabled: (Boolean) -> Unit,
     onReminder: (Boolean, Int) -> Unit,
     onTheme: (String) -> Unit,
     onPaperSerif: (Boolean) -> Unit,
@@ -140,8 +143,14 @@ fun TuneScreen(
     suggestKeyword: suspend (String) -> String? = { null },
     onPrepareSpelling: () -> Unit = {},
     keywordCounts: Map<String, Int> = emptyMap(),
-    onReplaceKeywords: (List<String>) -> Unit = {},
-    keywordCount: suspend (String) -> Int = { 0 },
+    onReplaceKeywords: (List<String>, Set<String>) -> Unit = { _, _ -> },
+    keywordCount: suspend (String) -> KeywordMatches = { KeywordMatches(0, 0f) },
+    /** The keywords with their bell on, and about how many papers a week each keyword finds. */
+    keywordAlerts: Set<String> = emptySet(),
+    keywordRates: Map<String, Float> = emptyMap(),
+    onKeywordAlert: (String, Boolean) -> Unit = { _, _ -> },
+    /** Asks for permission to notify, if it is needed, and answers whether it was given. */
+    requestAlerts: ((Boolean) -> Unit) -> Unit = { it(true) },
     onClose: () -> Unit,
 ) {
     var page by rememberSaveable {
@@ -160,7 +169,7 @@ fun TuneScreen(
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { if (page != null) page = null else onClose() }) {
-                Text(if (page != null) "Settings" else "Back")
+                Text("Back")
             }
         }
         Text(
@@ -177,6 +186,7 @@ fun TuneScreen(
             Page.SUBJECTS -> SubjectsPage(
                 topics, onTopics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
                 onPrepareSpelling, keywordCounts, onReplaceKeywords, keywordCount,
+                keywordAlerts, requestAlerts,
             )
             Page.APPEARANCE -> AppearancePage(
                 theme, paperSerif, paperTextSize, interfaceSerif, dynamicColour,
@@ -187,9 +197,10 @@ fun TuneScreen(
                 onDigestSize, onQuality, onExploration, onDiversity, onApply,
             )
             Page.NOTIFICATIONS -> NotificationsPage(
-                digestHour, notifyEnabled, reminderHour, reminderEnabled,
-                notificationsAllowed, onOpenSystemSettings, onDigestHour,
-                onNotifyEnabled, onReminder,
+                digestHour, reminderHour, reminderEnabled,
+                notificationsAllowed, onOpenSystemSettings, onDigestHour, onReminder,
+                keywords, keywordAlerts, keywordRates, onKeywordAlert,
+                onOpenKeywords = { page = Page.SUBJECTS },
             )
             Page.LIBRARY -> LibraryPage(
                 importSummary, backupSummary,
@@ -253,8 +264,10 @@ private fun SubjectsPage(
     suggestKeyword: suspend (String) -> String?,
     onPrepareSpelling: () -> Unit,
     keywordCounts: Map<String, Int>,
-    onReplaceKeywords: (List<String>) -> Unit,
-    keywordCount: suspend (String) -> Int,
+    onReplaceKeywords: (List<String>, Set<String>) -> Unit,
+    keywordCount: suspend (String) -> KeywordMatches,
+    keywordAlerts: Set<String>,
+    requestAlerts: ((Boolean) -> Unit) -> Unit,
 ) = PageBody {
     // Keywords first: the list is short. The rule is behind an info button, said in full when
     // asked for and otherwise out of the way, since most readers glance at this page and leave.
@@ -299,6 +312,8 @@ private fun SubjectsPage(
         counts = keywordCounts,
         onReplace = onReplaceKeywords,
         count = keywordCount,
+        alerts = keywordAlerts,
+        requestAlerts = requestAlerts,
     )
     Spacer(Modifier.height(24.dp))
     Text("Subjects", style = MaterialTheme.typography.titleSmall)
@@ -526,30 +541,32 @@ private fun RankingPage(
     Spacer(Modifier.height(32.dp))
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NotificationsPage(
     digestHour: Int,
-    notifyEnabled: Boolean,
     reminderHour: Int,
     reminderEnabled: Boolean,
     notificationsAllowed: Boolean,
     onOpenSystemSettings: () -> Unit,
     onDigestHour: (Int) -> Unit,
-    onNotifyEnabled: (Boolean) -> Unit,
     onReminder: (Boolean, Int) -> Unit,
+    keywords: List<String>,
+    alerts: Set<String>,
+    rates: Map<String, Float>,
+    onKeywordAlert: (String, Boolean) -> Unit,
+    onOpenKeywords: () -> Unit,
 ) = PageBody {
     var hour by remember { mutableFloatStateOf(digestHour.toFloat()) }
     var remindHour by remember { mutableFloatStateOf(reminderHour.toFloat()) }
-    // Not mirrored locally. These two are the one pair of settings the app is not free to
-    // grant itself, so the switch has to show what was actually stored rather than what was
-    // tapped: a switch that slides on and then silently does nothing is worse than one that
-    // refuses to move.
-    val notify = notifyEnabled
+    // Not mirrored locally. These are the settings the app is not free to grant itself, so
+    // each shows what was actually stored rather than what was tapped: a switch that slides
+    // on and then silently does nothing is worse than one that refuses to move.
     val remindOn = reminderEnabled
 
     if (!notificationsAllowed) {
-        // Said once, above both switches, because it is one fact about the app and not a
-        // property of either setting. Android stops showing its own dialog after two
+        // Said once, above everything, because it is one fact about the app and not a
+        // property of any one setting. Android stops showing its own dialog after two
         // refusals, so without a way through to the system screen a reader who changed
         // their mind would have no route back.
         Text(
@@ -564,9 +581,80 @@ private fun NotificationsPage(
         Spacer(Modifier.height(8.dp))
     }
 
-    Text("Daily digest", style = MaterialTheme.typography.titleSmall)
+    Text("Daily note", style = MaterialTheme.typography.titleSmall)
     Text(
-        "Prepared at %02d:00, on wifi while charging.".format(hour.roundToInt()),
+        "A quiet note naming the day's first paper, only on days you have not opened the app.",
+        style = MaterialTheme.typography.labelSmall,
+    )
+    // Saved as it changes. A switch and an hour are single, reversible choices, and asking
+    // someone to confirm a toggle they can see the effect of is a step that only exists to
+    // be forgotten.
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(
+            checked = remindOn,
+            onCheckedChange = { onReminder(it, remindHour.roundToInt()) },
+        )
+        Text("  At %02d:00".format(remindHour.roundToInt()), style = MaterialTheme.typography.bodyMedium)
+    }
+    if (remindOn) {
+        Slider(
+            value = remindHour,
+            onValueChange = { remindHour = it },
+            onValueChangeFinished = { onReminder(remindOn, remindHour.roundToInt()) },
+            valueRange = 0f..23f,
+            steps = 22,
+        )
+    }
+
+    Spacer(Modifier.height(24.dp))
+    Text("Keyword alerts", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "A note when a new paper mentions a keyword with its bell on. Checked every few " +
+            "hours, and shown between %02d:00 and %02d:00.".format(KeywordAlerts.FIRST_HOUR, KeywordAlerts.LAST_HOUR),
+        style = MaterialTheme.typography.labelSmall,
+    )
+    if (keywords.isEmpty()) {
+        Text("You have no keywords yet.", style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onOpenKeywords) { Text("Add keywords") }
+    } else {
+        // The same bells as on the keywords themselves, so they can be found from here too.
+        // A whole row is the target, not the bell alone.
+        keywords.forEach { keyword ->
+            val on = keyword in alerts
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(value = on, role = Role.Switch) { onKeywordAlert(keyword, it) }
+                    .padding(vertical = 8.dp),
+            ) {
+                Icon(
+                    if (on) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                    contentDescription = null,
+                    tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(keywordLabel(keyword), style = MaterialTheme.typography.bodyMedium)
+                    rates[keyword]?.let {
+                        Text(
+                            KeywordAlerts.describe(it).replaceFirstChar { c -> c.uppercase() },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        TextButton(onClick = onOpenKeywords, contentPadding = PaddingValues(horizontal = 0.dp)) {
+            Text("Change keywords")
+        }
+    }
+
+    Spacer(Modifier.height(24.dp))
+    Text("Preparing the digest", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "At %02d:00, on wifi while charging.".format(hour.roundToInt()),
         style = MaterialTheme.typography.bodyMedium,
     )
     Text(
@@ -581,38 +669,6 @@ private fun NotificationsPage(
         valueRange = 0f..23f,
         steps = 22,
     )
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Switch(checked = notify, onCheckedChange = { onNotifyEnabled(it) })
-        Text("  Notify me once when it is ready", style = MaterialTheme.typography.bodyMedium)
-    }
-
-    Spacer(Modifier.height(24.dp))
-    Text("Reading reminder", style = MaterialTheme.typography.titleSmall)
-    Text(
-        "A separate nudge at an hour that suits reading. Downloads nothing, and stays " +
-            "quiet if you have already been through the digest.",
-        style = MaterialTheme.typography.labelSmall,
-    )
-    // Saved as it changes. A switch and an hour are single, reversible choices, and asking
-    // someone to confirm a toggle they can see the effect of is a step that only exists to
-    // be forgotten.
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Switch(
-            checked = remindOn,
-            onCheckedChange = { onReminder(it, remindHour.roundToInt()) },
-        )
-        Text("  Remind me at %02d:00".format(remindHour.roundToInt()),
-            style = MaterialTheme.typography.bodyMedium)
-    }
-    if (remindOn) {
-        Slider(
-            value = remindHour,
-            onValueChange = { remindHour = it },
-            onValueChangeFinished = { onReminder(remindOn, remindHour.roundToInt()) },
-            valueRange = 0f..23f,
-            steps = 22,
-        )
-    }
     Spacer(Modifier.height(32.dp))
 }
 

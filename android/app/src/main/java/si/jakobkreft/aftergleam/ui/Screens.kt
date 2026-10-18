@@ -72,6 +72,8 @@ fun FeedScreen(
     onShareApp: () -> Unit = {},
     onSupportLater: () -> Unit = {},
     onSupportNever: () -> Unit = {},
+    /** The offer of the daily note answered: yes, which asks for permission, or no. */
+    onNoteOffer: (Boolean) -> Unit = {},
 ) {
     when {
         state.loading -> DigestSkeleton(state.loadingLabel.ifBlank { "Working" })
@@ -182,6 +184,11 @@ fun FeedScreen(
             }
             item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
+            // Once, after the first digest has been read through: the reader now knows what a
+            // note about tomorrow's would name, which a dialog on first launch could not show.
+            if (state.noteOffer && state.cards.isNotEmpty()) {
+                item(key = "note-offer") { NoteOfferCard(state.reminderHour, onNoteOffer) }
+            }
             // Last of all, after "That's all for today": the reader has had the day's papers and is
             // about to leave, which is the one point where a request interrupts nothing.
             state.support?.let { card ->
@@ -474,6 +481,30 @@ private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
  * A copy installed from Google Play may not ask for money at all, so there it asks for the
  * things Play does allow: a rating, and a word to a colleague.
  */
+@Composable
+private fun NoteOfferCard(hour: Int, onAnswer: (Boolean) -> Unit) {
+    Card(Modifier.fillMaxWidth(), elevation = flatCard()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "A note when tomorrow's papers are ready?",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "One quiet line naming the first paper, and only on days you have not opened " +
+                    "the app. The hour can be changed in settings.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Button(onClick = { onAnswer(true) }) { Text("Yes, at %02d:00".format(hour)) }
+                TextButton(onClick = { onAnswer(false) }) { Text("No thanks") }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SupportCard(
     card: si.jakobkreft.aftergleam.data.Support.Card,

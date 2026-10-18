@@ -62,6 +62,7 @@ object Backup {
             put("explorationRate", prefs.explorationRate.toDouble())
             put("diversity", prefs.diversity.toDouble())
             put("keywords", JSONArray(prefs.keywords))
+            put("keywordAlerts", JSONArray(prefs.keywords.filter { it in prefs.keywordAlerts }))
             put("reactions", reactions)
         }.toString(2)
     }
@@ -110,6 +111,16 @@ object Backup {
                 .mapNotNull { Keywords.normalise(arr.optString(it)) }
                 .distinctBy { it.lowercase() }
                 .take(Keywords.MAX)
+        }
+        // Bells too, for keywords the phone now has. A bell restored starts from what is on
+        // the phone, as one turned on by hand does, rather than announcing all of it.
+        root.optJSONArray("keywordAlerts")?.let { arr ->
+            val before = prefs.keywordAlerts
+            val today = java.time.LocalDate.now().toString()
+            val rung = (0 until arr.length()).mapNotNull { Keywords.normalise(arr.optString(it)) }
+                .filter { it in prefs.keywords }
+            prefs.keywordAlerts = before.filterKeys { it in prefs.keywords } + rung.associateWith { before[it] ?: today }
+            (rung - before.keys).forEach { db.baselineAlerts(it) }
         }
 
         // Read once. It used to be re-read for every saved paper, which is a full table scan

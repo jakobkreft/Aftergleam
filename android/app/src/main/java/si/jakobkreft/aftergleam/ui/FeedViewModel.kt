@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ import si.jakobkreft.aftergleam.data.FetchPlan
 import si.jakobkreft.aftergleam.data.Signal
 import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Fetcher
+import si.jakobkreft.aftergleam.data.KeywordAlerts
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.LibraryImport
 import si.jakobkreft.aftergleam.data.Paper
@@ -51,6 +53,8 @@ import si.jakobkreft.aftergleam.rank.Scored
 import si.jakobkreft.aftergleam.rank.SearchRanker
 import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
+import si.jakobkreft.aftergleam.work.KeywordAlertWorker
+import si.jakobkreft.aftergleam.work.Notifications
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -185,6 +189,16 @@ data class FeedState(
     val keywords: List<String> = emptyList(),
     /** Recent papers on the device mentioning each keyword, once its fetch is done. */
     val keywordCounts: Map<String, Int> = emptyMap(),
+    /** About how many papers a week each keyword finds. See [KeywordAlerts.perWeek]. */
+    val keywordRates: Map<String, Float> = emptyMap(),
+    /** The keywords with their bell on. See [KeywordAlerts]. */
+    val keywordAlerts: Set<String> = emptySet(),
+    /**
+     * Whether today's digest ends by offering the daily note. Once, at the end of the first
+     * digest, which is the moment the reader knows what the note would be about; never as a
+     * system dialog on first launch, before they have seen a single paper.
+     */
+    val noteOffer: Boolean = false,
     /** The note that ends today's digest, if it is due. See [Support]. */
     val support: Support.Card? = null,
     /** False in a copy installed from Google Play, which asks for a rating instead of money. */
@@ -216,7 +230,6 @@ data class FeedState(
      * can decline the permission without any dialog at all once the reader has said no
      * twice, and a switch that flips anyway would be reporting a setting that does nothing.
      */
-    val notifyEnabled: Boolean = false,
     val reminderEnabled: Boolean = false,
     val reminderHour: Int = 19,
     val survey: SurveyState = SurveyState(),
@@ -496,6 +509,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             topics = prefs.seedTopics,
             donationsAllowed = Support.donationsAllowed(app),
             keywords = prefs.keywords,
+            keywordAlerts = prefs.keywordAlerts.keys,
             supportReminder = prefs.supportReminder,
         )
     )
@@ -518,9 +532,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         prefs.onboarded && db.digestFor(LocalDate.now().toString()).isEmpty()
 
     init {
+        // For the Notifications page as well as the keywords: how often each keyword finds
+        // papers is what a bell is decided by.
+        refreshKeywordCounts()
         _state.value = _state.value.copy(
-            notifyEnabled = prefs.notifyEnabled,
             reminderEnabled = prefs.reminderEnabled,
+            noteOffer = noteOfferDue(),
             reminderHour = prefs.reminderHour,
             paperSerif = prefs.paperSerif,
             paperTextSize = PaperTextSize.nearest(prefs.paperTextSize),
@@ -869,12 +886,17 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // is rebuilt. Reopening the app is the common path, and a feature that only
                 // appeared after a manual refresh would look broken.
                 val resurfaced = withContext(Dispatchers.IO) { findResurfaced() }
+                // Worked out before the state is read, not inside the copy: the copy's receiver
+                // is read first, so anything that changed while these ran, such as a paper or a
+                // search opened from a notification as the app starts, was written back over.
+                val drift = withContext(Dispatchers.IO) { computeDrift() }
+                val support = withContext(Dispatchers.IO) { supportCard() }
                 _state.value = _state.value.copy(
                     cards = cards,
                     cardsDay = null,
                     resurfaced = resurfaced,
-                    drift = withContext(Dispatchers.IO) { computeDrift() },
-                    support = withContext(Dispatchers.IO) { supportCard() },
+                    drift = drift,
+                    support = support,
                 )
                 withContext(Dispatchers.IO) { refreshCatchUp() }
                 prewarm()
@@ -1102,24 +1124,56 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         setKeywords(current + keyword)
     }
 
-    fun removeKeyword(keyword: String) = setKeywords(prefs.keywords - keyword)
-
-    /**
-     * The keywords as the reader left them after combining, in their order. One change when
-     * the combining is done, so a combination's papers are fetched once, not for every step.
-     */
-    fun replaceKeywords(keywords: List<String>) {
-        val updated = keywords.mapNotNull(Keywords::normalise).distinctBy { it.lowercase() }.take(Keywords.MAX)
-        if (updated != prefs.keywords) setKeywords(updated)
+    fun removeKeyword(keyword: String) {
+        setKeywords(prefs.keywords - keyword)
+        setAlerts(prefs.keywordAlerts.keys - keyword)
     }
 
     /**
-     * How many recent papers already on the phone [keyword] matches, for the count shown as
-     * it is combined. The fetch after it is saved looks further.
+     * The keywords as the reader left them after combining, in their order, and those with
+     * their bell on. One change when the combining is done, so a combination's papers are
+     * fetched once, not for every step.
      */
-    suspend fun keywordMatchCount(keyword: String): Int = withContext(Dispatchers.IO) {
-        val since = LocalDate.now().minusDays(Keywords.WINDOW_DAYS).toString()
-        db.keywordCandidates(listOf(keyword), since, limit = 500).size
+    fun replaceKeywords(keywords: List<String>, alerts: Set<String> = prefs.keywordAlerts.keys) {
+        val updated = keywords.mapNotNull(Keywords::normalise).distinctBy { it.lowercase() }.take(Keywords.MAX)
+        if (updated != prefs.keywords) setKeywords(updated)
+        setAlerts(alerts.mapNotNull(Keywords::normalise).filter { it in updated }.toSet())
+    }
+
+    /** One keyword's bell, from the Notifications page. Permission is the caller's to ask. */
+    fun setKeywordAlert(keyword: String, on: Boolean) =
+        setAlerts(if (on) prefs.keywordAlerts.keys + keyword else prefs.keywordAlerts.keys - keyword)
+
+    /**
+     * Records which keywords have their bell on, and starts or stops the check for them. A
+     * bell newly on first records what the phone already holds for its keyword, so that it
+     * announces only what comes after.
+     */
+    private fun setAlerts(alerts: Set<String>) {
+        val before = prefs.keywordAlerts
+        val today = LocalDate.now().toString()
+        val after = alerts.filter { it in prefs.keywords }.associateWith { before[it] ?: today }
+        if (after == before) return
+        prefs.keywordAlerts = after
+        _state.value = _state.value.copy(keywordAlerts = after.keys)
+        val app = getApplication<Application>()
+        val added = after.keys - before.keys
+        viewModelScope.launch(Dispatchers.IO) {
+            added.forEach { db.baselineAlerts(it) }
+        }
+        if (after.isEmpty()) KeywordAlertWorker.cancel(app) else KeywordAlertWorker.schedule(app)
+    }
+
+    /**
+     * How many recent papers already on the phone [keyword] matches, and about how many a
+     * week that is, for the keyword's card as it is changed. The fetch after it is saved
+     * looks further.
+     */
+    suspend fun keywordMatches(keyword: String): KeywordMatches = withContext(Dispatchers.IO) {
+        val today = LocalDate.now()
+        val since = today.minusDays(Keywords.WINDOW_DAYS).toString()
+        val papers = db.keywordCandidates(listOf(keyword), since, limit = 500)
+        KeywordMatches(papers.size, KeywordAlerts.perWeek(papers.map { it.published }, today))
     }
 
     /** Edits in progress: the next change cancels this and starts it again. */
@@ -1186,11 +1240,15 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private fun refreshKeywordCounts() {
         val keywords = prefs.keywords.filter { it in prefs.keywordsFetched }
         viewModelScope.launch {
-            val since = LocalDate.now().minusDays(Keywords.WINDOW_DAYS).toString()
-            val counts = withContext(Dispatchers.IO) {
-                keywords.associateWith { db.keywordCandidates(listOf(it), since).size }
+            val today = LocalDate.now()
+            val since = today.minusDays(Keywords.WINDOW_DAYS).toString()
+            val found = withContext(Dispatchers.IO) {
+                keywords.associateWith { db.keywordCandidates(listOf(it), since, limit = 500) }
             }
-            _state.value = _state.value.copy(keywordCounts = counts)
+            _state.value = _state.value.copy(
+                keywordCounts = found.mapValues { it.value.size },
+                keywordRates = found.mapValues { (_, papers) -> KeywordAlerts.perWeek(papers.map { it.published }, today) },
+            )
         }
     }
 
@@ -1261,7 +1319,16 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         cachedModel = built.model
         cachedSignature = signature
         val reactions = db.allReactions()
-        _state.value = _state.value.copy(
+        // Everything read from the database first, and the state changed in one step at the
+        // end. This runs on a background thread; it used to read the state, run these queries
+        // inside the copy and write the copy back, so a keyword's bell rung while it ran was
+        // silently switched off again.
+        val evidenced = evidenceCount()
+        val judged = judgedCount()
+        val resurfaced = findResurfaced()
+        val drift = computeDrift()
+        val support = supportCard()
+        _state.update { it.copy(
             loading = false,
             cards = cards,
             cardsDay = null,
@@ -1277,13 +1344,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             // ranker legitimately fits on but the reader never reacted to. Counting them
             // here made the header claim judgements that did not exist and switched the
             // model on before it had been taught anything.
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-            modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
-            resurfaced = findResurfaced(),
-            drift = computeDrift(),
-            support = supportCard(),
-        )
+            ratedCount = evidenced,
+            judgedCount = judged,
+            modelActive = evidenced >= Ranker.MIN_RATINGS,
+            resurfaced = resurfaced,
+            drift = drift,
+            support = support,
+        ) }
         refreshCatchUp()
         prewarm()
     }
@@ -1401,8 +1468,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     judgedCount = judgedCount(),
                     modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
                     categories = prefs.categories,
+                    keywords = prefs.keywords,
+                    keywordAlerts = prefs.keywordAlerts.keys,
                     backupSummary = "Restored ${r.reactions} ratings.",
                 )
+                if (prefs.keywordAlerts.isNotEmpty()) KeywordAlertWorker.schedule(getApplication())
+                refreshKeywordCounts()
                 rerank()
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -1631,7 +1702,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun currentExplorationRate() = prefs.explorationRate
     fun currentDiversity() = prefs.diversity
     fun currentDigestHour() = prefs.digestHour
-    fun currentNotifyEnabled() = prefs.notifyEnabled
     fun currentReminderHour() = prefs.reminderHour
     fun currentReminderEnabled() = prefs.reminderEnabled
     fun setReminderHour(h: Int) {
@@ -1641,23 +1711,62 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setReminderEnabled(v: Boolean) {
         prefs.reminderEnabled = v
-        _state.value = _state.value.copy(reminderEnabled = v)
+        _state.value = _state.value.copy(reminderEnabled = v, noteOffer = noteOfferDue())
+    }
+
+    private fun noteOfferDue(): Boolean =
+        prefs.onboarded && !prefs.notificationsAsked && !prefs.reminderEnabled
+
+    /** The offer at the end of the first digest was answered, either way. It does not return. */
+    fun noteOfferAnswered() {
+        prefs.notificationsAsked = true
+        _state.value = _state.value.copy(noteOffer = false)
     }
 
     /**
-     * Turns the evening reminder on, for the first grant of notification permission only.
-     *
-     * Somebody who has just said yes to notifications wants one, and the evening reminder is
-     * the useful one: the digest is built in the morning and read when there is time.
-     *
-     * Deliberately has no "have we asked" guard of its own. It had one, and it made the
-     * feature do nothing, because the permission callback marks the prompt as asked before
-     * invoking its continuation and the guard then saw its own flag. The caller reaches this
-     * only from the first-run branch, which is already behind that check.
+     * Carries the old notification settings over, once. See [Notifications.migrate].
+     * @return whether the daily note is on, so the caller can schedule it.
      */
-    fun enableEveningReminder() {
-        setReminderEnabled(true)
-        setReminderHour(prefs.reminderHour)
+    fun migrateNotifications(): Boolean {
+        val on = Notifications.migrate(getApplication(), prefs)
+        _state.value = _state.value.copy(reminderEnabled = on, noteOffer = noteOfferDue())
+        return on
+    }
+
+    /**
+     * The papers an alert about several of them named, newest first, as search results under
+     * the keyword, so that the reader can go through them and search on from there. Should
+     * the alert be older than the record of it, the phone is searched for the keyword instead.
+     */
+    fun showKeywordPapers(keyword: String) {
+        if (_state.value.reading != null) closeReader()
+        if (_state.value.detail != null) closeDetail()
+        val query = Keywords.terms(keyword).joinToString(" ") { if (' ' in it) "\"$it\"" else it }
+        viewModelScope.launch {
+            val papers = withContext(Dispatchers.IO) {
+                val since = LocalDate.now().minusDays(1)
+                    .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val ids = db.alertedSince(keyword, since)
+                val byId = db.papersById(ids).associateBy { it.id }
+                ids.mapNotNull { byId[it] }
+            }
+            _state.value = _state.value.copy(
+                searchOpen = true, searchScope = SearchScope.CACHED, searchQuery = query,
+                searching = false, searchError = null, searchLocalHits = emptyList(), searchLocalMore = 0,
+                searchHits = papers.map { SearchRanker.Hit(it, queryMatch = 1f, interest = 0f, personal = false) },
+            )
+            if (papers.isEmpty()) runSearch()
+        }
+    }
+
+    /** A paper from a notification, opened over whatever the app was showing. */
+    fun openPaperById(paperId: String) {
+        viewModelScope.launch {
+            val paper = withContext(Dispatchers.IO) { db.papersById(listOf(paperId)).firstOrNull() }
+                ?: return@launch
+            if (_state.value.reading != null) closeReader()
+            openDetail(paper)
+        }
     }
 
     /** Records that the prompt has been shown, whatever the answer. */
@@ -1696,11 +1805,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setDigestHour(h: Int) { prefs.digestHour = h }
-
-    fun setNotifyEnabled(v: Boolean) {
-        prefs.notifyEnabled = v
-        _state.value = _state.value.copy(notifyEnabled = v)
-    }
 
     /** Clears the model but keeps papers. Trust requires an exit. */
     fun resetModel() {
@@ -2110,13 +2214,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // slept, and a card that appears every single morning is a nag rather than a service.
         val gapDays = last?.let { ChronoUnit.DAYS.between(LocalDate.parse(it), LocalDate.now()) }
         if (last == null || gapDays == null || gapDays < 2) {
-            _state.value = _state.value.copy(missedSince = null, missedCount = 0)
+            _state.update { it.copy(missedSince = null, missedCount = 0) }
             return
         }
-        _state.value = _state.value.copy(
-            missedSince = last,
-            missedCount = db.unseenCountSince(last),
-        )
+        // Counted first and applied in one step: this runs off the main thread, and a copy
+        // of the state taken before a slow query, written back after it, undoes whatever the
+        // reader changed in between.
+        val missed = db.unseenCountSince(last)
+        _state.update { it.copy(missedSince = last, missedCount = missed) }
     }
 
     fun openPast() {

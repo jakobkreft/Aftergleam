@@ -1,14 +1,6 @@
 package si.jakobkreft.aftergleam.work
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import androidx.core.content.ContextCompat
-import android.os.Build
-import android.content.pm.PackageManager
-import android.Manifest
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -16,7 +8,6 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import si.jakobkreft.aftergleam.MainActivity
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.BioRxivApi
@@ -89,7 +80,13 @@ class DailyDigestWorker(
                 DigestBuilder.build(db, prefs, db.attention())
             }
 
-            if (papers.isNotEmpty() && prefs.notifyEnabled) notify(papers.size)
+            // Nothing is posted from here any more. This used to say "Today's papers are ready,
+            // 300 new in your categories" at five in the morning; the daily note says which
+            // paper comes first, at the reader's hour. The old setting is carried over here
+            // too, for a phone that runs this before the app is next opened.
+            if (Notifications.migrate(applicationContext, prefs)) {
+                ReminderWorker.schedule(applicationContext, prefs.reminderHour)
+            }
             Result.success()
         } catch (e: Exception) {
             // Back off rather than hammer. 429s have been reported even inside the
@@ -98,42 +95,7 @@ class DailyDigestWorker(
         }
     }
 
-    /** Exactly one notification a day, and only when there is something new. */
-    private fun notify(count: Int) {
-        val ctx = applicationContext
-        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return
-
-        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Daily digest", NotificationManager.IMPORTANCE_LOW)
-                .apply { description = "One notification a day when new papers are ready." }
-        )
-        val intent = android.app.PendingIntent.getActivity(
-            ctx, 0,
-            android.content.Intent(ctx, MainActivity::class.java),
-            android.app.PendingIntent.FLAG_IMMUTABLE,
-        )
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(si.jakobkreft.aftergleam.R.drawable.ic_notification)
-            .setContentTitle("Today's papers are ready")
-            .setContentText("$count new in your categories")
-            .setContentIntent(intent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        // From Android 13 posting is a permission, and posting without it throws. The
-        // throw was being swallowed, which worked but read as if somebody saying no were an
-        // unexpected failure. Asking first says which it is.
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) return
-        NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, n)
-    }
-
     companion object {
-        private const val CHANNEL = "daily_digest"
-        private const val NOTIFICATION_ID = 1
         const val WORK_NAME = "daily_digest"
 
         /** Schedules the next run for [hour] local time, then daily. */

@@ -25,10 +25,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -56,6 +59,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import si.jakobkreft.aftergleam.data.KeywordAlerts
 import si.jakobkreft.aftergleam.data.Keywords
 
 /**
@@ -78,6 +82,10 @@ internal data class Combining(
     val typed: Set<String> = emptySet(),
     /** The text in the field, not yet added. */
     val draft: String = "",
+    /** Whether the open keyword's bell is on. It stays with the keyword as it changes. */
+    val alert: Boolean = false,
+    /** The open keyword as it was opened, to find its bell among the reader's. */
+    val original: String = keywords[open],
 ) {
     val keyword: String get() = keywords[open]
     val terms: List<String> get() = Keywords.terms(keyword)
@@ -114,6 +122,16 @@ internal data class Combining(
     /** The [draft] added as words, and the field empty again. */
     fun commitDraft(): Combining = type(draftWords).copy(draft = "")
 
+    /**
+     * The keywords with their bell on once this is saved: [alerts] as they were, less any
+     * keyword combined in or this one as it was, and this one as it is now if its bell is on.
+     */
+    fun alerts(alerts: Set<String>): Set<String> {
+        val saved = commitDraft()
+        val kept = alerts.filter { it != original && it in saved.keywords }.toSet()
+        return if (alert) kept + saved.keyword else kept
+    }
+
     /** [term] out of the open keyword, and back in the list unless it was only just typed. */
     fun takeOut(term: String): Combining {
         val joined = Keywords.join(terms.filterNot { it == term }) ?: return this
@@ -124,6 +142,9 @@ internal data class Combining(
         return copy(keywords = list, typed = typed - term.lowercase())
     }
 }
+
+/** How many recent papers on the phone a keyword finds, and about how many a week that is. */
+data class KeywordMatches(val count: Int, val perWeek: Float)
 
 /**
  * A keyword as its chip shows it, with the " + " between words in the accent colour, so a
@@ -154,9 +175,11 @@ internal fun keywordLabel(keyword: String): AnnotatedString {
 @Composable
 internal fun CombineCard(
     edit: Combining,
-    count: suspend (String) -> Int,
+    count: suspend (String) -> KeywordMatches,
     suggest: suspend (String) -> String?,
     onChange: (Combining) -> Unit,
+    /** The bell turned on or off. On asks for permission first; the answer is what is set. */
+    onBell: (Boolean) -> Unit,
     onRemove: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -164,11 +187,12 @@ internal fun CombineCard(
     val terms = edit.terms
     // What Done would save, so the count answers for the word being typed as well.
     val pending = edit.commitDraft().keyword
-    val matches by produceState<Int?>(null, pending) {
+    val found by produceState<KeywordMatches?>(null, pending) {
         value = null
         delay(300)
         value = count(pending)
     }
+    val matches = found?.count
     val scope = rememberCoroutineScope()
     // A likely misspelling in the draft, asked about when the tick is pressed, and the
     // spellings already answered for, so a kept one is not asked about twice.
@@ -207,105 +231,131 @@ internal fun CombineCard(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)) {
-            Text(
-                "Papers that mention",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                terms.forEachIndexed { i, term ->
-                    if (i > 0) And(Modifier.align(Alignment.CenterVertically))
-                    // A word on its own cannot be taken out of itself; the keyword is removed
-                    // with the button below.
-                    val alone = terms.size == 1
-                    InputChip(
-                        selected = true,
-                        onClick = { if (!alone) onChange(edit.takeOut(term)) },
-                        label = { Text(term) },
-                        trailingIcon = if (alone) null else {
-                            { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        },
-                        modifier = if (alone) Modifier else Modifier.semantics { contentDescription = "Take $term out" },
-                    )
-                }
-                if (!edit.full) {
-                    And(Modifier.align(Alignment.CenterVertically))
-                    WordField(
-                        value = edit.draft,
-                        onValueChange = {
-                            asked = null
-                            offered = null
-                            onChange(edit.copy(draft = it))
-                        },
-                        onSubmit = { if (edit.draft.isNotBlank()) check(edit) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .widthIn(min = 160.dp)
-                            .align(Alignment.CenterVertically),
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Papers that mention",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                // The bell, as on a channel one follows: rung, it says so when a new paper
+                // appears. Filled when on, so the state reads at a glance.
+                IconToggleButton(checked = edit.alert, onCheckedChange = onBell) {
+                    Icon(
+                        if (edit.alert) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                        contentDescription = if (edit.alert) "Stop alerts for this keyword" else "Alert me to new papers",
+                        tint = if (edit.alert) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-
-            val fix = offered
-            val word = asked
-            if (fix != null && word != null) {
-                Spacer(Modifier.height(4.dp))
-                Text("Did you mean \u201c$fix\u201d?", style = MaterialTheme.typography.bodyMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { answer(fix) }) { Text(fix) }
-                    TextButton(onClick = { answer(word) }) { Text("Keep \u201c$word\u201d") }
+            Column(Modifier.padding(end = 8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    terms.forEachIndexed { i, term ->
+                        if (i > 0) And(Modifier.align(Alignment.CenterVertically))
+                        // A word on its own cannot be taken out of itself; the keyword is removed
+                        // with the button below.
+                        val alone = terms.size == 1
+                        InputChip(
+                            selected = true,
+                            onClick = { if (!alone) onChange(edit.takeOut(term)) },
+                            label = { Text(term) },
+                            trailingIcon = if (alone) null else {
+                                { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            },
+                            modifier = if (alone) Modifier else Modifier.semantics { contentDescription = "Take $term out" },
+                        )
+                    }
+                    if (!edit.full) {
+                        And(Modifier.align(Alignment.CenterVertically))
+                        WordField(
+                            value = edit.draft,
+                            onValueChange = {
+                                asked = null
+                                offered = null
+                                onChange(edit.copy(draft = it))
+                            },
+                            onSubmit = { if (edit.draft.isNotBlank()) check(edit) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(min = 160.dp)
+                                .align(Alignment.CenterVertically),
+                        )
+                    }
                 }
-            } else if (!edit.full) {
-                // The reader's other keywords, a tap away. While a word is typed, only those
-                // it could be the start of, and taking one replaces what was typed.
-                val typing = edit.draft.trim()
-                val offer = edit.others.filter { typing.isEmpty() || it.contains(typing, ignoreCase = true) }
-                if (offer.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+
+                val fix = offered
+                val word = asked
+                if (fix != null && word != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Did you mean \u201c$fix\u201d?", style = MaterialTheme.typography.bodyMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { answer(fix) }) { Text(fix) }
+                        TextButton(onClick = { answer(word) }) { Text("Keep \u201c$word\u201d") }
+                    }
+                } else if (!edit.full) {
+                    // The reader's other keywords, a tap away. While a word is typed, only those
+                    // it could be the start of, and taking one replaces what was typed.
+                    val typing = edit.draft.trim()
+                    val offer = edit.others.filter { typing.isEmpty() || it.contains(typing, ignoreCase = true) }
+                    if (offer.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Or one of your keywords",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            offer.forEach { other ->
+                                InputChip(
+                                    selected = false,
+                                    enabled = edit.fits(other),
+                                    onClick = { onChange(edit.copy(draft = "").add(other)) },
+                                    label = { Text(keywordLabel(other)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = "Add $other" },
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "Or one of your keywords",
+                        "A keyword combines up to ${Keywords.MAX_TERMS} words.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        offer.forEach { other ->
-                            InputChip(
-                                selected = false,
-                                enabled = edit.fits(other),
-                                onClick = { onChange(edit.copy(draft = "").add(other)) },
-                                label = { Text(keywordLabel(other)) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                },
-                                modifier = Modifier.semantics { contentDescription = "Add $other" },
-                            )
-                        }
-                    }
                 }
-            } else {
-                Spacer(Modifier.height(4.dp))
+
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "A keyword combines up to ${Keywords.MAX_TERMS} words.",
-                    style = MaterialTheme.typography.labelSmall,
+                    when (val n = matches) {
+                        null -> "Counting\u2026"
+                        0 -> "None on this phone from the last two months. The servers are asked too once you are done."
+                        1 -> "1 paper on this phone from the last two months"
+                        else -> "$n papers on this phone from the last two months"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // What the bell will do, and how often, said when it is rung: the moment to find
+                // out that a broad keyword would be heard from every day.
+                if (edit.alert) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "You will get a note when a new one appears" +
+                            (found?.takeIf { it.count > 0 }?.let { ", " + KeywordAlerts.describe(it.perWeek) } ?: "") + ".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                when (val n = matches) {
-                    null -> "Counting\u2026"
-                    0 -> "None on this phone from the last two months. The servers are asked too once you are done."
-                    1 -> "1 paper on this phone from the last two months"
-                    else -> "$n papers on this phone from the last two months"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(
                     onClick = onRemove,

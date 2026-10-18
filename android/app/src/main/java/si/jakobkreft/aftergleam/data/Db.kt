@@ -16,7 +16,7 @@ import java.time.temporal.ChronoUnit
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 8) {
 
     // Never call `use` on the database this helper returns. It is a single shared instance,
     // and closing it leaves the helper handing a closed connection pool to the next caller.
@@ -79,10 +79,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
         )
         db.execSQL("CREATE INDEX idx_signals_paper ON signals(paper_id)")
         db.execSQL(ATTENTION_TABLE)
+        db.execSQL(ALERTED_TABLE)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
         if (old < 6) db.execSQL(ATTENTION_TABLE)
+        if (old < 8) db.execSQL(ALERTED_TABLE)
         if (old < 7) {
             // Everything already stored came from arXiv, which is what the default says.
             runCatching {
@@ -342,6 +344,62 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
             if (c.moveToFirst()) c.getInt(0) to (if (c.isNull(1)) 0 else c.getInt(1))
             else 0 to 0
         }
+
+    /** Saves a paper for later, as the bookmark on its card does. */
+    fun save(paperId: String) {
+        val current = allReactions()[paperId] ?: Reaction.NONE
+        if (!current.saved) setReaction(paperId, current.copy(saved = true))
+        addSignal(paperId, Signal.SAVED)
+    }
+
+    /** Papers the reader has done anything with: opened, saved, judged, read or passed. */
+    fun actedOnIds(): Set<String> =
+        readableDatabase.rawQuery("SELECT DISTINCT paper_id FROM signals", null).use { c ->
+            buildSet { while (c.moveToNext()) add(c.getString(0)) }
+        }
+
+    /** Every paper an alert has been about, or that a bell found already on the phone. */
+    fun alertedIds(): Set<String> =
+        readableDatabase.rawQuery("SELECT paper_id FROM alerted", null).use { c ->
+            buildSet { while (c.moveToNext()) add(c.getString(0)) }
+        }
+
+    /**
+     * Records papers as told about for [keyword]. With [baseline], they were only already on
+     * the phone when its bell was turned on, and nothing was said about them. Kept if already
+     * there, so a paper keeps the keyword it was first told about under.
+     */
+    fun markAlerted(ids: Collection<String>, keyword: String, baseline: Boolean = false, now: Long = System.currentTimeMillis()) =
+        writableDatabase.let { db ->
+            db.beginTransaction()
+            try {
+                for (id in ids) {
+                    db.insertWithOnConflict("alerted", null, ContentValues().apply {
+                        put("paper_id", id); put("keyword", keyword)
+                        put("baseline", if (baseline) 1 else 0); put("ts", now)
+                    }, SQLiteDatabase.CONFLICT_IGNORE)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+
+    /**
+     * What a bell for [keyword] would otherwise announce at once: its recent papers already
+     * on the phone, recorded as known, so that only what comes after is news.
+     */
+    fun baselineAlerts(keyword: String, today: java.time.LocalDate = java.time.LocalDate.now()) {
+        val since = today.minusDays(Keywords.WINDOW_DAYS).toString()
+        markAlerted(keywordCandidates(listOf(keyword), since, limit = 500).map { it.id }, keyword, baseline = true)
+    }
+
+    /** Papers an alert for [keyword] has been about since [sinceMillis], newest alert first. */
+    fun alertedSince(keyword: String, sinceMillis: Long): List<String> =
+        readableDatabase.rawQuery(
+            "SELECT paper_id FROM alerted WHERE keyword = ? AND baseline = 0 AND ts >= ? ORDER BY ts DESC",
+            arrayOf(keyword, sinceMillis.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
 
     /** Records one signal. Repeats are harmless; the first timestamp is kept. */
     fun addSignal(paperId: String, signal: Signal) {
@@ -819,6 +877,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 7)
 
         /** How long a day's upvote counts stay useful. */
         const val RETENTION_DAYS = 30L
+
+        /**
+         * Papers a keyword alert has been about, or that were already on the phone when the
+         * bell was turned on ([baseline]), so that each paper is told about once and turning a
+         * bell on never announces what was there before.
+         */
+        const val ALERTED_TABLE = """
+            CREATE TABLE IF NOT EXISTS alerted (
+              paper_id TEXT PRIMARY KEY,
+              keyword TEXT NOT NULL,
+              baseline INTEGER NOT NULL DEFAULT 0,
+              ts INTEGER NOT NULL
+            )
+        """
 
         const val ATTENTION_TABLE = """
             CREATE TABLE IF NOT EXISTS attention (

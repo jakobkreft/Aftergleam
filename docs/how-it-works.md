@@ -39,6 +39,13 @@ comes from a neighbouring field. Papers that mention one of your keywords, match
 can take up to half of the matches. A keyword can combine words: "lanosterol + hypoxia" needs
 both.
 
+## Notifications
+
+Two kinds, both off until you turn them on. The daily note names the first paper of the
+digest, at an hour you choose, and only on days you have not opened the app. A keyword with
+its bell on is checked every six hours; a new paper that mentions it is announced once,
+between 08:00 and 21:00, and later ones the same day join the same note quietly.
+
 ## Reading
 
 PDFs are drawn with Android's own PdfRenderer, which also does the search. The reader view uses

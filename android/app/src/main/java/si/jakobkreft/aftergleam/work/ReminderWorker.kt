@@ -1,20 +1,12 @@
 package si.jakobkreft.aftergleam.work
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import androidx.core.content.ContextCompat
-import android.os.Build
-import android.content.pm.PackageManager
-import android.Manifest
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import si.jakobkreft.aftergleam.MainActivity
+import si.jakobkreft.aftergleam.data.DailyNote
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Prefs
 import java.time.Duration
@@ -23,12 +15,13 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 
 /**
- * A nudge to read today's digest, at an hour of the user's choosing.
+ * The daily note, at an hour of the reader's choosing. See [DailyNote].
  *
  * Deliberately separate from [DailyDigestWorker] and deliberately offline. The digest is
  * prepared before dawn because that is when the phone is charging on wifi; being told about
  * it then is useless. This one downloads nothing, needs no network and no charger, and says
- * nothing if the digest has already been read.
+ * nothing on a day the app has already been opened. Named for what it used to be, a reading
+ * reminder, because the name is what the work already scheduled on phones refers to.
  */
 class ReminderWorker(
     context: Context,
@@ -37,56 +30,17 @@ class ReminderWorker(
 
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
-        if (!prefs.reminderEnabled) return Result.success()
-
         val db = Db(applicationContext)
-        val today = LocalDate.now().toString()
-        val digest = db.digestFor(today)
-        if (digest.isEmpty()) return Result.success()
-
-        // Nothing to nudge about if the digest has already been worked through.
-        val reactions = db.allReactions()
-        val untouched = digest.count { reactions[it.paperId] == null }
-        if (untouched == 0) return Result.success()
-
-        notify(untouched)
+        val today = LocalDate.now()
+        val digest = db.digestFor(today.toString())
+        if (!DailyNote.due(prefs.reminderEnabled, digest, prefs.lastOpenedDay, today)) return Result.success()
+        val card = DailyNote.pick(digest, db.actedOnIds()) ?: return Result.success()
+        val paper = db.papersById(listOf(card.paperId)).firstOrNull() ?: return Result.success()
+        Notifications.postDailyNote(applicationContext, paper, card.reason)
         return Result.success()
     }
 
-    private fun notify(untouched: Int) {
-        val ctx = applicationContext
-        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return
-        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Reading reminder", NotificationManager.IMPORTANCE_LOW)
-                .apply { description = "An optional nudge to read the day's papers." }
-        )
-        val intent = android.app.PendingIntent.getActivity(
-            ctx, 1,
-            android.content.Intent(ctx, MainActivity::class.java),
-            android.app.PendingIntent.FLAG_IMMUTABLE,
-        )
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(si.jakobkreft.aftergleam.R.drawable.ic_notification)
-            .setContentTitle("$untouched papers still waiting")
-            .setContentText("Five minutes and you are done for the day.")
-            .setContentIntent(intent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        // From Android 13 posting is a permission, and posting without it throws. The
-        // throw was being swallowed, which worked but read as if somebody saying no were an
-        // unexpected failure. Asking first says which it is.
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) return
-        NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, n)
-    }
-
     companion object {
-        private const val CHANNEL = "reading_reminder"
-        private const val NOTIFICATION_ID = 2
         const val WORK_NAME = "reading_reminder"
 
         fun schedule(context: Context, hour: Int) {

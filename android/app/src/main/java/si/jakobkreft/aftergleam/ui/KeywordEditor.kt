@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -69,10 +70,14 @@ fun KeywordEditor(
     onReady: () -> Unit = {},
     /** Recent papers per keyword, shown under the keywords when given. */
     counts: Map<String, Int>? = null,
-    /** The whole list once a keyword has been combined. */
-    onReplace: (List<String>) -> Unit = {},
+    /** The whole list once a keyword has been combined, and the keywords with their bell on. */
+    onReplace: (List<String>, Set<String>) -> Unit = { _, _ -> },
     /** Recent papers on the phone a keyword matches, for the count while it is combined. */
-    count: suspend (String) -> Int = { 0 },
+    count: suspend (String) -> KeywordMatches = { KeywordMatches(0, 0f) },
+    /** The keywords with their bell on. */
+    alerts: Set<String> = emptySet(),
+    /** Asks for permission to notify, if it is needed, and answers whether it was given. */
+    requestAlerts: ((Boolean) -> Unit) -> Unit = { it(true) },
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     var checking by remember { mutableStateOf(false) }
@@ -89,12 +94,16 @@ fun KeywordEditor(
     // done to it is lost.
     var combining by remember { mutableStateOf<Combining?>(null) }
     val save by rememberUpdatedState(onReplace)
-    DisposableEffect(Unit) { onDispose { combining?.let { save(it.commitDraft().keywords) } } }
-    fun finish(list: List<String>) {
-        combining = null
-        save(list)
+    val bells by rememberUpdatedState(alerts)
+    DisposableEffect(Unit) {
+        onDispose { combining?.let { save(it.commitDraft().keywords, it.alerts(bells)) } }
     }
-    BackHandler(enabled = combining != null) { combining?.let { finish(it.commitDraft().keywords) } }
+    fun finish(edit: Combining, removed: Boolean = false) {
+        combining = null
+        if (removed) save(edit.others, bells - edit.original)
+        else save(edit.commitDraft().keywords, edit.alerts(bells))
+    }
+    BackHandler(enabled = combining != null) { combining?.let { finish(it) } }
 
     val full = keywords.size >= Keywords.MAX
 
@@ -136,8 +145,12 @@ fun KeywordEditor(
                 count = count,
                 suggest = suggest,
                 onChange = { combining = it },
-                onRemove = { finish(edit.others) },
-                onDone = { finish(edit.commitDraft().keywords) },
+                onBell = { on ->
+                    if (!on) combining = combining?.copy(alert = false)
+                    else requestAlerts { granted -> combining = combining?.copy(alert = granted) }
+                },
+                onRemove = { finish(edit, removed = true) },
+                onDone = { finish(edit) },
             )
             Spacer(Modifier.height(4.dp))
         } else {
@@ -146,8 +159,19 @@ fun KeywordEditor(
                     keywords.forEachIndexed { i, keyword ->
                         InputChip(
                             selected = false,
-                            onClick = { combining = Combining(keywords, i) },
+                            onClick = { combining = Combining(keywords, i, alert = keyword in alerts) },
                             label = { Text(keywordLabel(keyword)) },
+                            // A small bell for a keyword that has one rung, as a channel shows it.
+                            leadingIcon = if (keyword !in alerts) null else {
+                                {
+                                    Icon(
+                                        Icons.Filled.Notifications,
+                                        contentDescription = "Alerts on",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            },
                             trailingIcon = if (Keywords.isCombined(keyword)) null else {
                                 {
                                     Box(

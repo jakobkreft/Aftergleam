@@ -46,12 +46,24 @@ class Prefs(context: Context) {
         get() = sp.getInt("digest_hour", 5)
         set(v) = sp.edit().putInt("digest_hour", v.coerceIn(0, 23)).apply()
 
+    /**
+     * The old "papers are ready" notification, posted when the digest was prepared. Gone: it
+     * came at five in the morning with a count of everything fetched. Read once, by
+     * [si.jakobkreft.aftergleam.work.Notifications.migrate], to carry the reader's choice
+     * over to the daily note.
+     */
     var notifyEnabled: Boolean
         get() = sp.getBoolean("notify", true)
         set(v) = sp.edit().putBoolean("notify", v).apply()
 
+    /** Whether the old notification settings have been carried over to the new ones. */
+    var notesMigrated: Boolean
+        get() = sp.getBoolean("notes_migrated", false)
+        set(v) = sp.edit().putBoolean("notes_migrated", v).apply()
+
     /**
-     * A nudge to read, separate from the hour the digest is prepared.
+     * The daily note's hour: a note naming the day's first paper, separate from the hour the
+     * digest is prepared. Stored under its old name, from when it was a reading reminder.
      *
      * These are different events with different natural times. The digest is prepared at
      * five in the morning because that is when the phone is on wifi and charging; nobody
@@ -117,9 +129,32 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("notifications_asked", false)
         set(v) = sp.edit().putBoolean("notifications_asked", v).apply()
 
+    /** Whether the daily note is on. See [reminderHour]. */
     var reminderEnabled: Boolean
         get() = sp.getBoolean("reminder_enabled", false)
         set(v) = sp.edit().putBoolean("reminder_enabled", v).apply()
+
+    /**
+     * The last day the app was opened, as yyyy-mm-dd. The daily note stays away on a day the
+     * reader has already been in: telling somebody about papers they have seen is noise.
+     */
+    var lastOpenedDay: String?
+        get() = sp.getString("last_opened_day", null)
+        set(v) = sp.edit().putString("last_opened_day", v).apply()
+
+    /**
+     * The keywords with their bell on, and the day each was turned on.
+     *
+     * One line per keyword, the day first and a tab before the keyword: a keyword cannot hold
+     * a tab or a new line, since [Keywords.normalise] collapses all space to single spaces.
+     */
+    var keywordAlerts: Map<String, String>
+        get() = sp.getString("keyword_alerts", null).orEmpty().split('\n')
+            .mapNotNull { line -> line.split('\t', limit = 2).takeIf { it.size == 2 } }
+            .associate { (day, keyword) -> keyword to day }
+        set(v) = sp.edit().putString(
+            "keyword_alerts", v.entries.joinToString("\n") { (keyword, day) -> "$day\t$keyword" },
+        ).apply()
 
     /** "system", "light" or "dark". */
     var theme: String

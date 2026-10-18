@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Support
@@ -68,6 +70,8 @@ import si.jakobkreft.aftergleam.ui.PopularScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
 import si.jakobkreft.aftergleam.work.DailyDigestWorker
+import si.jakobkreft.aftergleam.work.KeywordAlertWorker
+import si.jakobkreft.aftergleam.work.Notifications
 import si.jakobkreft.aftergleam.work.MetadataRefreshWorker
 import si.jakobkreft.aftergleam.work.ReminderWorker
 
@@ -76,6 +80,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { App() }
+    }
+
+    // Each time the app comes to the front, so that the daily note knows today was opened.
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { Notifications.appOpened(applicationContext) }
     }
 }
 
@@ -278,31 +288,40 @@ private fun App(vm: FeedViewModel = viewModel()) {
 
         // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
         // also repairs the schedule if the user cleared app data or rebooted.
+        //
+        // Nothing is asked for here. The permission dialog used to open on the first launch,
+        // before the reader had seen a single paper, and a yes quietly switched on a reminder.
+        // It is asked for now when a notification is turned on: from the offer at the end of
+        // the first digest, in settings, or by a keyword's bell.
         LaunchedEffect(Unit) {
             DailyDigestWorker.schedule(context, vm.currentDigestHour())
             MetadataRefreshWorker.schedule(context)
-            if (vm.currentReminderEnabled()) {
+            Notifications.ensureChannels(context)
+            if (vm.migrateNotifications()) {
                 ReminderWorker.schedule(context, vm.currentReminderHour())
             }
-            // Ask once, on the first run. Android shows this at most twice before denying
-            // silently, so firing it on every launch afterwards is a no-op that only makes
-            // the code look like it is trying.
-            if (!vm.notificationsAsked()) {
-                if (android.os.Build.VERSION.SDK_INT >= 33) {
-                    onPermissionResult = { granted ->
-                        if (granted) {
-                            vm.enableEveningReminder()
-                            ReminderWorker.schedule(context, vm.currentReminderHour())
-                        }
-                    }
-                    notificationPermission.launch(
-                        android.Manifest.permission.POST_NOTIFICATIONS
-                    )
-                } else {
-                    vm.enableEveningReminder()
-                    ReminderWorker.schedule(context, vm.currentReminderHour())
+            if (state.keywordAlerts.isNotEmpty()) KeywordAlertWorker.schedule(context)
+            else KeywordAlertWorker.cancel(context)
+        }
+
+        // A paper from a notification: on a cold start in the launching intent, otherwise
+        // delivered to the running app. Taken out once read, so a rotation does not open it again.
+        val activity = context as? ComponentActivity
+        DisposableEffect(activity) {
+            fun take(intent: Intent?) {
+                intent?.getStringExtra(Notifications.EXTRA_PAPER)?.let { id ->
+                    intent.removeExtra(Notifications.EXTRA_PAPER)
+                    vm.openPaperById(id)
+                }
+                intent?.getStringExtra(Notifications.EXTRA_KEYWORD)?.let { keyword ->
+                    intent.removeExtra(Notifications.EXTRA_KEYWORD)
+                    vm.showKeywordPapers(keyword)
                 }
             }
+            take(activity?.intent)
+            val listener = androidx.core.util.Consumer<Intent> { take(it) }
+            activity?.addOnNewIntentListener(listener)
+            onDispose { activity?.removeOnNewIntentListener(listener) }
         }
 
         val reading = state.reading
@@ -475,7 +494,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             exploration = vm.currentExplorationRate(),
                             diversity = vm.currentDiversity(),
                             digestHour = vm.currentDigestHour(),
-                            notifyEnabled = state.notifyEnabled,
                             reminderHour = vm.currentReminderHour(),
                             reminderEnabled = state.reminderEnabled,
                             theme = state.theme,
@@ -518,9 +536,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                     )
                                 }
                             },
-                            onNotifyEnabled = { on ->
-                                withNotificationPermission(on) { vm.setNotifyEnabled(it) }
-                            },
                             onReminder = { on, hour ->
                                 withNotificationPermission(on) { granted ->
                                     vm.setReminderEnabled(granted)
@@ -546,8 +561,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             suggestKeyword = vm::keywordSuggestion,
                             onPrepareSpelling = vm::prepareSpelling,
                             keywordCounts = state.keywordCounts,
-                            onReplaceKeywords = vm::replaceKeywords,
-                            keywordCount = vm::keywordMatchCount,
+                            onReplaceKeywords = { list, bells -> vm.replaceKeywords(list, bells) },
+                            keywordCount = vm::keywordMatches,
+                            keywordAlerts = state.keywordAlerts,
+                            keywordRates = state.keywordRates,
+                            onKeywordAlert = { keyword, on ->
+                                withNotificationPermission(on) { vm.setKeywordAlert(keyword, it) }
+                            },
+                            requestAlerts = { answer -> withNotificationPermission(true, answer) },
                             onDonate = {
                                 openUrl(context, Support.DONATE_URL)
                                 vm.supportActed()
@@ -670,6 +691,14 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         onShareApp = { shareApp(context); vm.supportActed() },
                         onSupportLater = vm::supportLater,
                         onSupportNever = vm::supportNever,
+                        onNoteOffer = { yes ->
+                            if (!yes) vm.noteOfferAnswered()
+                            else withNotificationPermission(true) { granted ->
+                                vm.setReminderEnabled(granted)
+                                if (granted) ReminderWorker.schedule(context, vm.currentReminderHour())
+                                vm.noteOfferAnswered()
+                            }
+                        },
                     )
                     Tab.EXPLORE -> ExploreScreen(
                         state = state,

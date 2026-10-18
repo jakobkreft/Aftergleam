@@ -26,6 +26,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- "Save for later" on a keyword alert. Only the app's own notifications send it. -->
+        <receiver
+            android:name=".work.Notifications$SaveReceiver"
+            android:exported="false" />
         <!-- Hands a downloaded file to whatever app can read it, for the preprints that
              are not PDFs. Not exported: access is granted per file, per intent. -->
         <provider
