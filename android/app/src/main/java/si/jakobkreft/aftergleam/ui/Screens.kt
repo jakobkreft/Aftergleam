@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,7 +72,8 @@ fun FeedScreen(
     onRate: () -> Unit = {},
     onShareApp: () -> Unit = {},
     onSupportLater: () -> Unit = {},
-    onSupportNever: () -> Unit = {},
+    /** The support page, where the note can be switched off. */
+    onSupportSettings: () -> Unit = {},
     /** The offer of the daily note answered: yes, which asks for permission, or no. */
     onNoteOffer: (Boolean) -> Unit = {},
 ) {
@@ -151,6 +153,14 @@ fun FeedScreen(
             state.problem?.let { problem ->
                 item(key = "problem") { ProblemCard(problem, state.cardsDay, onRefresh) }
             }
+            // At the top, where it is seen. At the end of the digest only a reader who went
+            // through every card ever met it. One card, put away for a week with one tap, and
+            // only a problem with today's papers comes before it.
+            state.support?.let { card ->
+                item(key = "support") {
+                    SupportCard(card, state.donationsAllowed, onDonate, onRate, onShareApp, onSupportLater, onSupportSettings)
+                }
+            }
             // Above the papers, because the reader who was away needs to know before they
             // start reading today that there is a "before today". Only when there is a real
             // gap: someone who opens the app every morning never sees it.
@@ -188,16 +198,6 @@ fun FeedScreen(
             // note about tomorrow's would name, which a dialog on first launch could not show.
             if (state.noteOffer && state.cards.isNotEmpty()) {
                 item(key = "note-offer") { NoteOfferCard(state.reminderHour, onNoteOffer) }
-            }
-            // Last of all, after "That's all for today": the reader has had the day's papers and is
-            // about to leave, which is the one point where a request interrupts nothing.
-            state.support?.let { card ->
-                item(key = "support") {
-                    SupportCard(
-                        card, state.donationsAllowed,
-                        onDonate, onRate, onShareApp, onSupportLater, onSupportNever,
-                    )
-                }
             }
         }
         }
@@ -513,7 +513,7 @@ private fun SupportCard(
     onRate: () -> Unit,
     onShare: () -> Unit,
     onLater: () -> Unit,
-    onNever: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val thanks = card == si.jakobkreft.aftergleam.data.Support.Card.THANKS
     Card(
@@ -541,7 +541,20 @@ private fun SupportCard(
                     },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
                 )
+                // The note's settings, where it can be switched off for good: one place for
+                // that rather than a second button on the card asking the same thing.
+                if (!thanks) {
+                    IconButton(onClick = onSettings, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "Support settings",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(6.dp))
             Text(
@@ -559,27 +572,34 @@ private fun SupportCard(
             )
             if (!thanks) {
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    if (donations) {
+                if (donations) {
+                    // Two buttons spaced evenly: the gap from each edge of the card as wide as the
+                    // gap between them, measured from what is seen. The sides already have the
+                    // card's 16 dp margin and Not now has 12 dp of padding inside its bounds, so
+                    // the free space is shared equally and the gaps are topped up to match.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onLater) { Text("Not now") }
+                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(16.dp))
                         Button(onClick = onDonate) { Text("Support on Ko-fi") }
-                    } else {
-                        Button(onClick = onRate) { Text("Rate on Google Play") }
-                        TextButton(onClick = onShare) { Text("Share") }
+                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(12.dp))
                     }
-                    TextButton(onClick = onLater) { Text("Not now") }
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Not now hides this for a week.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = onNever) { Text("Don't ask again") }
+                } else {
+                    // Three buttons: Not now at the left, the two ways to help at the right. Should
+                    // those not fit, Share wraps above the main button rather than squeezing it.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onLater) { Text("Not now") }
+                        Spacer(Modifier.weight(1f))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            TextButton(onClick = onShare) { Text("Share") }
+                            Button(onClick = onRate) { Text("Rate on Google Play") }
+                        }
+                    }
                 }
             }
         }

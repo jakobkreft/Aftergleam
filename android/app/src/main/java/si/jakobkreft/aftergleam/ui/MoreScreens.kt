@@ -23,6 +23,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
@@ -164,13 +165,15 @@ fun TuneScreen(
     // there. A reader sent here from Explore to widen their subjects never saw the settings
     // index, and being dropped on it by the back gesture is being moved somewhere they have
     // not been.
-    BackHandler(enabled = page != null) {
-        if (startPage != null && page?.name == startPage) onClose() else page = null
+    // The button says Back, so it goes where the back gesture goes.
+    fun back() {
+        if (page == null || (startPage != null && page?.name == startPage)) onClose() else page = null
     }
+    BackHandler(enabled = page != null) { back() }
 
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { if (page != null) page = null else onClose() }) {
+            TextButton(onClick = ::back) {
                 Text("Back")
             }
         }
@@ -859,7 +862,9 @@ private fun SupportPage(
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(12.dp))
-    Button(onClick = onDonate) { Text("Support on Ko-fi") }
+    Button(onClick = onDonate) { HeartLabel("Support on Ko-fi") }
+    Spacer(Modifier.height(6.dp))
+    Thanks()
     Spacer(Modifier.height(16.dp))
     Text(
         "Hearing what is missing or broken helps too.",
@@ -893,12 +898,33 @@ private fun HelpPage(
     )
     Spacer(Modifier.height(12.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = onRate) { Text("Rate on Google Play") }
+        Button(onClick = onRate) { HeartLabel("Rate on Google Play") }
         OutlinedButton(onClick = onShare) { Text("Share the app") }
         OutlinedButton(onClick = onFeedback) { Text("Write to the developer") }
     }
+    Spacer(Modifier.height(6.dp))
+    Thanks()
     ReminderSetting(reminder, onReminder)
 }
+
+/** The main way to help, with the heart the support note carries. */
+@Composable
+private fun HeartLabel(text: String) {
+    Icon(
+        Icons.Filled.Favorite,
+        contentDescription = null,
+        modifier = Modifier.size(18.dp),
+    )
+    Spacer(Modifier.width(8.dp))
+    Text(text)
+}
+
+@Composable
+private fun Thanks() = Text(
+    "Thank you for your support.",
+    style = MaterialTheme.typography.bodySmall,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+)
 
 @Composable
 private fun ColumnScope.ReminderSetting(reminder: Boolean, onReminder: (Boolean) -> Unit) {
@@ -906,7 +932,7 @@ private fun ColumnScope.ReminderSetting(reminder: Boolean, onReminder: (Boolean)
     Text("The occasional reminder", style = MaterialTheme.typography.titleSmall)
     Spacer(Modifier.height(4.dp))
     Text(
-        "Once you have read on five different days, a short note ends the digest until you " +
+        "Once you have read on five different days, a short note opens the digest until you " +
             "answer it. Not now hides it for a week. Once you have acted on it, it stays away " +
             "for a year.",
         style = MaterialTheme.typography.bodySmall,

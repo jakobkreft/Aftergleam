@@ -8,19 +8,19 @@ import java.time.LocalDate
  * Asking readers to help the app, and above all when not to.
  *
  * There is one quiet place that is always there, a page in settings, and one occasional
- * note. The note is a card after the end of the day's digest rather than a dialog. A dialog
- * interrupts whatever the reader opened the app to do; the end of the digest is the one
- * moment when they have just been given what they came for and are about to leave anyway.
- * Placing it there also means only readers who finish the digest ever see it.
+ * note. The note is a card at the top of the day's digest rather than a dialog: a dialog stops
+ * whatever the reader opened the app to do, and a card is passed by with a scroll. It used to
+ * sit after the last paper, where only a reader who went through every card ever saw it.
  *
  * It waits for [FIRST_ASK_AFTER] separate days on which the reader opened, read or reacted to
  * something. Returning is the most honest sign that the app is useful to somebody: a first
  * session can be curiosity, and ten papers can be opened in one evening of looking around,
  * but coming back on five different days to read is a habit.
  *
- * After that the rule is deliberately simple enough to state on the card. It stays at the end
- * of the digest until the reader answers it. "Not now" puts it away for [LATER_DAYS] days, by
- * the calendar, and then it is back; "don't ask again" puts it away for good.
+ * After that the rule is simple. It stays until the reader answers it. "Not now" puts it away
+ * for [LATER_DAYS] days, by the calendar, and then it is back. The gear on the card opens the
+ * page in settings, where it can be switched off for good; one place for that, rather than a
+ * second button on the card asking the same question as the first.
  */
 object Support {
 

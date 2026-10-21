@@ -691,7 +691,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
                         },
                         onShareApp = { shareApp(context); vm.supportActed() },
                         onSupportLater = vm::supportLater,
-                        onSupportNever = vm::supportNever,
+                        onSupportSettings = {
+                            tuneStart = if (state.donationsAllowed) "SUPPORT" else "HELP"
+                            showTune = true
+                        },
                         onNoteOffer = { yes ->
                             if (!yes) vm.noteOfferAnswered()
                             else withNotificationPermission(true) { granted ->

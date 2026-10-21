@@ -1427,9 +1427,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(support = null)
     }
 
-    /** "Don't ask again": the reminder is switched off, as it would be in settings. */
-    fun supportNever() = setSupportReminder(false)
-
     /**
      * The reader acted on the request: followed the Ko-fi link, or on Google Play went to rate
      * or share the app, from the note or from settings.
