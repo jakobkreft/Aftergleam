@@ -1,0 +1,5 @@
+- Aftergleam is now on Google Play
+- Search finds phrases: papers that say your words together come first, and quotes work on the phone too
+- Results from bioRxiv, medRxiv and the other servers must contain every word, as arXiv's do
+- Watching a search keeps names together, such as attention mechanism, and separates ideas, such as cholesterol + hypoxia
+- Keywords with an apostrophe, such as Alzheimer's disease, now match

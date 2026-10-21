@@ -933,8 +933,7 @@ private fun ColumnScope.ReminderSetting(reminder: Boolean, onReminder: (Boolean)
     Spacer(Modifier.height(4.dp))
     Text(
         "Once you have read on five different days, a short note opens the digest until you " +
-            "answer it. Not now hides it for a week. Once you have acted on it, it stays away " +
-            "for a year.",
+            "answer it.",
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(8.dp))
