@@ -471,6 +471,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
                             onAddKeyword = vm::addKeyword,
+                            onSwapKeyword = vm::swapKeyword,
                         )
                         }
                     }

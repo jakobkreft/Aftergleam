@@ -31,6 +31,7 @@ import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.CrossrefSearch
 import si.jakobkreft.aftergleam.data.Evidence
 import si.jakobkreft.aftergleam.data.FetchPlan
+import si.jakobkreft.aftergleam.data.SearchTerms
 import si.jakobkreft.aftergleam.data.Signal
 import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Fetcher
@@ -1140,6 +1141,17 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         setAlerts(alerts.mapNotNull(Keywords::normalise).filter { it in updated }.toSet())
     }
 
+    /** [old] replaced by [new], in its place in the list and keeping its bell. */
+    fun swapKeyword(old: String, new: String) {
+        val stored = prefs.keywords.firstOrNull { it.equals(old, ignoreCase = true) } ?: return
+        val replacement = Keywords.normalise(new) ?: return
+        val alerts = prefs.keywordAlerts.keys
+        replaceKeywords(
+            prefs.keywords.map { if (it == stored) replacement else it },
+            if (stored in alerts) alerts - stored + replacement else alerts,
+        )
+    }
+
     /** One keyword's bell, from the Notifications page. Permission is the caller's to ask. */
     fun setKeywordAlert(keyword: String, on: Boolean) =
         setAlerts(if (on) prefs.keywordAlerts.keys + keyword else prefs.keywordAlerts.keys - keyword)
@@ -1960,7 +1972,15 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     "Crossref, so these are from arXiv only."
             else -> null
         }
-        (fromArxiv.getOrDefault(emptyList()) + stored).distinctBy { it.id } to missing
+        // Crossref ranks by likeness and returns papers missing words: for "lanosterol hypoxia"
+        // it sent sixty, not one of which mentions both. arXiv is asked for every word, so the
+        // others are held to the same, unless nothing anywhere has them all.
+        val fromArxivPapers = fromArxiv.getOrDefault(emptyList())
+        val terms = SearchTerms.of(q)
+        fun hasAll(p: Paper) = terms.foundIn(p.title + "\n" + p.abstract + "\n" + p.authors.joinToString(" "))
+        val strict = stored.filter(::hasAll)
+        val kept = if (strict.isNotEmpty() || fromArxivPapers.any(::hasAll)) strict else stored
+        (fromArxivPapers + kept).distinctBy { it.id } to missing
     }
 
     /**

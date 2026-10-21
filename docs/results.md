@@ -79,6 +79,26 @@ hypoxia alone. Crossref's does not. Asked for "hypoxia sleep apnea", it returned
 none mentioned both. So Crossref is asked once for each part of a keyword, and the phone keeps
 the papers that mention every part.
 
+## A phrase or separate words
+
+Of the arXiv and Crossref results that contain every word of a search, how many say the words
+as one phrase:
+
+| Search | arXiv | Crossref |
+|---|---|---|
+| sleep apnea | 92% | 100% |
+| large language model | 98% | 100% |
+| theory of mind | 88% | 78% |
+| attention mechanism | 88% | 67% |
+| CRISPR gene editing | 7% | 19% |
+| protein folding dynamics | 15% | 5% |
+| cholesterol hypoxia | 0% | 0% |
+| hypoxia sleep apnea | 0% | 0% |
+
+Names are at 67% or more and combinations at 19% or less, so words are kept together when at
+least 40% of the results say them together. Asked for "lanosterol hypoxia", Crossref returned 60
+papers and none mentioned both, so its results are now held to every word, as arXiv's are.
+
 ## Reader view
 
 Most new arXiv papers have an HTML version: 30 of 30 new mathematics papers, 38 of 43 in cs.CY

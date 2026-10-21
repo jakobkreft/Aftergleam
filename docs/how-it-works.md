@@ -39,6 +39,13 @@ comes from a neighbouring field. Papers that mention one of your keywords, match
 can take up to half of the matches. A keyword can combine words: "lanosterol + hypoxia" needs
 both.
 
+## Search
+
+Every word is required, anywhere in a paper, on every server and on the phone; quotes ask for a
+phrase. Papers that say the words together come first. Watching a search makes it a keyword:
+words the results show belong together are kept as one phrase ("attention mechanism"), and
+separate ideas become a combination ("cholesterol + hypoxia").
+
 ## Notifications
 
 Two kinds, both off until you turn them on. The daily note names the first paper of the

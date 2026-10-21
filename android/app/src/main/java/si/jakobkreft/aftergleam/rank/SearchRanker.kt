@@ -1,5 +1,6 @@
 package si.jakobkreft.aftergleam.rank
 
+import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
 
 /**
@@ -95,8 +96,18 @@ object SearchRanker {
         val interestModel = model
             ?: trainInterest(rated, negativePool.ifEmpty { results.map { it.rankText } })
 
+        // Papers that say the words together rank above those that only mention each of them
+        // somewhere. Every word is required, so both kinds are results, but a query of a few
+        // words is most often the name of one thing: 88 of the 98 arXiv papers with
+        // "attention" and "mechanism" in them say "attention mechanism". The bonus is larger
+        // than any cosine, so it orders the query side of the ranking and nothing else.
+        val together = query.replace('"', ' ').trim()
+            .takeIf { Keywords.parts(it).size > 1 }
+            ?.let(Keywords::pattern)
+
         val raw = results.map { paper ->
-            val match = cosine(qv, queryVec.transform(paper.rankText))
+            val phrase = together?.containsMatchIn(paper.title + "\n" + paper.abstract) == true
+            val match = cosine(qv, queryVec.transform(paper.rankText)) + if (phrase) PHRASE_BONUS else 0f
             val interest = interestModel
                 ?.let { it.clf.predict(it.vec.transform(paper.rankText)) } ?: 0f
             Hit(paper, match, interest, personal = interestModel != null)
@@ -107,6 +118,9 @@ object SearchRanker {
             h.copy(matchRank = matchRanks[i], interestRank = interestRanks[i])
         }.let { reorder(it, personalisation) }
     }
+
+    /** Above the highest cosine a query can reach, so a phrase match leads on query match. */
+    private const val PHRASE_BONUS = 1f
 
     /** Each value's standing among the others, 0 for the lowest and 1 for the highest. Ties share. */
     internal fun ranks(values: List<Float>): FloatArray {

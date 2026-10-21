@@ -16,7 +16,7 @@ import java.time.temporal.ChronoUnit
  * there are no embeddings to store either, so the vector-extension dependency the original
  * design assumed is gone as well.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 8) {
+class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9) {
 
     // Never call `use` on the database this helper returns. It is a single shared instance,
     // and closing it leaves the helper handing a closed connection pool to the next caller.
@@ -85,6 +85,20 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 8)
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
         if (old < 6) db.execSQL(ATTENTION_TABLE)
         if (old < 8) db.execSQL(ALERTED_TABLE)
+        if (old < 9) {
+            // Abstracts from Crossref were stored with their heading, "Abstract" or "ABSTRACT",
+            // as their first word. New ones arrive without it; these lose it here. Only for the
+            // servers whose abstracts come that way, so an arXiv abstract that happens to begin
+            // "Abstract reasoning" keeps its first word.
+            runCatching {
+                db.execSQL(
+                    """
+                    UPDATE papers SET abstract = ltrim(substr(abstract, 9))
+                    WHERE source != 'arxiv' AND abstract LIKE 'abstract %'
+                    """.trimIndent()
+                )
+            }
+        }
         if (old < 7) {
             // Everything already stored came from arXiv, which is what the default says.
             runCatching {
@@ -608,11 +622,13 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 8)
      * arXiv for it would usually fail to find the very paper the reader means.
      */
     fun searchLocal(query: String, savedOnly: Boolean, limit: Int = 100): List<Paper> {
-        // Each word binds three parameters, so a pasted abstract would pass the 999 limit
+        // The same reading of the query as the servers get: every word and every quoted phrase.
+        // Split on spaces, a quoted phrase used to arrive here as two words with the quotes
+        // still on them, and matched nothing at all.
+        //
+        // Each term binds three parameters, so a pasted abstract would pass the 999 limit
         // above on Android 8 to 11. Past a dozen words a search has said what it means.
-        val terms = query.trim().lowercase().split(Regex("\\s+"))
-            .filter { it.length > 1 }
-            .take(MAX_SEARCH_TERMS)
+        val terms = SearchTerms.of(query).all.map { it.lowercase() }.take(MAX_SEARCH_TERMS)
         if (terms.isEmpty()) return emptyList()
         val where = terms.joinToString(" AND ") {
             "(lower(p.title) LIKE ? OR lower(p.abstract) LIKE ? OR lower(p.authors) LIKE ?)"

@@ -106,18 +106,6 @@ class KeywordCombinationTest {
     }
 
     @Test
-    fun `watching a search requires every word, as the search did`() {
-        val stop = ArxivApi.STOP_WORDS
-        assertEquals("lanosterol + hypoxia", Keywords.fromSearch("lanosterol hypoxia", stop))
-        assertEquals("a quoted phrase stays one word", "sleep apnea + hypoxia",
-            Keywords.fromSearch("\"sleep apnea\" and hypoxia", stop))
-        assertEquals("one word is one word", "lanosterol", Keywords.fromSearch("lanosterol", stop))
-        assertEquals("more words than a keyword holds are watched as the phrase",
-            "protein folding kinetics membrane channel dynamics",
-            Keywords.fromSearch("protein folding kinetics membrane channel dynamics", stop))
-    }
-
-    @Test
     fun `a combined keyword brings its papers to the top of the digest, labelled`() {
         fun paper(id: String, text: String) = Paper(id, "Paper $id: $text", "We study $text.",
             listOf("A"), listOf("q-bio.CB"), "2026-10-01", "2026-10-01")

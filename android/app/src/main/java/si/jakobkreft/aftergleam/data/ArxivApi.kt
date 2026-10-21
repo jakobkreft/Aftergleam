@@ -97,32 +97,22 @@ object ArxivApi {
         .ifBlank { null }
 
     /**
-     * What is typed, as an arXiv query. Quoted phrases stay phrases, and words too common to
-     * narrow anything are left out, since requiring "of" or "for" only loses results. Anybody
-     * who writes arXiv's own syntax, `ti:` or `au:` or `AND`, gets exactly what they wrote.
+     * What is typed, as an arXiv query: its [SearchTerms], every one required, or with
+     * [requireAll] false any of them. Anybody who writes arXiv's own syntax, `ti:` or `au:` or
+     * `AND`, gets exactly what they wrote.
      */
     internal fun searchQuery(text: String, requireAll: Boolean): String? {
         val t = text.trim()
         if (t.length < 2) return null
         if (ARXIV_SYNTAX.containsMatchIn(t)) return t
-        val phrases = Regex("\"([^\"]+)\"").findAll(t)
-            .map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
-        val words = t.replace(Regex("\"[^\"]*\"?"), " ")
-            .split(Regex("[^\\p{L}\\p{N}+#-]+"))
-            .map { it.trim('-') }
-            .filter { it.length > 1 && it.lowercase() !in STOP_WORDS }
-            .distinctBy { it.lowercase() }
-        val parts = phrases.map { "all:\"$it\"" } + words.map { "all:$it" }
+        val terms = SearchTerms.of(t)
+        val parts = terms.phrases.map { "all:\"$it\"" } + terms.words.map { "all:$it" }
         if (parts.isEmpty()) return "all:$t"
         return parts.joinToString(if (requireAll) " AND " else " OR ")
     }
 
     private val ARXIV_SYNTAX = Regex("""\b(AND|OR|ANDNOT)\b|\b(ti|au|abs|co|jr|cat|rn|id|all):""")
 
-    internal val STOP_WORDS = setOf(
-        "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "is", "of", "on",
-        "or", "the", "to", "via", "with",
-    )
 
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 

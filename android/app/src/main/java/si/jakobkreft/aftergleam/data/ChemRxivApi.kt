@@ -133,6 +133,9 @@ object ChemRxivApi {
     internal fun stripJats(raw: String): String {
         if (raw.isBlank()) return ""
         return raw
+            // The abstract's own heading. bioRxiv and medRxiv open every abstract with one, and
+            // left in, every card from them began "Abstract The first..." or "ABSTRACT Background".
+            .replace(LEADING_TITLE, "")
             .replace(Regex("<[^>]+>"), " ")
             .replace("&amp;", "&")
             .replace("&lt;", "<")
@@ -143,6 +146,8 @@ object ChemRxivApi {
             .replace(Regex("\\s+"), " ")
             .trim()
     }
+
+    private val LEADING_TITLE = Regex("^\\s*<jats:title>\\s*(?:abstract|summary)\\s*</jats:title>", RegexOption.IGNORE_CASE)
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 

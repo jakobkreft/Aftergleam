@@ -6,6 +6,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -26,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Venue
 
@@ -54,6 +59,7 @@ import si.jakobkreft.aftergleam.data.Venue
  * not semantic search over the whole archive, and saying otherwise would be found out on the
  * second query.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     state: FeedState,
@@ -65,6 +71,8 @@ fun SearchScreen(
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
     onAddKeyword: (String) -> Unit = {},
+    /** One keyword for another, in its place and with its bell: the better reading of a search. */
+    onSwapKeyword: (String, String) -> Unit = { _, _ -> },
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -173,30 +181,22 @@ fun SearchScreen(
                 Text("closest to query", style = MaterialTheme.typography.labelSmall)
                 Text("closest to me", style = MaterialTheme.typography.labelSmall)
             }
-            // A search that found what the reader wanted can go on finding it every morning.
-            // Offered only for an online search, which is the one that looks at new papers.
-            // Every word, as the search itself required them, not the query as one exact phrase.
-            val query = si.jakobkreft.aftergleam.data.Keywords.fromSearch(
-                state.searchQuery, si.jakobkreft.aftergleam.data.ArxivApi.STOP_WORDS,
-            )
-            if (state.searchScope == SearchScope.ONLINE && query != null && !state.searching) {
-                val added = state.keywords.any { it.equals(query, ignoreCase = true) }
-                val full = state.keywords.size >= si.jakobkreft.aftergleam.data.Keywords.MAX
-                TextButton(onClick = { onAddKeyword(query) }, enabled = !added && !full) {
-                    Text(
-                        when {
-                            added -> "Watching for \u201c$query\u201d"
-                            full -> "Your keyword list is full"
-                            else -> "Watch for \u201c$query\u201d in new papers"
-                        }
-                    )
-                }
-            }
         }
 
         Spacer(Modifier.height(8.dp))
 
         val nothingAtAll = state.searchLocalHits.isEmpty() && state.searchHits.isEmpty()
+
+        // A search that found what the reader wanted can go on finding it every morning.
+        // Offered only for an online search, which is the one that looks at new papers, and
+        // at the head of the results rather than pinned above them, where with its second
+        // reading it took two lines of a screen that already gives half its height to controls.
+        // Which words are one name and which separate ideas is read off the results: see
+        // [Keywords.watchFor].
+        val watch = remember(state.searchQuery, state.searchHits, state.searchLocalHits) {
+            Keywords.watchFor(state.searchQuery, (state.searchHits + state.searchLocalHits).map { it.paper })
+        }
+        val offerWatch = state.searchScope == SearchScope.ONLINE && watch != null && !state.searching
 
         when {
             // Only a bare wait when there is genuinely nothing to show yet. Once the device
@@ -220,6 +220,9 @@ fun SearchScreen(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (offerWatch && watch != null) {
+                    item(key = "watch") { WatchOffer(watch, state.keywords, onAddKeyword, onSwapKeyword) }
+                }
                 if (state.searchLocalHits.isNotEmpty()) {
                     item(key = "device-header") {
                         SectionLabel("Already on your device")
@@ -263,6 +266,43 @@ fun SearchScreen(
                 if (state.searching && state.searchLocalHits.isNotEmpty()) {
                     item(key = "pending") { PendingRow() }
                 }
+            }
+        }
+    }
+}
+
+/** The offer to watch a search: the likelier reading, and the other one beside it, smaller. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WatchOffer(
+    watch: Keywords.Watch,
+    keywords: List<String>,
+    onAddKeyword: (String) -> Unit,
+    onSwapKeyword: (String, String) -> Unit,
+) {
+    fun watching(k: String) = keywords.any { it.equals(k, ignoreCase = true) }
+    val added = listOfNotNull(watch.keyword, watch.alternative).firstOrNull(::watching)
+    val full = keywords.size >= Keywords.MAX
+    val other = watch.alternative
+    val quiet = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+    FlowRow(verticalArrangement = Arrangement.Center) {
+        TextButton(onClick = { onAddKeyword(watch.keyword) }, enabled = added == null && !full) {
+            Text(
+                when {
+                    added != null -> "Watching for \u201c$added\u201d"
+                    full -> "Your keyword list is full"
+                    else -> "Watch for \u201c${watch.keyword}\u201d in new papers"
+                }
+            )
+        }
+        if (other != null && added == null && !full) {
+            TextButton(onClick = { onAddKeyword(other) }, colors = quiet) { Text("or \u201c$other\u201d") }
+        }
+        // Watching the other reading already, as anybody who watched a search before this was
+        // worked out is: "attention + mechanism" for "attention mechanism".
+        if (added != null && other != null && added.equals(other, ignoreCase = true)) {
+            TextButton(onClick = { onSwapKeyword(added, watch.keyword) }, colors = quiet) {
+                Text("Watch \u201c${watch.keyword}\u201d instead")
             }
         }
     }

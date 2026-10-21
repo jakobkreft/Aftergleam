@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,7 +74,8 @@ import si.jakobkreft.aftergleam.data.Venue
  * back gesture is handled here so that it closes the page before it closes settings.
  */
 private enum class Page(val title: String, val summary: String) {
-    SUBJECTS("Subjects and keywords", "What you follow, and words to watch for"),
+    SUBJECTS("Subjects", "The fields your digest is drawn from"),
+    KEYWORDS("Keywords", "Names and methods to watch for in any field"),
     APPEARANCE("Appearance", "Light and dark, colours, letterforms"),
     RANKING("Ranking", "How the digest is chosen, and how many"),
     NOTIFICATIONS("Notifications", "The daily note and keyword alerts"),
@@ -183,8 +185,9 @@ fun TuneScreen(
                     it != (if (donationsAllowed) Page.HELP else Page.SUPPORT)
                 },
             ) { page = it }
-            Page.SUBJECTS -> SubjectsPage(
-                topics, onTopics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
+            Page.SUBJECTS -> SubjectsPage(topics, onTopics, onOpenKeywords = { page = Page.KEYWORDS })
+            Page.KEYWORDS -> KeywordsPage(
+                topics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
                 onPrepareSpelling, keywordCounts, onReplaceKeywords, keywordCount,
                 keywordAlerts, requestAlerts,
             )
@@ -200,7 +203,7 @@ fun TuneScreen(
                 digestHour, reminderHour, reminderEnabled,
                 notificationsAllowed, onOpenSystemSettings, onDigestHour, onReminder,
                 keywords, keywordAlerts, keywordRates, onKeywordAlert,
-                onOpenKeywords = { page = Page.SUBJECTS },
+                onOpenKeywords = { page = Page.KEYWORDS },
             )
             Page.LIBRARY -> LibraryPage(
                 importSummary, backupSummary,
@@ -254,10 +257,15 @@ private fun PageBody(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
+/**
+ * Keywords, on their own page. They used to share one with the subjects, and readers took the
+ * two for one setting: adding "lanosterol" and then hunting for a subject to make it work. So
+ * the first line says what the page is for, outright, where the old page kept it behind a
+ * button: a keyword is looked for everywhere, whatever subjects are followed.
+ */
 @Composable
-private fun SubjectsPage(
+private fun KeywordsPage(
     topics: Set<String>,
-    onTopics: (Set<String>) -> Unit,
     keywords: List<String>,
     onAddKeyword: (String) -> Unit,
     onRemoveKeyword: (String) -> Unit,
@@ -269,39 +277,12 @@ private fun SubjectsPage(
     keywordAlerts: Set<String>,
     requestAlerts: ((Boolean) -> Unit) -> Unit,
 ) = PageBody {
-    // Keywords first: the list is short. The rule is behind an info button, said in full when
-    // asked for and otherwise out of the way, since most readers glance at this page and leave.
-    var explained by rememberSaveable { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Keywords", style = MaterialTheme.typography.titleSmall)
-        IconButton(onClick = { explained = !explained }) {
-            Icon(
-                androidx.compose.material.icons.Icons.Outlined.Info,
-                contentDescription = if (explained) "Hide how keywords work" else "How keywords work",
-                tint = if (explained) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-    androidx.compose.animation.AnimatedVisibility(explained) {
-        Column {
-            Text(
-                "Papers that mention one of these come first, from any field, marked with the " +
-                    "keyword. Matching is exact apart from capitals, hyphens and plurals: U-Net " +
-                    "also finds UNet, and RNA finds RNAs but never mRNA. Up to half of each digest.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Add each name a paper might use, such as C. elegans and Caenorhabditis elegans. " +
-                    "To find two words together, tap a keyword and add the other: " +
-                    "lanosterol + hypoxia finds only papers that mention both.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-    }
+    Text(
+        "Papers that mention a keyword come first in your digest, from every field, whether or " +
+            "not you follow its subject.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Spacer(Modifier.height(12.dp))
     KeywordEditor(
         keywords = keywords,
         onAdd = onAddKeyword,
@@ -315,20 +296,65 @@ private fun SubjectsPage(
         alerts = keywordAlerts,
         requestAlerts = requestAlerts,
     )
-    Spacer(Modifier.height(24.dp))
-    Text("Subjects", style = MaterialTheme.typography.titleSmall)
-    Spacer(Modifier.height(4.dp))
+    // How a keyword is matched, said in full when asked for and otherwise out of the way.
+    var explained by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick = { explained = !explained }, contentPadding = PaddingValues(horizontal = 0.dp)) {
+        Icon(
+            androidx.compose.material.icons.Icons.Outlined.Info,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(if (explained) "  Hide how keywords are matched" else "  How keywords are matched")
+    }
+    androidx.compose.animation.AnimatedVisibility(explained) {
+        Column {
+            Text(
+                "Matching is exact apart from capitals, hyphens and plurals: U-Net also finds " +
+                    "UNet, and RNA finds RNAs but never mRNA. Keyword papers take up to half of " +
+                    "each digest, marked with the keyword.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Add each name a paper might use, such as C. elegans and Caenorhabditis elegans. " +
+                    "To find two words together, tap a keyword and add the other: " +
+                    "lanosterol + hypoxia finds only papers that mention both.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(Modifier.height(32.dp))
+}
+
+/** The subjects, and where to go instead for a name or a method rather than a field. */
+@Composable
+private fun SubjectsPage(
+    topics: Set<String>,
+    onTopics: (Set<String>) -> Unit,
+    onOpenKeywords: () -> Unit,
+) = PageBody {
     // Onboarding promises these can be changed later, so they must be changeable.
     Text(
-        "These seed the ranking and decide which categories are fetched. Your reactions " +
-            "matter more as they accumulate.",
-        style = MaterialTheme.typography.bodySmall,
+        "The fields your digest is drawn from. They seed the ranking and decide which " +
+            "categories are fetched; your reactions matter more as they accumulate.",
+        style = MaterialTheme.typography.bodyMedium,
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     TopicFields(
         selected = topics,
         onToggle = { key -> onTopics(if (key in topics) topics - key else topics + key) },
     )
+    Spacer(Modifier.height(16.dp))
+    Text(
+        "To follow a name or a method in any field, such as CRISPR or H-Net, add it as a " +
+            "keyword. A keyword needs no subject.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    TextButton(onClick = onOpenKeywords, contentPadding = PaddingValues(horizontal = 0.dp)) {
+        Text("Keywords")
+    }
     Spacer(Modifier.height(32.dp))
 }
 

@@ -157,10 +157,22 @@ object Keywords {
     /** The pattern a keyword is found by, or null when it has no letters or digits at all. */
     fun pattern(keyword: String): Regex? = synchronized(patterns) {
         patterns.getOrPut(keyword) {
-            val parts = parts(keyword)
+            // A possessive's "s" is optional, not a part that must be there. One name is
+            // written Alzheimer's, Alzheimer’s, Alzheimers and Alzheimer disease, and read
+            // as parts the keyword "Alzheimer's disease" required an "s" after an apostrophe
+            // the separators did not allow, so it matched none of them.
+            val parts = mutableListOf<String>()
+            val possessive = HashSet<Int>()
+            for (m in PART.findAll(keyword)) {
+                val at = m.range.first
+                val isPossessive = m.value.equals("s", ignoreCase = true) && parts.isNotEmpty() &&
+                    keyword.getOrNull(at - 1) in APOSTROPHES && keyword.getOrNull(at - 2)?.isLetterOrDigit() == true
+                if (isPossessive) possessive += parts.lastIndex else parts += m.value
+            }
             if (parts.isEmpty()) return@getOrPut null
-            val head = parts.dropLast(1).map { Regex.escape(it) }
-            val body = (head + forms(parts.last())).joinToString(SEPARATOR)
+            val body = parts.mapIndexed { i, p ->
+                (if (i == parts.lastIndex) forms(p) else Regex.escape(p)) + if (i in possessive) POSSESSIVE else ""
+            }.joinToString(SEPARATOR)
             Regex("(?<![\\p{L}\\p{N}])$body(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE)
         }
     }
@@ -191,22 +203,106 @@ object Keywords {
     }
 
     /**
-     * A keyword for what a search asked for. The search requires every word, so the keyword
-     * does too, and a quoted phrase stays one word. It used to watch for the whole query as a
-     * single exact phrase, which almost nothing matched.
+     * A search as a keyword to watch: [keyword] is what the button watches, [alternative] the
+     * other reading of the same words, offered beside it, or null when there is only one.
      */
-    fun fromSearch(query: String, stopWords: Set<String> = emptySet()): String? {
-        val phrases = Regex("\"([^\"]+)\"").findAll(query).map { it.groupValues[1] }.toList()
-        val words = query.replace(Regex("\"[^\"]*\"?"), " ")
-            .split(Regex("[^\\p{L}\\p{N}+#.\\-]+"))
-            .map { it.trim('-', '.') }
-            .filter { it.length > 1 && it.lowercase() !in stopWords }
-        val terms = (phrases + words).distinctBy { it.lowercase() }
-        // More words than a keyword holds: watched as the phrase it was typed as, rather than
-        // as the first few words with the rest silently dropped.
-        if (terms.size > MAX_TERMS) return normalise(query.replace("\"", ""))
-        return join(terms)
+    data class Watch(val keyword: String, val alternative: String?)
+
+    /**
+     * What a search should be watched as, decided by what the search found.
+     *
+     * Words typed together are either the name of one thing, "attention mechanism", or
+     * several things wanted together, "cholesterol hypoxia", and a keyword has to know which.
+     * Watched word by word, "attention + mechanism" matches nearly every paper on
+     * transformers; watched as a phrase, "cholesterol hypoxia" matches nothing, since nobody
+     * writes it. The results say which. Measured on arXiv and Crossref, a name appears as the
+     * phrase in 67 to 100% of the results that have all its words ("sleep apnea" 92%, "theory
+     * of mind" 88%), and words that are separate ideas in 0 to 19% ("statin myopathy" 0%,
+     * "CRISPR gene editing" 7%).
+     *
+     * So neighbouring words are joined wherever at least [PHRASE_SHARE] of those results say
+     * them together, the most-said pair first, until no pair is: "hypoxia sleep apnea" becomes
+     * hypoxia + sleep apnea, "CRISPR gene editing" CRISPR + gene editing, and "theory of mind"
+     * stays one phrase with its "of". With no results to go by, every word is its own.
+     *
+     * Quotes are the reader saying it outright, and are followed as written.
+     */
+    fun watchFor(query: String, results: List<Paper>): Watch? {
+        val quoted = SearchTerms.of(query)
+        // A search answered by the author list follows a person, and a keyword is looked for in
+        // titles and abstracts, where an author's name almost never is: "Yann LeCun" as a
+        // keyword would find next to nothing of his. Not offered at all, rather than offered
+        // and quietly useless.
+        if (results.isNotEmpty()) {
+            val inText = results.count { quoted.foundIn(it.title + "\n" + it.abstract) }
+            val byAuthor = results.count {
+                !quoted.foundIn(it.title + "\n" + it.abstract) && quoted.foundIn(it.authors.joinToString(" "))
+            }
+            if (byAuthor > inText) return null
+        }
+        if (quoted.phrases.isNotEmpty()) return join(quoted.all)?.let { Watch(it, null) }
+
+        // Words with where they are in the query, so that a joined phrase is the reader's own
+        // text, "C. elegans" and not "C elegans". Single letters count here, as in T cell.
+        val tokens = QUERY_WORD.findAll(query).mapNotNull { m ->
+            val v = m.value
+            val lead = v.length - v.trimStart(*WORD_EDGES).length
+            val trail = v.length - v.trimEnd(*WORD_EDGES).length
+            if (lead + trail >= v.length) null else (m.range.first + lead)..(m.range.last - trail)
+        }.toList()
+        val words = tokens.filter {
+            val w = query.substring(it)
+            w.lowercase() !in SearchTerms.STOP_WORDS && parts(w).isNotEmpty()
+        }
+        if (words.isEmpty()) return null
+        fun text(from: IntRange, to: IntRange) = query.substring(from.first, to.last + 1)
+        val whole = join(listOf(text(words.first(), words.last()))) ?: return null
+        if (words.size > MAX_SEARCH_WORDS) return Watch(whole, null)
+
+        // Runs of words, each its first and its last word. A single letter is never an idea of
+        // its own but the start of a name, C. elegans or T cell, so it starts joined to the next.
+        val segments = mutableListOf<Pair<IntRange, IntRange>>()
+        for (w in words) {
+            val last = segments.lastOrNull()
+            if (last != null && text(last.first, last.second).length == 1) {
+                segments[segments.lastIndex] = last.first to w
+            } else segments += w to w
+        }
+        if (segments.size == 1) return Watch(whole, null)
+
+        val separate = segments.map { text(it.first, it.second) }
+        val texts = results.map { it.title + "\n" + it.abstract }
+        val withAll = texts.filter { t -> separate.all { mentions(t, it) } }
+        if (withAll.isNotEmpty()) {
+            while (segments.size > 1) {
+                var best = -1
+                var bestShare = PHRASE_SHARE
+                for (i in 0 until segments.size - 1) {
+                    val candidate = text(segments[i].first, segments[i + 1].second)
+                    val share = withAll.count { mentions(it, candidate) }.toFloat() / withAll.size
+                    if (share >= bestShare) {
+                        best = i
+                        bestShare = share
+                    }
+                }
+                if (best < 0) break
+                segments[best] = segments[best].first to segments[best + 1].second
+                segments.removeAt(best + 1)
+            }
+        }
+        val chosen = if (segments.size > MAX_TERMS) whole
+        else join(segments.map { text(it.first, it.second) }) ?: whole
+        val other = if (chosen.equals(whole, ignoreCase = true)) {
+            separate.takeIf { it.size <= MAX_TERMS }?.let(::join)
+        } else whole
+        return Watch(chosen, other?.takeUnless { it.equals(chosen, ignoreCase = true) })
     }
+
+    /** Share of a search's results that must say two words together for them to be one name. */
+    const val PHRASE_SHARE = 0.4f
+
+    /** Words in a search past which it is watched as typed, not worked out word by word. */
+    private const val MAX_SEARCH_WORDS = 8
 
     /** The first of [keywords], in the reader's order, that the paper's title or abstract mentions. */
     fun mentionedBy(paper: Paper, keywords: List<String>): String? {
@@ -313,9 +409,21 @@ object Keywords {
     private val GROUPED_TOKEN = Regex("[()\u0001\u0002,;\\n]|[^()\u0001\u0002,;\\n]+")
     private val PLAIN_TOKEN = Regex("[,;\\n]|[^,;\\n]+")
 
-    /** Between two parts: up to two of hyphen, dashes, space, dot, slash or LaTeX's tilde. */
-    private const val SEPARATOR = "[\\s\\-\\u2010\\u2011\\u2013\\u2014./~]{0,2}"
+    /** Between two parts: up to two of hyphen, dashes, space, dot, slash, apostrophe or LaTeX's tilde. */
+    private const val SEPARATOR = "[\\s\\-\\u2010\\u2011\\u2013\\u2014./~'\\u2019\\u02bc]{0,2}"
+
+    private val APOSTROPHES = setOf('\'', '\u2019', '\u02bc')
+
+    /** A possessive ending, with any of the apostrophes or none, or left off altogether. */
+    private const val POSSESSIVE = "(?:['\\u2019\\u02bc]?s)?"
 
     private val WORD = Regex("[a-z]+")
     private val TOKEN = Regex("[\\p{L}\\p{N}-]+")
+
+    /**
+     * A word of a search as [watchFor] reads it: Ca2+ and C++ keep their signs, Alzheimer's
+     * its apostrophe, and "C." loses its dot.
+     */
+    private val QUERY_WORD = Regex("[\\p{L}\\p{N}+#.\\-'\\u2019\\u02bc]+")
+    private val WORD_EDGES = charArrayOf('-', '.', '\'', '\u2019', '\u02bc')
 }
