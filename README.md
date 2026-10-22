@@ -15,6 +15,9 @@ your time. It learns what you like from how you react, and the model is trained 
 device. There is no account and nothing about your reading leaves your phone.
 
 <div>
+  <a href="https://play.google.com/store/apps/details?id=si.jakobkreft.aftergleam">
+    <img src="https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png" alt="Get it on Google Play" height="80">
+  </a>
   <a href="https://f-droid.org/packages/si.jakobkreft.aftergleam/">
     <img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="80">
   </a>
