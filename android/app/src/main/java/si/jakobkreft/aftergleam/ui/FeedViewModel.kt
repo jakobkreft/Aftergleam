@@ -49,6 +49,7 @@ import si.jakobkreft.aftergleam.data.Taste
 import si.jakobkreft.aftergleam.data.Topics
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.DigestBuilder
+import si.jakobkreft.aftergleam.rank.Explain
 import si.jakobkreft.aftergleam.rank.Ranker
 import si.jakobkreft.aftergleam.rank.Scored
 import si.jakobkreft.aftergleam.rank.SearchRanker
@@ -445,6 +446,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private fun prewarm() {
         viewModelScope.launch {
             warmModelNow()
+            refreshDrift()
             if (_state.value.popular.isEmpty()) loadPopular()
             if (_state.value.explore.isEmpty()) loadExplore()
         }
@@ -888,15 +890,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // appeared after a manual refresh would look broken.
                 val resurfaced = withContext(Dispatchers.IO) { findResurfaced() }
                 // Worked out before the state is read, not inside the copy: the copy's receiver
-                // is read first, so anything that changed while these ran, such as a paper or a
+                // is read first, so anything that changed while this ran, such as a paper or a
                 // search opened from a notification as the app starts, was written back over.
-                val drift = withContext(Dispatchers.IO) { computeDrift() }
                 val support = withContext(Dispatchers.IO) { supportCard() }
                 _state.value = _state.value.copy(
                     cards = cards,
                     cardsDay = null,
                     resurfaced = resurfaced,
-                    drift = drift,
                     support = support,
                 )
                 withContext(Dispatchers.IO) { refreshCatchUp() }
@@ -1333,7 +1333,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val evidenced = evidenceCount()
         val judged = judgedCount()
         val resurfaced = findResurfaced()
-        val drift = computeDrift()
         val support = supportCard()
         _state.update { it.copy(
             loading = false,
@@ -1355,7 +1354,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             judgedCount = judged,
             modelActive = evidenced >= Ranker.MIN_RATINGS,
             resurfaced = resurfaced,
-            drift = drift,
             support = support,
         ) }
         refreshCatchUp()
@@ -1368,7 +1366,17 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * Two weeks is short enough that a change of project shows up and long enough that a
      * single evening of reading does not look like a trend.
      */
-    private fun computeDrift(): Drift.Report {
+    /**
+     * The reading card, from the model the digest ranks with: a paper's themes are its reasons,
+     * worked out as a card's are. Done once the digest is on screen and the model is warm, off
+     * the main thread, so opening the app does not wait for a card at the bottom of the list.
+     */
+    private suspend fun refreshDrift() {
+        val drift = withContext(Dispatchers.Default) { computeDrift(cachedModel) }
+        _state.update { it.copy(drift = drift) }
+    }
+
+    private fun computeDrift(model: Ranker.Model?): Drift.Report {
         val now = System.currentTimeMillis()
         val fortnight = 14L * 24 * 60 * 60 * 1000
         val today = LocalDate.now()
@@ -1379,6 +1387,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         return Drift.compute(
             recent = db.ratedBetween(now - fortnight, now),
             earlier = db.ratedBetween(now - 2 * fortnight, now - fortnight),
+            reasons = model?.let { Explain.reasons(ratedDocs(), it.vec) },
             explorationJudged = judged,
             explorationLiked = liked,
         )

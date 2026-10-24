@@ -445,13 +445,20 @@ private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
-                if (report.rising.isNotEmpty()) {
-                    Text("More of: " + report.rising.joinToString(", "),
-                        style = MaterialTheme.typography.bodySmall)
-                }
-                if (report.falling.isNotEmpty()) {
-                    Text("Less of: " + report.falling.joinToString(", "),
-                        style = MaterialTheme.typography.bodySmall)
+                // Compared with the fortnight before when there is one worth comparing with,
+                // otherwise simply what the last fortnight was about.
+                val more = if (report.compared) report.more else emptyList()
+                val less = if (report.compared) report.less else emptyList()
+                Text(
+                    when {
+                        more.isNotEmpty() -> "More of: " + more.joinToString(", ")
+                        report.lately.isNotEmpty() -> "Lately: " + report.lately.joinToString(", ")
+                        else -> "What you have read lately has no subject in common yet."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (less.isNotEmpty()) {
+                    Text("Less of: " + less.joinToString(", "), style = MaterialTheme.typography.bodySmall)
                 }
                 if (report.recurringAuthors.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))

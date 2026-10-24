@@ -1,5 +1,7 @@
 package si.jakobkreft.aftergleam.rank
 
+import si.jakobkreft.aftergleam.data.Paper
+
 /**
  * Why a card is in the digest, worked out from the papers the reader actually kept.
  *
@@ -64,6 +66,25 @@ object Explain {
             .toList()
 
     /**
+     * What any paper is about, in the reader's terms, worked out as a card's reason is: the
+     * words it shares with the kept paper it is most like, as a caption shows them. A paper is
+     * never its own reason, so one the reader kept is measured against the others. Empty when
+     * nothing kept is near enough to claim a resemblance.
+     */
+    fun reasons(rated: List<RatedDoc>, vec: Tfidf): (Paper) -> List<String> {
+        val kept = rated.asSequence()
+            .filter { it.interest >= REFERENCE_INTEREST }
+            .map { it.paperId to vec.transform(it.text) }
+            .filter { !it.second.isEmpty() }
+            .toList()
+        return { paper ->
+            val others = kept.filter { it.first != paper.id }.map { it.second }
+            match(vec.transform(paper.rankText), others, vec, text = paper.rankText)
+                ?.let { m -> Caption.terms(m.terms).map { Caption.cased(it, paper.rankText) } }.orEmpty()
+        }
+    }
+
+    /**
      * The best resemblance between [candidate] and anything in [references].
      *
      * Returns null when nothing resembles it well enough to be worth claiming. Each pair is
@@ -83,6 +104,11 @@ object Explain {
          * power" because "power law" fell outside a shorter pool.
          */
         candidates: Int = 20,
+        /**
+         * The candidate's own text, when known. A two-word term it does not say as a phrase is
+         * two words that are neighbours across a full stop, and is left out of the reason.
+         */
+        text: String? = null,
     ): Match? {
         if (candidate.isEmpty() || references.isEmpty()) return null
 
@@ -118,8 +144,13 @@ object Explain {
             }
         }
         shared.sortByDescending { it.second }
+        val said = text?.let(Tfidf::phrases)
         return Match(
-            shared.take(candidates).mapNotNull { vec.termAt(it.first) },
+            shared.asSequence()
+                .mapNotNull { vec.termAt(it.first) }
+                .filter { said == null || '_' !in it || it in said }
+                .take(candidates)
+                .toList(),
             bestStrength,
         )
     }

@@ -125,13 +125,33 @@ class Tfidf(
                 .replace(LATEX_CMD_RE, " ")
 
         fun terms(doc: String): List<String> {
-            val words = Regex("[^a-z0-9]+").split(clean(doc))
-                .filter { it.length > 2 && it !in STOP && !it.all { c -> c.isDigit() } }
+            val words = words(clean(doc))
             if (words.size < 2) return words
             val out = ArrayList<String>(words.size * 2)
             out.addAll(words)
             for (i in 0 until words.size - 1) out.add(words[i] + "_" + words[i + 1])
             return out
         }
+
+        /**
+         * The two-word terms [doc] really says: as [terms] makes them, but never across the end
+         * of a sentence or a clause. The vectoriser's own pairs cross them, which does a ranking
+         * no harm and a caption real harm: "video generation. Both experiments" is not about
+         * "generation both".
+         */
+        fun phrases(doc: String): Set<String> {
+            val out = HashSet<String>()
+            for (clause in CLAUSE_END.split(clean(doc))) {
+                val words = words(clause)
+                for (i in 0 until words.size - 1) out += words[i] + "_" + words[i + 1]
+            }
+            return out
+        }
+
+        private fun words(text: String): List<String> =
+            NOT_A_WORD.split(text).filter { it.length > 2 && it !in STOP && !it.all { c -> c.isDigit() } }
+
+        private val NOT_A_WORD = Regex("[^a-z0-9]+")
+        private val CLAUSE_END = Regex("[.,;:!?()\\[\\]]")
     }
 }

@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.rank.Caption
 import si.jakobkreft.aftergleam.rank.Explain
 import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Scored
@@ -75,6 +76,51 @@ class ExplainTest {
             RatedDoc(null, kept[2], 0.95f),   // liked
         )
         assertEquals(1, Explain.references(rated, vec).size)
+    }
+
+    @Test
+    fun `a fragment cut across a hyphen is trimmed to its subject`() {
+        // "transformer-based world models" gives the vectoriser "based world". Without its
+        // verb it is "world", which is then shown as the phrase it belongs to.
+        val why = Scored(
+            paper = paper(),
+            score = 0f,
+            relevance = 0.9f,
+            slot = Slot.RELEVANCE,
+            reasonTerms = listOf("based_world", "world_models", "video"),
+        ).why()
+        assertEquals("matches world models, video", why)
+    }
+
+    @Test
+    fun `a term is shown in the capitals the paper gives it, not those of a sentence start`() {
+        assertEquals("LoRA", Caption.cased("lora", "We adapt with LoRA, unlike FlyLoRA or full fine-tuning."))
+        assertEquals("LLM agents", Caption.cased("llm agents", "Planning with LLM-agents in the loop."))
+        assertEquals("audio", Caption.cased("audio", "Audio is hard. We study audio."))
+        assertEquals("a title's capitals are not the term's", "world models",
+            Caption.cased("world models", "Video Generation With World Models"))
+    }
+
+    @Test
+    fun `two words either side of a full stop are not a phrase`() {
+        val said = Tfidf.phrases("We study video generation. Both settings use world-models, at scale")
+        assertTrue("video_generation" in said)
+        assertTrue("a hyphen joins a phrase", "world_models" in said)
+        assertTrue("generation_both" !in said && "models_scale" !in said)
+    }
+
+    @Test
+    fun `a paper's reason comes from another kept paper, never from itself`() {
+        val vec = fitted()
+        fun doc(id: String, text: String) = Paper(id, text, text, listOf("A"), listOf("cs.CV"), "2026-09-01", "2026-09-01")
+        val rated = kept.mapIndexed { i, text -> RatedDoc("k$i", text, 0.9f) }
+        val reasons = Explain.reasons(rated, vec)
+
+        val own = reasons(doc("k0", kept[0]))
+        assertTrue("a kept paper is matched against the others: $own", own.isNotEmpty() && "diffusion" in own.joinToString(" "))
+        assertTrue("and named in the caption's words", own.none { '_' in it })
+        assertEquals("nothing kept resembles this", emptyList<String>(),
+            reasons(doc("u", "byzantine robust aggregation for federated optimisation bounds")))
     }
 
     @Test

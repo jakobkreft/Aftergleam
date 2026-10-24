@@ -1,74 +1,109 @@
 package si.jakobkreft.aftergleam
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import si.jakobkreft.aftergleam.data.Drift
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.rank.Explain
+import si.jakobkreft.aftergleam.rank.RatedDoc
+import si.jakobkreft.aftergleam.rank.Tfidf
 
+/**
+ * The reading card: themes named in the words the cards use, compared fortnight to fortnight,
+ * and silence where there is not enough to say.
+ */
 class DriftTest {
 
-    private fun rated(text: String, interest: Float, authors: List<String> = listOf("A. Author")) =
+    private var next = 0
+
+    private fun read(text: String, interest: Float = 0.9f, authors: List<String> = listOf("A. Author")) =
         Paper(
-            id = text.hashCode().toString(), title = text, abstract = text,
+            id = "p${next++}", title = text, abstract = text,
             authors = authors, categories = listOf("cs.CV"),
             published = "2026-09-01", updated = "2026-09-01",
         ) to interest
 
-    @Test
-    fun `a shift in reading shows up as rising and falling topics`() {
-        val earlier = List(6) { rated("generative adversarial network image synthesis $it", 0.9f) }
-        val recent = List(6) { rated("diffusion transformer video generation model $it", 0.9f) }
-        val r = Drift.compute(recent, earlier, explorationJudged = 0, explorationLiked = 0)
+    /** Each paper's reason is what its title says, comma-separated: a stand-in for the model. */
+    private val byTitle: (Paper) -> List<String> = { p -> p.title.split(",").map { it.trim() } }
 
-        // Every term in a window carries the same weight here, so which three surface is a
-        // tie-break and not worth asserting. What matters is that risers come from the new
-        // vocabulary and fallers from the old one.
-        val newWords = setOf("diffusion", "transformer", "video", "generation", "model")
-        val oldWords = setOf("generative", "adversarial", "network", "image", "synthesis")
-        assertTrue("risers must come from the recent vocabulary, got ${r.rising}",
-            r.rising.isNotEmpty() && r.rising.all { it in newWords })
-        assertTrue("fallers must come from the earlier vocabulary, got ${r.falling}",
-            r.falling.isNotEmpty() && r.falling.all { it in oldWords })
+    private fun compute(recent: List<Pair<Paper, Float>>, earlier: List<Pair<Paper, Float>> = emptyList()) =
+        Drift.compute(recent, earlier, byTitle, explorationJudged = 0, explorationLiked = 0)
+
+    @Test
+    fun `a shift in reading shows as more of the new themes and less of the old`() {
+        val earlier = List(6) { read("image segmentation, medical imaging") }
+        val recent = List(6) { read("world models, video generation") }
+        val r = compute(recent, earlier)
+        assertTrue(r.compared)
+        assertEquals(setOf("world models", "video generation"), r.more.toSet())
+        assertEquals(setOf("image segmentation", "medical imaging"), r.less.toSet())
     }
 
     @Test
-    fun `reading more of everything is not reported as a rise in everything`() {
-        val earlier = List(6) { rated("diffusion model image synthesis $it", 0.9f) }
-        // Same topic, simply twice as much of it.
-        val recent = List(12) { rated("diffusion model image synthesis $it", 0.9f) }
-        val r = Drift.compute(recent, earlier, 0, 0)
-        assertTrue("comparing shares, not counts, should keep this flat: ${r.rising}",
-            r.rising.none { it == "diffusion" })
+    fun `reading more of the same is not a rise`() {
+        val earlier = List(6) { read("world models") }
+        val recent = List(12) { read("world models") }
+        val r = compute(recent, earlier)
+        assertEquals(emptyList<String>(), r.more)
+        assertEquals(listOf("world models"), r.lately)
     }
 
     @Test
-    fun `too little history is reported as such rather than invented`() {
-        val r = Drift.compute(
-            recent = List(2) { rated("diffusion $it", 0.9f) },
-            earlier = List(1) { rated("gan $it", 0.9f) },
-            explorationJudged = 0, explorationLiked = 0,
+    fun `a theme needs two papers behind it`() {
+        val recent = List(5) { read("world models") } + read("lattice gauge theory")
+        assertEquals(listOf("world models"), compute(recent).lately)
+    }
+
+    @Test
+    fun `plurals are one theme, and a phrase stands for its word`() {
+        val recent = listOf(
+            read("world model"), read("world models"), read("world"), read("world"),
+            read("audio, cross modal"), read("audio"),
         )
-        assertTrue("two papers is not a trend", r.thin)
+        val lately = compute(recent).lately
+        assertTrue("one subject, named by its phrase: $lately", lately.count { "world" in it } == 1)
+        assertTrue(lately.any { it.startsWith("world model") })
+        assertTrue("audio" in lately)
     }
 
     @Test
-    fun `disliked papers do not shape the picture`() {
-        val earlier = List(6) { rated("diffusion image synthesis $it", 0.9f) }
-        val recent = List(6) { rated("quantum chromodynamics lattice $it", 0.05f) }
-        val r = Drift.compute(recent, earlier, 0, 0)
-        assertTrue("a rejected topic must not count as rising: ${r.rising}",
-            r.rising.none { it.contains("quantum") || it.contains("lattice") })
+    fun `one paper's capitals name the theme for all of them`() {
+        val recent = listOf(read("lora"), read("LoRA"), read("lora")) + List(3) { read("audio") }
+        assertTrue(compute(recent).lately.contains("LoRA"))
+    }
+
+    @Test
+    fun `papers opened count less than papers liked`() {
+        val recent = List(3) { read("world models", 0.25f) } + List(3) { read("audio", 0.95f) }
+        assertEquals("audio", compute(recent).lately.first())
+    }
+
+    @Test
+    fun `rejected papers do not shape the picture`() {
+        val recent = List(6) { read("world models") } + List(6) { read("lattice gauge theory", 0f) }
+        val r = compute(recent)
+        assertEquals(6, r.recentCount)
+        assertTrue(r.lately.none { "lattice" in it })
+    }
+
+    @Test
+    fun `too little reading, or no model yet, is said rather than invented`() {
+        assertTrue("four papers is not a fortnight's reading", compute(List(4) { read("world models") }).thin)
+        val noModel = Drift.compute(List(8) { read("world models") }, emptyList(), reasons = null, 0, 0)
+        assertTrue(noModel.thin)
+        assertFalse("nothing before to compare with", compute(List(6) { read("audio") }).compared)
     }
 
     @Test
     fun `repeatedly liked authors surface`() {
         val papers = listOf(
-            rated("panoramic diffusion outpainting one", 0.9f, listOf("Jane Roe", "X Y")),
-            rated("panoramic diffusion outpainting two", 0.9f, listOf("Jane Roe")),
-            rated("something else entirely here", 0.9f, listOf("Other Person")),
+            read("panoramic diffusion", 0.9f, listOf("Jane Roe", "X Y")),
+            read("panoramic outpainting", 0.9f, listOf("Jane Roe")),
+            read("something else entirely", 0.9f, listOf("Other Person")),
         )
-        val r = Drift.compute(papers, emptyList(), 0, 0)
+        val r = compute(papers)
         assertTrue("expected the repeated author, got ${r.recurringAuthors}",
             r.recurringAuthors.any { it.startsWith("Jane Roe") })
         assertTrue("a single appearance is not a pattern",
@@ -77,16 +112,41 @@ class DriftTest {
 
     @Test
     fun `the exploration note is honest when exploration is failing`() {
-        val r = Drift.compute(emptyList(), emptyList(), explorationJudged = 10, explorationLiked = 0)
+        val r = Drift.compute(emptyList(), emptyList(), byTitle, explorationJudged = 10, explorationLiked = 0)
         val note = r.explorationNote()
-        assertTrue("a total miss must be stated: $note",
-            note != null && note.contains("wrong direction"))
-        assertTrue("the count must be of cards the user judged, not cards shown: $note",
-            note!!.contains("you rated"))
+        assertTrue("a total miss must be stated: $note", note != null && note.contains("wrong direction"))
+        assertTrue("the count must be of cards the user judged, not cards shown: $note", note!!.contains("you rated"))
     }
 
     @Test
     fun `no exploration note when there is not enough to judge`() {
-        assertEquals(null, Drift.compute(emptyList(), emptyList(), 3, 0).explorationNote())
+        assertEquals(null, Drift.compute(emptyList(), emptyList(), byTitle, 3, 0).explorationNote())
+    }
+
+    @Test
+    fun `themes are subjects, never the words every abstract uses`() {
+        // The words the old card reported, "both, four, show", are in every abstract here.
+        // The subjects are shared by some papers only, which is what a reason is made of.
+        fun abstract(subject: String) =
+            "We show both results in four settings. $subject. Both experiments show that the approach works in four cases."
+        val kept = listOf(
+            "world models for video generation", "video generation with world models",
+            "audio visual contrastive learning", "contrastive audio visual pretraining",
+        )
+        val read = listOf(
+            "learned world models predict video generation", "world models and video generation at scale",
+            "audio visual contrastive learning from video", "contrastive audio visual alignment",
+            "world models for robot video generation", "audio visual contrastive retrieval",
+        ).map { read(abstract(it)) }
+        val unrelated = List(20) { abstract("lattice gauge theory number $it") }
+        val vec = Tfidf(minDf = 1).apply { fit(kept.map(::abstract) + read.map { it.first.rankText } + unrelated) }
+        val rated = kept.mapIndexed { i, text -> RatedDoc("k$i", abstract(text), 0.9f) }
+
+        val lately = Drift.compute(read, emptyList(), Explain.reasons(rated, vec), 0, 0).lately
+        assertTrue("expected subjects, got $lately", lately.isNotEmpty())
+        val words = lately.flatMap { it.split(' ') }
+        assertTrue("no filler in $lately", words.none { it in setOf("both", "four", "show", "results", "settings", "approach") })
+        assertTrue("the subjects come through: $lately",
+            words.any { it in setOf("world", "models", "video", "generation", "audio", "visual", "contrastive") })
     }
 }
