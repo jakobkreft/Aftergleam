@@ -1,0 +1,3 @@
+- Your reading, lately names real subjects, such as LoRA or world models, instead of everyday words
+- The reasons on cards keep acronyms as papers write them, such as LoRA and NeRF, and no longer pair words across sentences
+- Keywords show whether their alerts are on, and open with a tap to combine, change alerts or remove them, so a stray tap no longer deletes one
