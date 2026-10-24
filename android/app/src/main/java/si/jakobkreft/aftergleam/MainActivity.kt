@@ -558,7 +558,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSupportReminder = vm::setSupportReminder,
                             keywords = state.keywords,
                             onAddKeyword = vm::addKeyword,
-                            onRemoveKeyword = vm::removeKeyword,
                             suggestKeyword = vm::keywordSuggestion,
                             onPrepareSpelling = vm::prepareSpelling,
                             keywordCounts = state.keywordCounts,

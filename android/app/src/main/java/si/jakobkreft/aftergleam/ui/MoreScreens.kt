@@ -142,7 +142,6 @@ fun TuneScreen(
     onFeedback: () -> Unit = {},
     keywords: List<String> = emptyList(),
     onAddKeyword: (String) -> Unit = {},
-    onRemoveKeyword: (String) -> Unit = {},
     suggestKeyword: suspend (String) -> String? = { null },
     onPrepareSpelling: () -> Unit = {},
     keywordCounts: Map<String, Int> = emptyMap(),
@@ -190,7 +189,7 @@ fun TuneScreen(
             ) { page = it }
             Page.SUBJECTS -> SubjectsPage(topics, onTopics, onOpenKeywords = { page = Page.KEYWORDS })
             Page.KEYWORDS -> KeywordsPage(
-                topics, keywords, onAddKeyword, onRemoveKeyword, suggestKeyword,
+                topics, keywords, onAddKeyword, suggestKeyword,
                 onPrepareSpelling, keywordCounts, onReplaceKeywords, keywordCount,
                 keywordAlerts, requestAlerts,
             )
@@ -271,7 +270,6 @@ private fun KeywordsPage(
     topics: Set<String>,
     keywords: List<String>,
     onAddKeyword: (String) -> Unit,
-    onRemoveKeyword: (String) -> Unit,
     suggestKeyword: suspend (String) -> String?,
     onPrepareSpelling: () -> Unit,
     keywordCounts: Map<String, Int>,
@@ -289,7 +287,6 @@ private fun KeywordsPage(
     KeywordEditor(
         keywords = keywords,
         onAdd = onAddKeyword,
-        onRemove = onRemoveKeyword,
         suggest = suggestKeyword,
         placeholder = keywordExample(topics),
         onReady = onPrepareSpelling,

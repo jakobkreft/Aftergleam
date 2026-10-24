@@ -2,9 +2,7 @@ package si.jakobkreft.aftergleam.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,8 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -36,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -53,17 +51,17 @@ import si.jakobkreft.aftergleam.data.Topics
  * turn LoRA or a protein's name into an ordinary word nobody asked for; the check already
  * leaves acronyms alone, and the question covers whatever it gets wrong anyway.
  *
- * Tapping a keyword opens it for combining, in place: see [CombineCard]. A one-word keyword
- * keeps its cross, which removes it in one tap. A combined one has none, since a cross on
- * "lanosterol + hypoxia" reads as taking a word out of it as easily as removing all of it;
- * it opens instead, where each word has its own.
+ * Tapping a keyword opens it, in place: see [CombineCard]. That is where it is combined, where
+ * its bell is rung and where it is removed. Each chip shows its bell, on or off, and a pencil
+ * that says there is more behind it. There is no cross: a small one beside the label was hit
+ * by readers reaching for the keyword, and a keyword gone that way took its combination and
+ * its bell with it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeywordEditor(
     keywords: List<String>,
     onAdd: (String) -> Unit,
-    onRemove: (String) -> Unit,
     suggest: suspend (String) -> String?,
     placeholder: String,
     modifier: Modifier = Modifier,
@@ -161,35 +159,32 @@ fun KeywordEditor(
                             selected = false,
                             onClick = { combining = Combining(keywords, i, alert = keyword in alerts) },
                             label = { Text(keywordLabel(keyword)) },
-                            // A small bell for a keyword that has one rung, as a channel shows it.
-                            leadingIcon = if (keyword !in alerts) null else {
-                                {
-                                    Icon(
-                                        Icons.Filled.Notifications,
-                                        contentDescription = "Alerts on",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
+                            // The bell's state, on or off, as a channel shows it. Changed in the
+                            // keyword itself, not here: a target this small is hit by accident.
+                            leadingIcon = {
+                                val on = keyword in alerts
+                                Icon(
+                                    if (on) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                                    contentDescription = if (on) "Alerts on" else "Alerts off",
+                                    tint = if (on) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
                             },
-                            trailingIcon = if (Keywords.isCombined(keyword)) null else {
-                                {
-                                    Box(
-                                        Modifier
-                                            .size(28.dp)
-                                            .clickable(onClickLabel = "Remove $keyword") { onRemove(keyword) },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Remove $keyword",
-                                            modifier = Modifier.size(16.dp))
-                                    }
-                                }
+                            // Not a button of its own: the whole chip opens the keyword.
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Outlined.Edit,
+                                    contentDescription = "Edit",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
                             },
                         )
                     }
                 }
                 Text(
-                    "Tap a keyword to combine it with another word, so that a paper must mention both.",
+                    "Tap a keyword to combine it with another word, turn its alerts on or off, or remove it.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

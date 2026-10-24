@@ -1125,11 +1125,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         setKeywords(current + keyword)
     }
 
-    fun removeKeyword(keyword: String) {
-        setKeywords(prefs.keywords - keyword)
-        setAlerts(prefs.keywordAlerts.keys - keyword)
-    }
-
     /**
      * The keywords as the reader left them after combining, in their order, and those with
      * their bell on. One change when the combining is done, so a combination's papers are
