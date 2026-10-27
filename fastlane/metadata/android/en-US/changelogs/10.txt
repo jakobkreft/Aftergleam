@@ -1,1 +1,1 @@
-- Notifications are on by default again: the app asks once after setup, and the daily note comes at 10:00
+- Notifications: the app asks once after setup, and the daily note comes at 10:00
