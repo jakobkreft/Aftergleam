@@ -99,14 +99,37 @@ class NotificationsTest {
     }
 
     @Test
-    fun `the old settings become the daily note for readers who had either, and not for a new install`() {
+    fun `everyone is asked once, after onboarding, and a yes turns the daily note on at ten`() {
         val prefs = Prefs(ctx)
-        assertFalse("a new install is asked instead", Notifications.migrate(ctx, prefs))
+        assertFalse("not during onboarding", Notifications.promptDue(prefs))
+        prefs.onboarded = true
+        assertTrue(Notifications.promptDue(prefs))
 
-        val existing = Prefs(ctx).apply { notesMigrated = false; onboarded = true; notifyEnabled = true }
-        assertTrue(Notifications.migrate(ctx, existing))
-        existing.reminderEnabled = false
-        assertFalse("once only", Notifications.migrate(ctx, existing))
+        assertTrue(Notifications.promptAnswered(prefs, granted = true, today))
+        assertTrue(prefs.reminderEnabled)
+        assertEquals(10, prefs.reminderHour)
+        assertFalse("asked once", Notifications.promptDue(prefs))
+        assertFalse("nothing to offer after a yes", Notifications.offerDue(prefs, today.plusDays(1)))
+    }
+
+    @Test
+    fun `a yes leaves alone a note the reader switched off, and keeps the hour they chose`() {
+        val prefs = Prefs(ctx).apply { onboarded = true; reminderEnabled = false; reminderHour = 14 }
+        assertFalse(Notifications.promptAnswered(prefs, granted = true, today))
+        val chosen = Prefs(ctx).apply { reminderEnabled = true }
+        assertTrue(Notifications.promptAnswered(chosen, granted = true, today))
+        assertEquals(14, chosen.reminderHour)
+    }
+
+    @Test
+    fun `after a no the digest offers the note once, from the next day, until it is answered`() {
+        val prefs = Prefs(ctx).apply { onboarded = true }
+        assertFalse(Notifications.promptAnswered(prefs, granted = false, today))
+        assertFalse("not asked again", Notifications.promptDue(prefs))
+        assertFalse("not on the day of the no", Notifications.offerDue(prefs, today))
+        assertTrue(Notifications.offerDue(prefs, today.plusDays(1)))
+        prefs.noteOfferAnswered = true
+        assertFalse("answered, either way, it does not return", Notifications.offerDue(prefs, today.plusDays(2)))
     }
 
     @Test

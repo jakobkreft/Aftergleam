@@ -195,11 +195,7 @@ data class FeedState(
     val keywordRates: Map<String, Float> = emptyMap(),
     /** The keywords with their bell on. See [KeywordAlerts]. */
     val keywordAlerts: Set<String> = emptySet(),
-    /**
-     * Whether today's digest ends by offering the daily note. Once, at the end of the first
-     * digest, which is the moment the reader knows what the note would be about; never as a
-     * system dialog on first launch, before they have seen a single paper.
-     */
+    /** Whether today's digest ends by offering the daily note. See [Notifications.offerDue]. */
     val noteOffer: Boolean = false,
     /** The note that ends today's digest, if it is due. See [Support]. */
     val support: Support.Card? = null,
@@ -233,7 +229,7 @@ data class FeedState(
      * twice, and a switch that flips anyway would be reporting a setting that does nothing.
      */
     val reminderEnabled: Boolean = false,
-    val reminderHour: Int = 19,
+    val reminderHour: Int = 10,
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
     val reading: Paper? = null,
@@ -1727,21 +1723,23 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(reminderEnabled = v, noteOffer = noteOfferDue())
     }
 
-    private fun noteOfferDue(): Boolean =
-        prefs.onboarded && !prefs.notificationsAsked && !prefs.reminderEnabled
+    private fun noteOfferDue(): Boolean = Notifications.offerDue(prefs)
 
-    /** The offer at the end of the first digest was answered, either way. It does not return. */
+    /** The offer at the end of the digest was answered, whichever way. It does not return. */
     fun noteOfferAnswered() {
-        prefs.notificationsAsked = true
+        prefs.noteOfferAnswered = true
         _state.value = _state.value.copy(noteOffer = false)
     }
 
+    /** Whether to ask now for notifications. See [Notifications.promptDue]. */
+    fun notificationPromptDue() = Notifications.promptDue(prefs)
+
     /**
-     * Carries the old notification settings over, once. See [Notifications.migrate].
+     * The answer to that question. See [Notifications.promptAnswered].
      * @return whether the daily note is on, so the caller can schedule it.
      */
-    fun migrateNotifications(): Boolean {
-        val on = Notifications.migrate(getApplication(), prefs)
+    fun notificationPromptAnswered(granted: Boolean): Boolean {
+        val on = Notifications.promptAnswered(prefs, granted)
         _state.value = _state.value.copy(reminderEnabled = on, noteOffer = noteOfferDue())
         return on
     }
@@ -1782,10 +1780,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Records that the prompt has been shown, whatever the answer. */
-    fun markNotificationsAsked() { prefs.notificationsAsked = true }
-
-    fun notificationsAsked() = prefs.notificationsAsked
     fun setLibraryOrder(shelf: LibraryShelf, order: LibraryOrder) {
         prefs.setLibraryOrder(shelf.name, order.name)
         _state.value = _state.value.copy(libraryOrders = _state.value.libraryOrders + (shelf to order))

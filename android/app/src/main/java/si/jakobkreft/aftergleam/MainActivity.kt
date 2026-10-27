@@ -167,7 +167,6 @@ private fun App(vm: FeedViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         // Declining is fine: the digest still builds, it just does not announce itself.
-        vm.markNotificationsAsked()
         onPermissionResult?.invoke(granted)
         onPermissionResult = null
     }
@@ -288,16 +287,20 @@ private fun App(vm: FeedViewModel = viewModel()) {
 
         // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
         // also repairs the schedule if the user cleared app data or rebooted.
-        //
-        // Nothing is asked for here. The permission dialog used to open on the first launch,
-        // before the reader had seen a single paper, and a yes quietly switched on a reminder.
-        // It is asked for now when a notification is turned on: from the offer at the end of
-        // the first digest, in settings, or by a keyword's bell.
         LaunchedEffect(Unit) {
             DailyDigestWorker.schedule(context, vm.currentDigestHour())
             MetadataRefreshWorker.schedule(context)
             Notifications.ensureChannels(context)
-            if (vm.migrateNotifications()) {
+            // Notifications are on by default, which on Android 13 and later means asking:
+            // once, as onboarding ends, or at the next open for somebody who had the app
+            // before. A yes turns the daily note on; a no is not asked again here.
+            if (vm.notificationPromptDue()) {
+                withNotificationPermission(true) { granted ->
+                    if (vm.notificationPromptAnswered(granted)) {
+                        ReminderWorker.schedule(context, vm.currentReminderHour())
+                    }
+                }
+            } else if (vm.currentReminderEnabled()) {
                 ReminderWorker.schedule(context, vm.currentReminderHour())
             }
             if (state.keywordAlerts.isNotEmpty()) KeywordAlertWorker.schedule(context)
@@ -694,13 +697,25 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             tuneStart = if (state.donationsAllowed) "SUPPORT" else "HELP"
                             showTune = true
                         },
-                        onNoteOffer = { yes ->
-                            if (!yes) vm.noteOfferAnswered()
-                            else withNotificationPermission(true) { granted ->
+                        onNoteYes = {
+                            withNotificationPermission(true) { granted ->
                                 vm.setReminderEnabled(granted)
-                                if (granted) ReminderWorker.schedule(context, vm.currentReminderHour())
                                 vm.noteOfferAnswered()
+                                if (granted) {
+                                    ReminderWorker.schedule(context, vm.currentReminderHour())
+                                } else {
+                                    // Android would not allow it, after earlier refusals or with
+                                    // notifications off in its settings. The page says how.
+                                    tuneStart = "NOTIFICATIONS"
+                                    showTune = true
+                                }
                             }
+                        },
+                        onNoteNo = vm::noteOfferAnswered,
+                        onNoteSettings = {
+                            vm.noteOfferAnswered()
+                            tuneStart = "NOTIFICATIONS"
+                            showTune = true
                         },
                     )
                     Tab.EXPLORE -> ExploreScreen(

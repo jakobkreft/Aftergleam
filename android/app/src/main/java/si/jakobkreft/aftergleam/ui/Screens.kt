@@ -74,8 +74,10 @@ fun FeedScreen(
     onSupportLater: () -> Unit = {},
     /** The support page, where the note can be switched off. */
     onSupportSettings: () -> Unit = {},
-    /** The offer of the daily note answered: yes, which asks for permission, or no. */
-    onNoteOffer: (Boolean) -> Unit = {},
+    /** The offer of the daily note answered: turn it on, no, or open its settings. */
+    onNoteYes: () -> Unit = {},
+    onNoteNo: () -> Unit = {},
+    onNoteSettings: () -> Unit = {},
 ) {
     when {
         state.loading -> DigestSkeleton(state.loadingLabel.ifBlank { "Working" })
@@ -194,10 +196,10 @@ fun FeedScreen(
             }
             item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
-            // Once, after the first digest has been read through: the reader now knows what a
-            // note about tomorrow's would name, which a dialog on first launch could not show.
+            // For a reader who said no when asked to allow notifications: one more chance, from
+            // the next day, after the papers rather than over them. See [Notifications.offerDue].
             if (state.noteOffer && state.cards.isNotEmpty()) {
-                item(key = "note-offer") { NoteOfferCard(state.reminderHour, onNoteOffer) }
+                item(key = "note-offer") { NoteOfferCard(onNoteYes, onNoteNo, onNoteSettings) }
             }
         }
         }
@@ -489,7 +491,7 @@ private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
  * things Play does allow: a rating, and a word to a colleague.
  */
 @Composable
-private fun NoteOfferCard(hour: Int, onAnswer: (Boolean) -> Unit) {
+private fun NoteOfferCard(onYes: () -> Unit, onNo: () -> Unit, onSettings: () -> Unit) {
     Card(Modifier.fillMaxWidth(), elevation = flatCard()) {
         Column(Modifier.padding(16.dp)) {
             Text(
@@ -504,9 +506,13 @@ private fun NoteOfferCard(hour: Int, onAnswer: (Boolean) -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(10.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Button(onClick = { onAnswer(true) }) { Text("Yes, at %02d:00".format(hour)) }
-                TextButton(onClick = { onAnswer(false) }) { Text("No thanks") }
+            // Set out as the support note is: the answer that ends it at the left, the way to
+            // change it and the yes together at the right.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onNo) { Text("No") }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onSettings) { Text("Settings") }
+                Button(onClick = onYes) { Text("Yes") }
             }
         }
     }

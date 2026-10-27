@@ -70,20 +70,33 @@ object Notifications {
     }
 
     /**
-     * Carries the old settings over, once. The early notification is gone; a reader who had it
-     * or the evening reminder on, and lets the app post, has the daily note instead, at the
-     * reminder's hour. A new install has neither and is asked at the end of its first digest.
-     *
-     * @return whether the daily note is on afterwards, so the caller can schedule it.
+     * Whether to ask for notifications now. Once per reader: right after onboarding, or at the
+     * next open for somebody who had the app before it asked.
      */
-    fun migrate(context: Context, prefs: Prefs): Boolean {
-        if (!prefs.notesMigrated) {
-            if (prefs.onboarded && !prefs.reminderEnabled && prefs.notifyEnabled && canPost(context)) {
-                prefs.reminderEnabled = true
-            }
-            prefs.notesMigrated = true
-        }
+    fun promptDue(prefs: Prefs): Boolean = prefs.onboarded && !prefs.notificationsPrompted
+
+    /**
+     * The reader answered that one question. A yes turns the daily note on, as the default it
+     * is, unless they had switched it off themselves; a no is not asked again, and its day is
+     * kept for the one offer that follows (see [offerDue]).
+     *
+     * @return whether the daily note is on now, so the caller can schedule it
+     */
+    fun promptAnswered(prefs: Prefs, granted: Boolean, today: LocalDate = LocalDate.now()): Boolean {
+        prefs.notificationsPrompted = true
+        if (!granted) prefs.notificationsDeclinedOn = today
+        else if (!prefs.reminderChosen) prefs.reminderEnabled = true
         return prefs.reminderEnabled
+    }
+
+    /**
+     * Whether the digest ends by offering the daily note: to a reader who said no to the
+     * question, once, from the next day, until they answer the offer either way. Not on the day
+     * they said no, which would be asking twice in one sitting.
+     */
+    fun offerDue(prefs: Prefs, today: LocalDate = LocalDate.now()): Boolean {
+        val declined = prefs.notificationsDeclinedOn ?: return false
+        return prefs.onboarded && !prefs.reminderEnabled && !prefs.noteOfferAnswered && today.isAfter(declined)
     }
 
     fun postDailyNote(context: Context, paper: Paper, reason: String) {

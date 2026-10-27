@@ -47,39 +47,18 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putInt("digest_hour", v.coerceIn(0, 23)).apply()
 
     /**
-     * The old "papers are ready" notification, posted when the digest was prepared. Gone: it
-     * came at five in the morning with a count of everything fetched. Read once, by
-     * [si.jakobkreft.aftergleam.work.Notifications.migrate], to carry the reader's choice
-     * over to the daily note.
-     */
-    var notifyEnabled: Boolean
-        get() = sp.getBoolean("notify", true)
-        set(v) = sp.edit().putBoolean("notify", v).apply()
-
-    /** Whether the old notification settings have been carried over to the new ones. */
-    var notesMigrated: Boolean
-        get() = sp.getBoolean("notes_migrated", false)
-        set(v) = sp.edit().putBoolean("notes_migrated", v).apply()
-
-    /**
      * The daily note's hour: a note naming the day's first paper, separate from the hour the
      * digest is prepared. Stored under its old name, from when it was a reading reminder.
+     * Ten in the morning unless the reader chooses another.
      *
      * These are different events with different natural times. The digest is prepared at
      * five in the morning because that is when the phone is on wifi and charging; nobody
      * wants to be told about it then.
      */
     var reminderHour: Int
-        get() = sp.getInt("reminder_hour", 19)
+        get() = sp.getInt("reminder_hour", 10)
         set(v) = sp.edit().putInt("reminder_hour", v.coerceIn(0, 23)).apply()
 
-    /**
-     * Whether the reader has been through the notification permission prompt once.
-     *
-     * Android shows the system dialog at most twice and then denies silently, so "have we
-     * asked" cannot be recovered from the permission state. It is also what stops the first
-     * grant from re-enabling a reminder the reader has since switched off.
-     */
     /**
      * Whether a paper's own title and abstract are set in a serif.
      *
@@ -125,14 +104,36 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("dynamic_colour", false)
         set(v) = sp.edit().putBoolean("dynamic_colour", v).apply()
 
-    var notificationsAsked: Boolean
-        get() = sp.getBoolean("notifications_asked", false)
-        set(v) = sp.edit().putBoolean("notifications_asked", v).apply()
-
     /** Whether the daily note is on. See [reminderHour]. */
     var reminderEnabled: Boolean
         get() = sp.getBoolean("reminder_enabled", false)
         set(v) = sp.edit().putBoolean("reminder_enabled", v).apply()
+
+    /** Whether the reader has ever switched the daily note on or off, as against the default. */
+    val reminderChosen: Boolean get() = sp.contains("reminder_enabled")
+
+    /**
+     * Whether the reader has been asked to allow notifications: once, right after onboarding,
+     * or at the first open of this version for somebody who had the app before.
+     *
+     * Kept rather than read off the permission, because Android stops showing its dialog after
+     * two refusals and refuses silently from then on: "not granted" cannot tell "never asked"
+     * from "said no".
+     */
+    var notificationsPrompted: Boolean
+        get() = sp.getBoolean("notifications_prompted", false)
+        set(v) = sp.edit().putBoolean("notifications_prompted", v).apply()
+
+    /** The day the reader said no to that, for the one offer that follows it, or null. */
+    var notificationsDeclinedOn: LocalDate?
+        get() = sp.getString("notifications_declined_on", null)
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        set(v) = sp.edit().putString("notifications_declined_on", v?.toString()).apply()
+
+    /** Whether the offer of the daily note at the end of a digest has been answered, either way. */
+    var noteOfferAnswered: Boolean
+        get() = sp.getBoolean("note_offer_answered", false)
+        set(v) = sp.edit().putBoolean("note_offer_answered", v).apply()
 
     /**
      * The last day the app was opened, as yyyy-mm-dd. The daily note stays away on a day the

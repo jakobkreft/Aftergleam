@@ -80,13 +80,9 @@ class DailyDigestWorker(
                 DigestBuilder.build(db, prefs, db.attention())
             }
 
-            // Nothing is posted from here any more. This used to say "Today's papers are ready,
-            // 300 new in your categories" at five in the morning; the daily note says which
-            // paper comes first, at the reader's hour. The old setting is carried over here
-            // too, for a phone that runs this before the app is next opened.
-            if (Notifications.migrate(applicationContext, prefs)) {
-                ReminderWorker.schedule(applicationContext, prefs.reminderHour)
-            }
+            // Nothing is posted from here. This used to say "Today's papers are ready, 300 new
+            // in your categories" at five in the morning; the daily note says which paper comes
+            // first, at the reader's hour.
             Result.success()
         } catch (e: Exception) {
             // Back off rather than hammer. 429s have been reported even inside the
