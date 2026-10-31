@@ -1,0 +1,4 @@
+- The daily note comes every day, whether or not you opened the app, and no longer waits for wifi or a charger
+- With nothing new in the digest, it names a paper you saved or downloaded
+- Tapping a notification opens its paper
+- Back goes to For you before it leaves the app
