@@ -91,8 +91,13 @@ object KeywordAlerts {
 }
 
 /**
- * The daily note: one quiet line, at an hour the reader chose, naming the first paper of the
- * day's digest.
+ * The daily note: one quiet line, at an hour the reader chose, naming a paper.
+ *
+ * The first paper of today's digest that the reader has not done anything with yet. On a day
+ * there is none, because the morning's fetch has not got through or everything in the digest
+ * has been looked at, a paper from the library instead: one they kept, and may have left. It
+ * comes whether or not the app has been opened that day. The reader switched it on, and
+ * having been in already is no reason for it to stay away.
  *
  * It replaces two notifications. One came when the digest was prepared, at five in the
  * morning, with a count of everything fetched ("300 new in your categories"); the other came
@@ -102,15 +107,23 @@ object KeywordAlerts {
  */
 object DailyNote {
 
-    /** On, a digest today, and the app not opened yet today. */
-    fun due(enabled: Boolean, digest: List<ShownItem>, lastOpened: String?, today: LocalDate): Boolean =
-        enabled && digest.isNotEmpty() && lastOpened != today.toString()
-
     /** The card to name: the first the reader has not already done something with. */
     fun pick(digest: List<ShownItem>, acted: Set<String>): ShownItem? =
         digest.firstOrNull { it.paperId !in acted }
 
+    /**
+     * A kept paper for [today], from [kept], each paper with the time it was kept. Every one
+     * in turn, a different one each day and the oldest first, so that what was saved months
+     * ago comes round as well as last week's.
+     */
+    fun fromLibrary(kept: Map<String, Long>, today: LocalDate): String? {
+        if (kept.isEmpty()) return null
+        val inTurn = kept.entries.sortedWith(compareBy({ it.value }, { it.key }))
+        return inTurn[Math.floorMod(today.toEpochDay(), inTurn.size.toLong()).toInt()].key
+    }
+
     const val TITLE = "Today's papers"
+    const val LIBRARY_TITLE = "From your library"
 
     /** The second line, under the paper's title: why it came first. */
     fun detail(reason: String): String =

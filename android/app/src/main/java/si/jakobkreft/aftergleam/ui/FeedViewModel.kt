@@ -1712,7 +1712,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun currentDiversity() = prefs.diversity
     fun currentDigestHour() = prefs.digestHour
     fun currentReminderHour() = prefs.reminderHour
-    fun currentReminderEnabled() = prefs.reminderEnabled
     fun setReminderHour(h: Int) {
         prefs.reminderHour = h
         _state.value = _state.value.copy(reminderHour = h)
@@ -1734,14 +1733,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Whether to ask now for notifications. See [Notifications.promptDue]. */
     fun notificationPromptDue() = Notifications.promptDue(prefs)
 
-    /**
-     * The answer to that question. See [Notifications.promptAnswered].
-     * @return whether the daily note is on, so the caller can schedule it.
-     */
-    fun notificationPromptAnswered(granted: Boolean): Boolean {
-        val on = Notifications.promptAnswered(prefs, granted)
-        _state.value = _state.value.copy(reminderEnabled = on, noteOffer = noteOfferDue())
-        return on
+    /** The answer to that question. See [Notifications.promptAnswered]. */
+    fun notificationPromptAnswered(granted: Boolean) {
+        Notifications.promptAnswered(prefs, granted)
+        _state.value = _state.value.copy(reminderEnabled = prefs.reminderEnabled, noteOffer = noteOfferDue())
     }
 
     /**

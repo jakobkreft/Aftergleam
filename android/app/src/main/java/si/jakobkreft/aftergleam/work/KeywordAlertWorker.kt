@@ -20,9 +20,8 @@ import java.time.ZoneId
 /**
  * Asks the servers about the keywords with their bell on, and says when something new is there.
  *
- * Its own worker rather than part of the morning one, which waits for wifi and a charger and
- * can be a day late on a phone that is never left charging. This one needs any network and is
- * small: one request to arXiv and one to Crossref per word, for the belled keywords only.
+ * Its own worker rather than part of the morning one, so that news is told the day it appears.
+ * It is small: one request to arXiv and one to Crossref per word, for the belled keywords only.
  * Every six hours, since arXiv announces once a day and the other servers post through it.
  * Outside [KeywordAlerts.FIRST_HOUR] to [KeywordAlerts.LAST_HOUR] it does nothing at all, and
  * whatever appeared overnight is found by the first run of the morning.
@@ -71,15 +70,11 @@ class KeywordAlertWorker(context: Context, params: WorkerParameters) : Coroutine
 
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<KeywordAlertWorker>(Duration.ofHours(6))
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .setRequiresBatteryNotLow(true)
-                        .build()
-                )
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
+            // UPDATE keeps the six-hour rhythm and replaces conditions an earlier version set.
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request,
+                WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request,
             )
         }
 

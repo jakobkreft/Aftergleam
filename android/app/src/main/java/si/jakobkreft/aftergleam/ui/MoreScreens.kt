@@ -609,7 +609,7 @@ private fun NotificationsPage(
 
     Text("Daily note", style = MaterialTheme.typography.titleSmall)
     Text(
-        "A quiet note naming the day's first paper, only on days you have not opened the app.",
+        "A quiet note each day, naming the first paper of the day's digest, or one from your library.",
         style = MaterialTheme.typography.labelSmall,
     )
     // Saved as it changes. A switch and an hour are single, reversible choices, and asking
@@ -680,7 +680,7 @@ private fun NotificationsPage(
     Spacer(Modifier.height(24.dp))
     Text("Preparing the digest", style = MaterialTheme.typography.titleSmall)
     Text(
-        "At %02d:00, on wifi while charging.".format(hour.roundToInt()),
+        "At %02d:00, and again two hours later if it fails.".format(hour.roundToInt()),
         style = MaterialTheme.typography.bodyMedium,
     )
     Text(

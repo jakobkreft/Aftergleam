@@ -84,18 +84,48 @@ class NotificationsTest {
     }
 
     @Test
-    fun `the daily note names the first paper not yet looked at, and only on a day not opened`() {
+    fun `the daily note names the first paper of the digest not yet looked at`() {
         val digest = listOf(
             ShownItem("a", "RELEVANCE", "mentions “LoRA”", 0.9f),
             ShownItem("b", "RELEVANCE", "", 0.8f),
         )
-        assertTrue(DailyNote.due(true, digest, lastOpened = today.minusDays(1).toString(), today = today))
-        assertFalse("opened today", DailyNote.due(true, digest, lastOpened = today.toString(), today = today))
-        assertFalse("off", DailyNote.due(false, digest, null, today))
-        assertFalse("nothing to name", DailyNote.due(true, emptyList(), null, today))
+        assertEquals("a", DailyNote.pick(digest, acted = emptySet())?.paperId)
         assertEquals("b", DailyNote.pick(digest, acted = setOf("a"))?.paperId)
         assertNull(DailyNote.pick(digest, acted = setOf("a", "b")))
         assertEquals("First in today's digest, mentions “LoRA”", DailyNote.detail("Mentions “LoRA”"))
+    }
+
+    @Test
+    fun `from the library it names a different kept paper each day, oldest first`() {
+        val kept = mapOf("new" to 3_000L, "old" to 1_000L, "mid" to 2_000L)
+        val days = (0L until 4L).map { DailyNote.fromLibrary(kept, LocalDate.ofEpochDay(30L + it)) }
+        assertEquals(listOf("old", "mid", "new", "old"), days)
+        assertNull(DailyNote.fromLibrary(emptyMap(), today))
+    }
+
+    @Test
+    fun `the note names today's first paper even after the app was opened, then a kept one`() {
+        val db = Db(ctx)
+        db.upsertPapers(listOf(paper("d", "First in the digest"), paper("k", "Kept for later")))
+        db.markShown(listOf(ShownItem("d", "RELEVANCE", "", 0.5f)), today.toString())
+        db.save("k")
+
+        assertTrue(Notifications.postDailyNote(ctx, today))
+        val first = posted().single()
+        assertEquals(DailyNote.TITLE, first.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("First in the digest", first.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+
+        db.addSignal("d", Signal.OPENED)
+        assertTrue(Notifications.postDailyNote(ctx, today))
+        val kept = posted().single()
+        assertEquals(DailyNote.LIBRARY_TITLE, kept.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("Kept for later\nSaved today", kept.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString())
+    }
+
+    @Test
+    fun `with no digest and nothing kept there is nothing to name`() {
+        assertFalse(Notifications.postDailyNote(ctx, today))
+        assertTrue(posted().isEmpty())
     }
 
     @Test
@@ -105,7 +135,7 @@ class NotificationsTest {
         prefs.onboarded = true
         assertTrue(Notifications.promptDue(prefs))
 
-        assertTrue(Notifications.promptAnswered(prefs, granted = true, today))
+        Notifications.promptAnswered(prefs, granted = true, today)
         assertTrue(prefs.reminderEnabled)
         assertEquals(10, prefs.reminderHour)
         assertFalse("asked once", Notifications.promptDue(prefs))
@@ -115,16 +145,19 @@ class NotificationsTest {
     @Test
     fun `a yes leaves alone a note the reader switched off, and keeps the hour they chose`() {
         val prefs = Prefs(ctx).apply { onboarded = true; reminderEnabled = false; reminderHour = 14 }
-        assertFalse(Notifications.promptAnswered(prefs, granted = true, today))
-        val chosen = Prefs(ctx).apply { reminderEnabled = true }
-        assertTrue(Notifications.promptAnswered(chosen, granted = true, today))
-        assertEquals(14, chosen.reminderHour)
+        Notifications.promptAnswered(prefs, granted = true, today)
+        assertFalse(prefs.reminderEnabled)
+        prefs.reminderEnabled = true
+        Notifications.promptAnswered(prefs, granted = true, today)
+        assertTrue(prefs.reminderEnabled)
+        assertEquals(14, prefs.reminderHour)
     }
 
     @Test
     fun `after a no the digest offers the note once, from the next day, until it is answered`() {
         val prefs = Prefs(ctx).apply { onboarded = true }
-        assertFalse(Notifications.promptAnswered(prefs, granted = false, today))
+        Notifications.promptAnswered(prefs, granted = false, today)
+        assertFalse(prefs.reminderEnabled)
         assertFalse("not asked again", Notifications.promptDue(prefs))
         assertFalse("not on the day of the no", Notifications.offerDue(prefs, today))
         assertTrue(Notifications.offerDue(prefs, today.plusDays(1)))
@@ -178,24 +211,6 @@ class NotificationsTest {
         assertEquals("both in one note, newest first",
             listOf("Hypoxia raises lanosterol", "Lanosterol accumulates under hypoxia"), lines)
         assertTrue("the second batch does not sound again", summary.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
-    }
-
-    @Test
-    fun `opening the app quiets the note and counts the digest's papers as seen`() {
-        val db = Db(ctx)
-        val prefs = Prefs(ctx)
-        val keyword = "hypoxia"
-        prefs.keywords = listOf(keyword)
-        prefs.keywordAlerts = mapOf(keyword to today.toString())
-        db.upsertPapers(listOf(paper("d", "Hypoxia in the digest")))
-        db.markShown(listOf(ShownItem("d", "RELEVANCE", "", 0.5f)), today.toString())
-        Notifications.postDailyNote(ctx, paper("d", "Hypoxia in the digest"), "")
-        assertEquals(1, posted().size)
-
-        Notifications.appOpened(ctx, today)
-        assertEquals(today.toString(), prefs.lastOpenedDay)
-        assertTrue("the note goes", posted().isEmpty())
-        assertTrue("d" in db.alertedIds())
     }
 
     @Test

@@ -49,7 +49,7 @@ android/app/src/main/java/si/jakobkreft/aftergleam/
   data/   servers, storage, subjects, signals
   rank/   TF-IDF, logistic regression, building the digest
   ui/     screens and the view model
-  work/   the nightly fetch, the daily note and keyword alerts
+  work/   the morning fetch, the daily note, keyword alerts and their alarms
 prototype/  Python scripts used to measure ranking choices
 ```
 

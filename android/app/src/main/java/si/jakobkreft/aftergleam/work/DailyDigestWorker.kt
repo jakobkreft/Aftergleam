@@ -1,33 +1,31 @@
 package si.jakobkreft.aftergleam.work
 
 import android.content.Context
+import android.os.Build
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.Attention
-import si.jakobkreft.aftergleam.data.BioRxivApi
-import si.jakobkreft.aftergleam.data.Source
-import si.jakobkreft.aftergleam.data.Topics
-import si.jakobkreft.aftergleam.rank.DigestBuilder
 import si.jakobkreft.aftergleam.data.Db
+import si.jakobkreft.aftergleam.data.Fetcher
+import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Prefs
-import java.time.Duration
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
+import si.jakobkreft.aftergleam.data.Source
+import si.jakobkreft.aftergleam.rank.DigestBuilder
 
 /**
- * Builds tomorrow's digest before the user wakes up.
+ * Fetches the day's papers and builds the digest before the reader wakes up. Started by the
+ * morning's alarm; see [Schedule].
  *
- * arXiv announces once per weekday at 20:00 US Eastern, so one run a day is all that can
- * possibly be useful; this is periodic-daily rather than aggressive. An empty result is not
- * a failure, because weekends and US holidays legitimately produce nothing, and retrying
- * into that would only burn the rate limit.
+ * arXiv announces once per weekday at 20:00 US Eastern, so one run a day is all that can be
+ * useful. An empty result is not a failure, because weekends and US holidays legitimately
+ * produce nothing. A failure is every server failing, and that is tried again two hours later.
  */
 class DailyDigestWorker(
     context: Context,
@@ -37,28 +35,27 @@ class DailyDigestWorker(
     override suspend fun doWork(): Result {
         val prefs = Prefs(applicationContext)
         val subscribed = prefs.categories
-        if (subscribed.isEmpty()) return Result.success()
+        // A retry after the reader opened the app, which fetched for itself, has nothing to do,
+        // and rebuilding the digest would reorder the one they were reading.
+        if (subscribed.isEmpty() || !Schedule.fetchDue(prefs)) return Result.success()
 
         return try {
-            val papers = mutableListOf<si.jakobkreft.aftergleam.data.Paper>()
-            val outcome = si.jakobkreft.aftergleam.data.Fetcher.fetch(subscribed) { papers += it }
+            val papers = mutableListOf<Paper>()
+            val outcome = Fetcher.fetch(subscribed) { papers += it }
+            if (outcome.allFailed) return Result.retry()
             val db = Db(applicationContext)
             db.upsertPapers(papers)
             prefs.lastFetchMillis = System.currentTimeMillis()
             // Only subjects whose server answered, as in the app: a refused request is not a
             // fetch, and recording it as one stops the next run from asking again.
-            prefs.fetchedCategories = prefs.fetchedCategories + subscribed.filter {
-                si.jakobkreft.aftergleam.data.Source.label(
-                    si.jakobkreft.aftergleam.data.Source.of(it)
-                ) !in outcome.failed
-            }
+            prefs.fetchedCategories = prefs.fetchedCategories +
+                subscribed.filter { Source.label(Source.of(it)) !in outcome.failed }
 
             // The newest papers mentioning the reader's keywords, from any category.
             val keywords = prefs.keywords
             if (keywords.isNotEmpty()) {
-                val done = runCatching {
-                    si.jakobkreft.aftergleam.data.Fetcher.fetchKeywords(keywords) { db.upsertPapers(it) }
-                }.getOrDefault(emptyList())
+                val done = runCatching { Fetcher.fetchKeywords(keywords) { db.upsertPapers(it) } }
+                    .getOrDefault(emptyList())
                 prefs.keywordsFetched = done.toSet()
             }
 
@@ -67,52 +64,36 @@ class DailyDigestWorker(
             runCatching { Attention.fetch() }.getOrNull()
                 ?.takeIf { it.isNotEmpty() }?.let { db.saveAttention(it) }
 
-            // Compose the digest too, not just fetch the papers for it.
+            // Compose the digest too, not just fetch the papers for it, so that the first open
+            // of the day is a database read and the daily note has a paper to name.
             //
-            // This worker used to stop at the download, so opening the app in the morning
-            // meant waiting through a fetch that had already happened and a ranking that
-            // had not. Both now happen at five in the morning, on wifi, on a charger, and
-            // the first open of the day is a database read.
-            //
-            // Failing here is not a failed run: the papers are stored, and the app will
-            // rank them itself the moment it is opened.
-            runCatching {
-                DigestBuilder.build(db, prefs, db.attention())
-            }
-
-            // Nothing is posted from here. This used to say "Today's papers are ready, 300 new
-            // in your categories" at five in the morning; the daily note says which paper comes
-            // first, at the reader's hour.
+            // Failing here is not a failed run: the papers are stored, and the app will rank
+            // them itself the moment it is opened.
+            runCatching { DigestBuilder.build(db, prefs, db.attention()) }
             Result.success()
         } catch (e: Exception) {
-            // Back off rather than hammer. 429s have been reported even inside the
-            // documented one-request-per-three-seconds limit.
             Result.retry()
         }
     }
 
     companion object {
-        const val WORK_NAME = "daily_digest"
+        private const val WORK_NAME = "morning_fetch"
 
-        /** Schedules the next run for [hour] local time, then daily. */
-        fun schedule(context: Context, hour: Int = 5) {
-            val now = LocalDateTime.now()
-            var next = LocalDateTime.of(LocalDate.now(), LocalTime.of(hour, 0))
-            if (!next.isAfter(now)) next = next.plusDays(1)
-
-            val request = PeriodicWorkRequestBuilder<DailyDigestWorker>(Duration.ofDays(1))
-                .setInitialDelay(Duration.between(now, next))
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.UNMETERED)
-                        .setRequiresCharging(true)
-                        .build()
-                )
+        /** The fetch, as soon as there is a network, and again [Schedule.RETRY] after a failure. */
+        fun enqueue(context: Context, policy: ExistingWorkPolicy) {
+            val request = OneTimeWorkRequestBuilder<DailyDigestWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.LINEAR, Schedule.RETRY)
+                .apply {
+                    // At once, in Doze too, rather than at the system's next convenience.
+                    // Before Android 12 an expedited job is a foreground service with a
+                    // notification of its own, so there it waits its turn.
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    }
+                }
                 .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request,
-            )
+            WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, policy, request)
         }
     }
 }

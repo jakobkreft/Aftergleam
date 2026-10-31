@@ -54,15 +54,11 @@ class MetadataRefreshWorker(
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<MetadataRefreshWorker>(Duration.ofDays(7))
                 .setInitialDelay(Duration.ofHours(12))
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.UNMETERED)
-                        .setRequiresCharging(true)
-                        .build()
-                )
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
+            // UPDATE keeps the weekly rhythm and replaces conditions an earlier version set.
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request,
+                WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request,
             )
         }
     }

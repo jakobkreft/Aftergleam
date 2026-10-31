@@ -47,13 +47,12 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putInt("digest_hour", v.coerceIn(0, 23)).apply()
 
     /**
-     * The daily note's hour: a note naming the day's first paper, separate from the hour the
-     * digest is prepared. Stored under its old name, from when it was a reading reminder.
-     * Ten in the morning unless the reader chooses another.
+     * The daily note's hour, separate from the hour the digest is prepared. Stored under its
+     * old name, from when it was a reading reminder. Ten in the morning unless the reader
+     * chooses another.
      *
-     * These are different events with different natural times. The digest is prepared at
-     * five in the morning because that is when the phone is on wifi and charging; nobody
-     * wants to be told about it then.
+     * These are different events with different natural times. The digest is prepared early,
+     * so that it is ready before the reader is; nobody wants to be told about it at five.
      */
     var reminderHour: Int
         get() = sp.getInt("reminder_hour", 10)
@@ -136,12 +135,19 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("note_offer_answered", v).apply()
 
     /**
-     * The last day the app was opened, as yyyy-mm-dd. The daily note stays away on a day the
-     * reader has already been in: telling somebody about papers they have seen is noise.
+     * When the daily note is next due, in milliseconds, or 0 when it is off or not planned yet.
+     * Kept rather than left to the alarm alone, which a reboot or a force stop forgets, so that
+     * a note missed that way is still posted, late, the same day. See
+     * [si.jakobkreft.aftergleam.work.Schedule].
      */
-    var lastOpenedDay: String?
-        get() = sp.getString("last_opened_day", null)
-        set(v) = sp.edit().putString("last_opened_day", v).apply()
+    var noteDueMillis: Long
+        get() = sp.getLong("note_due", 0L)
+        set(v) = sp.edit().putLong("note_due", v).apply()
+
+    /** The last day a daily note was posted, so that each day has one. */
+    var noteDay: LocalDate?
+        get() = sp.getString("note_day", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        set(v) = sp.edit().putString("note_day", v?.toString()).apply()
 
     /**
      * The keywords with their bell on, and the day each was turned on.

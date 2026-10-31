@@ -48,10 +48,13 @@ separate ideas become a combination ("cholesterol + hypoxia").
 
 ## Notifications
 
-Two kinds, both off until you turn them on. The daily note names the first paper of the
-digest, at an hour you choose, and only on days you have not opened the app. A keyword with
-its bell on is checked every six hours; a new paper that mentions it is announced once,
-between 08:00 and 21:00, and later ones the same day join the same note quietly.
+The digest is prepared early, at 05:00 unless you choose another hour, whatever the phone is
+doing; if every server fails, it tries again two hours later. The daily note comes at 10:00, or
+the hour you choose, every day: it names the first paper of the digest you have not looked at,
+or one from your library when there is none. A note missed while the phone was off comes when
+it is back on, the same day. A keyword with its bell on is checked every six hours; a new paper
+that mentions it is announced once, between 08:00 and 21:00, and later ones the same day join
+the same note quietly.
 
 ## Reading
 

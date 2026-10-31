@@ -50,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Support
@@ -69,23 +68,29 @@ import si.jakobkreft.aftergleam.ui.ExploreScreen
 import si.jakobkreft.aftergleam.ui.PopularScreen
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
-import si.jakobkreft.aftergleam.work.DailyDigestWorker
-import si.jakobkreft.aftergleam.work.KeywordAlertWorker
 import si.jakobkreft.aftergleam.work.Notifications
-import si.jakobkreft.aftergleam.work.MetadataRefreshWorker
-import si.jakobkreft.aftergleam.work.ReminderWorker
+import si.jakobkreft.aftergleam.work.Schedule
 
 class MainActivity : ComponentActivity() {
+
+    /**
+     * What a notification opened the app with, until the screen has taken it.
+     *
+     * Kept here from the start rather than listened for by the screen. A notification tapped
+     * after Android had ended the app's process, with its screen still in recents, arrives as a
+     * new intent before anything is composed, and a listener added by the screen missed it: the
+     * app opened where it had been left, not on the paper.
+     */
+    var opened by mutableStateOf<Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Not when the screen is only made again, after a rotation or with the process gone:
+        // its intent was taken the first time.
+        if (savedInstanceState == null) opened = intent
+        addOnNewIntentListener { opened = it }
         enableEdgeToEdge()
         setContent { App() }
-    }
-
-    // Each time the app comes to the front, so that the daily note knows today was opened.
-    override fun onResume() {
-        super.onResume()
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { Notifications.appOpened(applicationContext) }
     }
 }
 
@@ -285,46 +290,27 @@ private fun App(vm: FeedViewModel = viewModel()) {
             state.judgedCount,
         ) { if (tab == Tab.LIBRARY) vm.loadLibrary() }
 
-        // Scheduling is idempotent (UPDATE on a unique name), so doing it on every launch
-        // also repairs the schedule if the user cleared app data or rebooted.
+        // Idempotent, so every launch also repairs what a force stop or cleared data undid.
         LaunchedEffect(Unit) {
-            DailyDigestWorker.schedule(context, vm.currentDigestHour())
-            MetadataRefreshWorker.schedule(context)
-            Notifications.ensureChannels(context)
+            Schedule.start(context)
             // Notifications are on by default, which on Android 13 and later means asking:
             // once, as onboarding ends, or at the next open for somebody who had the app
             // before. A yes turns the daily note on; a no is not asked again here.
             if (vm.notificationPromptDue()) {
                 withNotificationPermission(true) { granted ->
-                    if (vm.notificationPromptAnswered(granted)) {
-                        ReminderWorker.schedule(context, vm.currentReminderHour())
-                    }
+                    vm.notificationPromptAnswered(granted)
+                    Schedule.planNote(context)
                 }
-            } else if (vm.currentReminderEnabled()) {
-                ReminderWorker.schedule(context, vm.currentReminderHour())
             }
-            if (state.keywordAlerts.isNotEmpty()) KeywordAlertWorker.schedule(context)
-            else KeywordAlertWorker.cancel(context)
         }
 
-        // A paper from a notification: on a cold start in the launching intent, otherwise
-        // delivered to the running app. Taken out once read, so a rotation does not open it again.
-        val activity = context as? ComponentActivity
-        DisposableEffect(activity) {
-            fun take(intent: Intent?) {
-                intent?.getStringExtra(Notifications.EXTRA_PAPER)?.let { id ->
-                    intent.removeExtra(Notifications.EXTRA_PAPER)
-                    vm.openPaperById(id)
-                }
-                intent?.getStringExtra(Notifications.EXTRA_KEYWORD)?.let { keyword ->
-                    intent.removeExtra(Notifications.EXTRA_KEYWORD)
-                    vm.showKeywordPapers(keyword)
-                }
-            }
-            take(activity?.intent)
-            val listener = androidx.core.util.Consumer<Intent> { take(it) }
-            activity?.addOnNewIntentListener(listener)
-            onDispose { activity?.removeOnNewIntentListener(listener) }
+        // A paper or a keyword's papers from a notification. See [MainActivity.opened].
+        val activity = context as? MainActivity
+        LaunchedEffect(activity?.opened) {
+            val intent = activity?.opened ?: return@LaunchedEffect
+            activity.opened = null
+            intent.getStringExtra(Notifications.EXTRA_PAPER)?.let(vm::openPaperById)
+            intent.getStringExtra(Notifications.EXTRA_KEYWORD)?.let(vm::showKeywordPapers)
         }
 
         val reading = state.reading
@@ -522,7 +508,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
                             onDigestHour = { h ->
                                 vm.setDigestHour(h)
-                                DailyDigestWorker.schedule(context, h)
+                                Schedule.armMorning(context)
                             },
                             notificationsAllowed = notificationsAllowed(),
                             onOpenSystemSettings = {
@@ -544,8 +530,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 withNotificationPermission(on) { granted ->
                                     vm.setReminderEnabled(granted)
                                     vm.setReminderHour(hour)
-                                    if (granted) ReminderWorker.schedule(context, hour)
-                                    else ReminderWorker.cancel(context)
+                                    Schedule.planNote(context)
                                 }
                             },
                             onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
@@ -701,9 +686,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             withNotificationPermission(true) { granted ->
                                 vm.setReminderEnabled(granted)
                                 vm.noteOfferAnswered()
-                                if (granted) {
-                                    ReminderWorker.schedule(context, vm.currentReminderHour())
-                                } else {
+                                Schedule.planNote(context)
+                                if (!granted) {
                                     // Android would not allow it, after earlier refusals or with
                                     // notifications off in its settings. The page says how.
                                     tuneStart = "NOTIFICATIONS"
@@ -780,7 +764,7 @@ private fun ReaderThemed(
 ) {
     val view = androidx.compose.ui.platform.LocalView.current
     val app by androidx.compose.runtime.rememberUpdatedState(appDark)
-    androidx.compose.runtime.DisposableEffect(Unit) {
+    DisposableEffect(Unit) {
         onDispose {
             (view.context as? android.app.Activity)?.window?.let { window ->
                 androidx.core.view.WindowCompat.getInsetsController(window, view)

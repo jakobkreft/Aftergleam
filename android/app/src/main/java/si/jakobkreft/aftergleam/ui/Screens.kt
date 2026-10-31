@@ -501,8 +501,7 @@ private fun NoteOfferCard(onYes: () -> Unit, onNo: () -> Unit, onSettings: () ->
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "One quiet line naming the first paper, and only on days you have not opened " +
-                    "the app. The hour can be changed in settings.",
+                "One quiet line a day naming the first paper. The hour can be changed in settings.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(10.dp))

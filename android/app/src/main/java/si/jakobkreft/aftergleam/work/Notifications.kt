@@ -17,9 +17,12 @@ import si.jakobkreft.aftergleam.R
 import si.jakobkreft.aftergleam.data.DailyNote
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.KeywordAlerts
-import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Prefs
+import si.jakobkreft.aftergleam.data.Signal
+import si.jakobkreft.aftergleam.ui.LibraryShelf
+import si.jakobkreft.aftergleam.ui.LibrarySort
 import java.time.LocalDate
 
 /**
@@ -58,7 +61,7 @@ object Notifications {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
             NotificationChannel(DAILY_NOTE_CHANNEL, "Daily note", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "A quiet note naming the day's first paper, on days you have not opened the app."
+                description = "A quiet note each day, naming a paper from your digest or your library."
             }
         )
         nm.createNotificationChannel(
@@ -79,14 +82,11 @@ object Notifications {
      * The reader answered that one question. A yes turns the daily note on, as the default it
      * is, unless they had switched it off themselves; a no is not asked again, and its day is
      * kept for the one offer that follows (see [offerDue]).
-     *
-     * @return whether the daily note is on now, so the caller can schedule it
      */
-    fun promptAnswered(prefs: Prefs, granted: Boolean, today: LocalDate = LocalDate.now()): Boolean {
+    fun promptAnswered(prefs: Prefs, granted: Boolean, today: LocalDate = LocalDate.now()) {
         prefs.notificationsPrompted = true
         if (!granted) prefs.notificationsDeclinedOn = today
         else if (!prefs.reminderChosen) prefs.reminderEnabled = true
-        return prefs.reminderEnabled
     }
 
     /**
@@ -99,41 +99,48 @@ object Notifications {
         return prefs.onboarded && !prefs.reminderEnabled && !prefs.noteOfferAnswered && today.isAfter(declined)
     }
 
-    fun postDailyNote(context: Context, paper: Paper, reason: String) {
+    /**
+     * Today's daily note, about the best paper there is to name; see [DailyNote]. The first of
+     * the digest opens the digest, where it is first; a kept paper opens its own page.
+     *
+     * @return whether there was a paper to name
+     */
+    fun postDailyNote(context: Context, today: LocalDate = LocalDate.now()): Boolean {
+        val db = Db(context)
+        val card = DailyNote.pick(db.digestFor(today.toString()), db.actedOnIds())
+        val first = card?.let { db.papersById(listOf(it.paperId)).firstOrNull() }
+        if (card != null && first != null) {
+            postDailyNote(context, DailyNote.TITLE, first, DailyNote.detail(card.reason), open(context, request = DAILY_NOTE_ID))
+            return true
+        }
+
+        val saved = db.allReactions().filterValues { it.saved }.keys
+        val savedAt = db.signalTimes(Signal.SAVED)
+        val store = PdfStore(context)
+        val downloaded = db.signalTimes(Signal.DOWNLOADED).keys.filter { it !in saved && store.isCached(it) }
+        val kept = saved.associateWith { savedAt[it] ?: 0L } +
+            downloaded.associateWith { store.downloadedAt(it) ?: 0L }
+        val id = DailyNote.fromLibrary(kept, today) ?: return false
+        val paper = db.papersById(listOf(id)).firstOrNull() ?: return false
+        val shelf = if (id in saved) LibraryShelf.SAVED else LibraryShelf.DOWNLOADED
+        val detail = LibrarySort.actedLabel(shelf, kept.getValue(id), today).replaceFirstChar { it.uppercase() }
+        postDailyNote(context, DailyNote.LIBRARY_TITLE, paper, detail, open(context, paperId = id, request = DAILY_NOTE_ID))
+        return true
+    }
+
+    private fun postDailyNote(context: Context, title: String, paper: Paper, detail: String, tap: PendingIntent) {
         ensureChannels(context)
         val n = NotificationCompat.Builder(context, DAILY_NOTE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(DailyNote.TITLE)
+            .setContentTitle(title)
             .setContentText(paper.displayTitle)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(paper.displayTitle + "\n" + DailyNote.detail(reason)))
-            .setContentIntent(open(context, request = DAILY_NOTE_ID))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(paper.displayTitle + "\n" + detail))
+            .setContentIntent(tap)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .build()
         post(context, DAILY_NOTE_ID, n)
-    }
-
-    /** The note is about a day the reader has now opened. */
-    fun cancelDailyNote(context: Context) = NotificationManagerCompat.from(context).cancel(DAILY_NOTE_ID)
-
-    /**
-     * The app is on screen. Today counts as opened, so the daily note stays away and a note
-     * already posted has done its work; and today's digest has been in front of the reader,
-     * so its papers for a belled keyword are not news later in the day. Off the main thread.
-     */
-    fun appOpened(context: Context, today: LocalDate = LocalDate.now()) {
-        val prefs = Prefs(context)
-        prefs.lastOpenedDay = today.toString()
-        cancelDailyNote(context)
-        val belled = prefs.keywords.filter { it in prefs.keywordAlerts }
-        if (belled.isEmpty()) return
-        val db = Db(context)
-        val papers = db.papersById(db.digestFor(today.toString()).map { it.paperId })
-        for (keyword in belled) {
-            val seen = papers.filter { Keywords.mentions(it.title + "\n" + it.abstract, keyword) }
-            if (seen.isNotEmpty()) db.markAlerted(seen.map { it.id }, keyword, baseline = true)
-        }
     }
 
     /**
