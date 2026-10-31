@@ -575,6 +575,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return@AftergleamTheme
         }
 
+        // For you is home: back from another tab comes here, and only from here leaves the app.
+        BackHandler(enabled = tab != Tab.TODAY) {
+            pagerScope.launch { pager.animateScrollToPage(Tab.TODAY.ordinal) }
+        }
+
         LaunchedEffect(tab) {
             when (tab) {
                 // Not retried while it is known to be empty: ranking eight hundred

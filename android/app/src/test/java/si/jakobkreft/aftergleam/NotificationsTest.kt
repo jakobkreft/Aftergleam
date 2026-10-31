@@ -43,6 +43,10 @@ class NotificationsTest {
     private fun posted(): List<Notification> =
         shadowOf(ctx.getSystemService(NotificationManager::class.java)).allNotifications
 
+    /** The paper a notification opens when tapped. */
+    private fun opens(n: Notification): String? =
+        shadowOf(n.contentIntent).savedIntent.getStringExtra(Notifications.EXTRA_PAPER)
+
     @Before
     fun allow() = shadowOf(ctx).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
@@ -114,12 +118,14 @@ class NotificationsTest {
         val first = posted().single()
         assertEquals(DailyNote.TITLE, first.extras.getString(Notification.EXTRA_TITLE))
         assertEquals("First in the digest", first.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+        assertEquals("tapping it opens the paper", "d", opens(first))
 
         db.addSignal("d", Signal.OPENED)
         assertTrue(Notifications.postDailyNote(ctx, today))
         val kept = posted().single()
         assertEquals(DailyNote.LIBRARY_TITLE, kept.extras.getString(Notification.EXTRA_TITLE))
         assertEquals("Kept for later\nSaved today", kept.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString())
+        assertEquals("k", opens(kept))
     }
 
     @Test

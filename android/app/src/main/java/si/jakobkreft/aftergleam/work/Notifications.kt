@@ -100,8 +100,8 @@ object Notifications {
     }
 
     /**
-     * Today's daily note, about the best paper there is to name; see [DailyNote]. The first of
-     * the digest opens the digest, where it is first; a kept paper opens its own page.
+     * Today's daily note, about the best paper there is to name; see [DailyNote]. Tapping it
+     * opens that paper.
      *
      * @return whether there was a paper to name
      */
@@ -110,7 +110,7 @@ object Notifications {
         val card = DailyNote.pick(db.digestFor(today.toString()), db.actedOnIds())
         val first = card?.let { db.papersById(listOf(it.paperId)).firstOrNull() }
         if (card != null && first != null) {
-            postDailyNote(context, DailyNote.TITLE, first, DailyNote.detail(card.reason), open(context, request = DAILY_NOTE_ID))
+            postDailyNote(context, DailyNote.TITLE, first, DailyNote.detail(card.reason))
             return true
         }
 
@@ -124,18 +124,18 @@ object Notifications {
         val paper = db.papersById(listOf(id)).firstOrNull() ?: return false
         val shelf = if (id in saved) LibraryShelf.SAVED else LibraryShelf.DOWNLOADED
         val detail = LibrarySort.actedLabel(shelf, kept.getValue(id), today).replaceFirstChar { it.uppercase() }
-        postDailyNote(context, DailyNote.LIBRARY_TITLE, paper, detail, open(context, paperId = id, request = DAILY_NOTE_ID))
+        postDailyNote(context, DailyNote.LIBRARY_TITLE, paper, detail)
         return true
     }
 
-    private fun postDailyNote(context: Context, title: String, paper: Paper, detail: String, tap: PendingIntent) {
+    private fun postDailyNote(context: Context, title: String, paper: Paper, detail: String) {
         ensureChannels(context)
         val n = NotificationCompat.Builder(context, DAILY_NOTE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(paper.displayTitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(paper.displayTitle + "\n" + detail))
-            .setContentIntent(tap)
+            .setContentIntent(open(context, paperId = paper.id, request = DAILY_NOTE_ID))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
