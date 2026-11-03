@@ -3,12 +3,17 @@ package si.jakobkreft.aftergleam.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Point
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.graphics.pdf.PdfRendererPreV
+import android.graphics.pdf.models.selection.PageSelection
+import android.graphics.pdf.models.selection.SelectionBoundary
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.ext.SdkExtensions
+import androidx.annotation.RequiresExtension
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -16,6 +21,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
 
 /**
  * Downloads and renders arXiv PDFs in the app.
@@ -333,6 +339,28 @@ class PdfStore(private val context: Context) {
         }
     }
 
+    /**
+     * The text between [from] and [to] on page [index], in reading order whichever comes first,
+     * or the word there when they are the same place. Null over empty space, and on a phone
+     * that cannot read PDF text ([PdfFind.supported]).
+     */
+    suspend fun select(
+        file: File,
+        index: Int,
+        from: PdfSelect.Place,
+        to: PdfSelect.Place,
+    ): PdfSelect.Selection? = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val r = rendererFor(file) ?: return@withLock null
+            if (index !in 0 until r.pageCount) return@withLock null
+            runCatching {
+                withTextPage(file, r, index) { page ->
+                    page.select(from, to)?.let { PdfSelect.onPage(index, page.width, page.height, it) }
+                }
+            }.getOrNull()
+        }
+    }
+
     /** A page opened for its text, whichever class this phone reads text with. */
     private class TextPage(
         /** In points, as the match rectangles are. */
@@ -341,39 +369,62 @@ class PdfStore(private val context: Context) {
         /** Each match's start in the page's text, with its rectangles in points. */
         val search: (String) -> List<Pair<Int, List<RectF>>>,
         val hasText: () -> Boolean,
+        val select: (PdfSelect.Place, PdfSelect.Place) -> PdfSelect.Found?,
     )
 
     /** Runs [block] on page [index], or returns null on a phone that cannot read PDF text. */
     private fun <T> withTextPage(file: File, r: PdfRenderer, index: Int, block: (TextPage) -> T): T? {
+        // Android 15 has all of it, and on Android 12 to 14 the system's PDF module brings it.
+        if (Build.VERSION.SDK_INT < 31 || SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) < 13) {
+            return null
+        }
         if (Build.VERSION.SDK_INT >= 35) {
             r.openPage(index).use { page ->
+                val width = page.width.toFloat()
+                val height = page.height.toFloat()
                 return block(TextPage(
-                    page.width.toFloat(), page.height.toFloat(),
+                    width, height,
                     search = { q -> page.searchText(q).map { it.textStartIndex to it.bounds } },
                     hasText = { page.textContents.any { it.text.isNotBlank() } },
+                    select = { a, b ->
+                        page.selectContent(boundary(a, width, height), boundary(b, width, height))
+                            ?.let(::found)
+                    },
                 ))
             }
         }
-        if (Build.VERSION.SDK_INT >= 31 &&
-            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 13
-        ) {
-            if (searcherFile != file || searcher == null) {
-                runCatching { searcher?.close() }
-                searcher = PdfRendererPreV(
-                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                )
-                searcherFile = file
-            }
-            (searcher as PdfRendererPreV).openPage(index).use { page ->
-                return block(TextPage(
-                    page.width.toFloat(), page.height.toFloat(),
-                    search = { q -> page.searchText(q).map { it.textStartIndex to it.bounds } },
-                    hasText = { page.textContents.any { it.text.isNotBlank() } },
-                ))
-            }
+        if (searcherFile != file || searcher == null) {
+            runCatching { searcher?.close() }
+            searcher = PdfRendererPreV(
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            )
+            searcherFile = file
         }
-        return null
+        (searcher as PdfRendererPreV).openPage(index).use { page ->
+            val width = page.width.toFloat()
+            val height = page.height.toFloat()
+            return block(TextPage(
+                width, height,
+                search = { q -> page.searchText(q).map { it.textStartIndex to it.bounds } },
+                hasText = { page.textContents.any { it.text.isNotBlank() } },
+                select = { a, b ->
+                    page.selectContent(boundary(a, width, height), boundary(b, width, height))?.let(::found)
+                },
+            ))
+        }
     }
+
+    // The platform takes a place on the page in whole points, and gives back its ends the same
+    // way, never as places in the text; see PdfSelect.
+    @RequiresExtension(extension = Build.VERSION_CODES.S, version = 13)
+    private fun boundary(at: PdfSelect.Place, width: Float, height: Float) =
+        SelectionBoundary(Point((at.x * width).roundToInt(), (at.y * height).roundToInt()))
+
+    @RequiresExtension(extension = Build.VERSION_CODES.S, version = 13)
+    private fun found(s: PageSelection) = PdfSelect.Found(
+        s.start.point?.let { PointF(it) }, s.stop.point?.let { PointF(it) },
+        s.selectedTextContents.map { it.text to it.bounds },
+    )
 
     suspend fun pageCount(file: File): Int = withContext(Dispatchers.IO) {
         lock.withLock { rendererFor(file)?.pageCount ?: 0 }

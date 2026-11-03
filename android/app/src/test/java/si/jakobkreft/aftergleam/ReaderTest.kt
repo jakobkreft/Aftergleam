@@ -1,5 +1,6 @@
 package si.jakobkreft.aftergleam
 
+import android.graphics.PointF
 import android.graphics.RectF
 import androidx.compose.ui.graphics.Color
 import androidx.test.core.app.ApplicationProvider
@@ -15,6 +16,7 @@ import org.robolectric.annotation.Config
 import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.Html
 import si.jakobkreft.aftergleam.data.PdfFind
+import si.jakobkreft.aftergleam.data.PdfSelect
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.ui.ArticleDocument
 import si.jakobkreft.aftergleam.ui.PdfZoom
@@ -22,9 +24,10 @@ import si.jakobkreft.aftergleam.ui.ReaderTheme
 import java.io.File
 
 /**
- * Find in paper and the reader view, in the parts that do not need a PDF renderer or a web
- * view: what is searched for, the order matches are shown in, what is kept of arXiv's page,
- * and what the reader view is allowed to load.
+ * Find in paper, selecting a PDF's text and the reader view, in the parts that do not need a
+ * PDF renderer or a web view: what is searched for, the order matches are shown in, where a
+ * selection is and what is copied of it, what is kept of arXiv's page, and what the reader
+ * view is allowed to load.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -61,6 +64,52 @@ class ReaderTest {
     }
 
     private fun match(page: Int) = PdfFind.Match(page, 0, emptyList(), 1.4f)
+
+    @Test
+    fun `a selection is placed as fractions of its page, its ends where the platform put them`() {
+        val found = PdfSelect.Found(
+            start = PointF(120f, 108f),
+            stop = PointF(300f, 128f),
+            pieces = listOf(
+                "limited, spend most\r\nof their" to
+                    listOf(RectF(120f, 100f, 540f, 110f), RectF(60f, 120f, 300f, 130f)),
+            ),
+        )
+        val s = PdfSelect.onPage(2, pageWidth = 600f, pageHeight = 800f, found = found)!!
+        assertEquals(2, s.page)
+        assertEquals("limited, spend most\r\nof their", s.text)
+        assertEquals(0.2f, s.rects.first().left, 1e-6f)
+        assertEquals(0.5f, s.rects.last().right, 1e-6f)
+        assertEquals(PdfSelect.Place(0.2f, 108f / 800f), s.start)
+        assertEquals(PdfSelect.Place(0.5f, 0.16f), s.stop)
+
+        val noEnds = PdfSelect.onPage(2, 600f, 800f, PdfSelect.Found(null, null, found.pieces))!!
+        assertEquals("without the platform's ends, the lines' own", 0.2f, noEnds.start.x, 1e-6f)
+        assertEquals(0.5f, noEnds.stop.x, 1e-6f)
+
+        assertNull("only space selected is no selection",
+            PdfSelect.onPage(2, 600f, 800f, PdfSelect.Found(null, null, listOf(" \r\n" to listOf(RectF())))))
+        assertNull(PdfSelect.onPage(2, 0f, 800f, found))
+    }
+
+    @Test
+    fun `the same place comes back from the platform within a rounding of its points`() {
+        assertTrue(PdfSelect.Place(0.27450982f, 0.30555f).near(PdfSelect.Place(0.2745f, 0.3056f)))
+        assertFalse("the next letter over", PdfSelect.Place(0.2745f, 0.3f).near(PdfSelect.Place(0.2762f, 0.3f)))
+    }
+
+    @Test
+    fun `what is copied reads as the sentence it was before the page broke it into lines`() {
+        assertEquals(
+            "Unfortunately, even strong coding agents struggle. They often make rapid initial progress",
+            PdfSelect.clip(
+                "Unfortunately, even strong coding agents struggle. They often\r\nmake rapid initial progress"
+            ),
+        )
+        assertEquals("a hyphen at a line's end is kept, without a space after it",
+            "self-supervised and fine-tuned", PdfSelect.clip("self-\r\nsupervised and fine-\ntuned"))
+        assertEquals("a word", PdfSelect.clip("  a   word \r\n"))
+    }
 
     @Test
     fun `the first match shown is the first from the page being read, wrapping round`() {

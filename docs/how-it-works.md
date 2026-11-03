@@ -58,6 +58,7 @@ the same note quietly.
 
 ## Reading
 
-PDFs are drawn with Android's own PdfRenderer, which also does the search. The reader view uses
-arXiv's HTML version of a paper, shown with scripts off and figures kept on the phone. Downloads
-are kept in the app's own storage, so clearing the cache does not remove them.
+PDFs are drawn with Android's own PdfRenderer, which also does the search and finds the text a
+long press selects. The reader view uses arXiv's HTML version of a paper, shown with scripts off
+and figures kept on the phone. Downloads are kept in the app's own storage, so clearing the cache
+does not remove them.

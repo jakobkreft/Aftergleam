@@ -64,6 +64,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -72,6 +73,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -141,7 +143,8 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPi
  * exists only where arXiv has made an HTML version, and the menu says so where it has not,
  * rather than offering a view built by guessing at the PDF's text. See [ArticleStore].
  *
- * Find in paper works in both, with the same bar.
+ * Find in paper works in both, with the same bar, and so does selecting text to copy it: the
+ * reader view's is the web page's own, and the PDF's is [PdfTextSelection].
  */
 @Composable
 fun PdfReaderScreen(
@@ -199,6 +202,7 @@ fun PdfReaderScreen(
     DisposableEffect(file) {
         onDispose { scope.launch { store.release() } }
     }
+
 
     // Back closes the find bar first, as it closes a keyboard first.
     BackHandler(enabled = find.open) { find.close() }
@@ -374,6 +378,18 @@ private fun PdfPages(
     var matches by remember { mutableStateOf<List<PdfFind.Match>>(emptyList()) }
     val byPage = remember(matches) { matches.groupBy { it.page } }
 
+    // Selecting text reads it with the same means as find, so it is there on the same phones.
+    val text = remember(file) { if (PdfFind.supported) PdfTextSelection(store, file) else null }
+    if (text != null) {
+        LaunchedEffect(text) { text.answer() }
+        // Back lets a selection go before it leaves the paper, as it closes find first.
+        BackHandler(enabled = text.selection != null) { text.clear() }
+        SelectionBar(
+            text,
+            still = !listState.isScrollInProgress && !hScroll.isScrollInProgress && zoom.pinch == 1f,
+        )
+    }
+
     // Searched a page at a time, in order, with the count shown as it grows, and the first
     // match at or after the page being read shown as soon as it is found. A new letter typed
     // restarts the effect, which cancels the search that was under way.
@@ -486,6 +502,7 @@ private fun PdfPages(
                     store, file, index, renderWidth,
                     marks = byPage[index].orEmpty(),
                     current = matches.getOrNull(find.current)?.takeIf { it.page == index },
+                    text = text,
                 )
             }
         }
@@ -532,6 +549,7 @@ private fun PdfPage(
     renderWidth: Int,
     marks: List<PdfFind.Match>,
     current: PdfFind.Match?,
+    text: PdfTextSelection?,
 ) {
     // The aspect ratio is cheap to read and lets the placeholder take the page's real height,
     // so the list does not jump as pages arrive.
@@ -542,11 +560,21 @@ private fun PdfPage(
 
     val widthDp = with(LocalDensity.current) { renderWidth.toDp() }
     val bmp = bitmap
+    val haptics = LocalHapticFeedback.current
+    if (text != null) {
+        DisposableEffect(text, index) { onDispose { text.pages.remove(index) } }
+    }
     Box(
         Modifier
             .width(widthDp)
             .aspectRatio(1f / aspect)
             .background(Color.White)
+            .then(
+                if (text == null) Modifier
+                else Modifier
+                    .onGloballyPositioned { text.pages[index] = it }
+                    .selectsText(index, text, haptics)
+            )
             .drawWithContent {
                 drawContent()
                 for (m in marks) {
@@ -560,6 +588,7 @@ private fun PdfPage(
                         )
                     }
                 }
+                text?.selection?.takeIf { it.page == index }?.let { drawSelection(it) }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -571,8 +600,6 @@ private fun PdfPage(
         )
     }
 }
-
-
 
 /**
  * The reader's overflow menu.
@@ -596,10 +623,9 @@ private fun PdfPage(
  * neither substitutes for the other. Both record that the paper was shared, as the abstract
  * screen's Share always has: passing a paper on is one of the strongest signals there is.
  *
- * Last, the two ways out: another app, for annotation and text selection this renderer
- * deliberately does not have, and the paper's own page. That is the only honest reading of
- * "open location", because the file itself lives in the app's private cache where no file
- * manager can reach it.
+ * Last, the two ways out: another app, for the annotation this reader deliberately does not
+ * do, and the paper's own page. That is the only honest reading of "open location", because
+ * the file itself lives in the app's private cache where no file manager can reach it.
  */
 @Composable
 private fun ReaderMenu(

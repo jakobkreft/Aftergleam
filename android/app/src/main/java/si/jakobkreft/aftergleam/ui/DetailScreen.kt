@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -145,64 +146,71 @@ fun DetailScreen(
                     onSave,
                 )
             }
-            Text(
-                highlighted(paper.displayTitle, matched),
-                modifier = Modifier.clickable(onClick = open),
-                style = paperStyle(MaterialTheme.typography.titleLarge),
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(paper.authors.joinToString(", "), style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                listOfNotNull(
-                    paper.sourceLabel,
-                    paper.displayId,
-                    // Comma separated: a paper filed under "law and politics" and "courts"
-                    // ran together as "law and politics courts", which reads as one subject
-                    // nobody has ever heard of.
-                    // Nothing at all for a paper with no subject, which a search can bring
-                    // in, rather than an empty field between two separators.
-                    paper.displayCategories.joinToString(", ").ifBlank { null },
-                    "submitted ${paper.published}",
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-            )
-            Venue.of(paper)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary)
-            }
-            if (upvotes > 0) {
-                Text(
-                    si.jakobkreft.aftergleam.data.Attention.label(upvotes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-            if (paper.comments.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(paper.comments, style = MaterialTheme.typography.labelSmall)
-            }
-            // Which keyword brought it here, and where: the mention may be deep in the abstract,
-            // and a label the reader cannot find on the page is a label they stop trusting.
-            matched.firstOrNull()?.let { k ->
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    (if (Keywords.isCombined(k)) "Matches" else "Mentions") +
-                        " your keyword \u201c$k\u201d, highlighted below",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(12.dp))
+            // Held down, any of it can be selected and copied, a title for a citation or a
+            // sentence of the abstract alike, in one go if need be. A tap on the title still
+            // opens the paper.
+            SelectionContainer {
+                Column {
+                    Text(
+                        highlighted(paper.displayTitle, matched),
+                        modifier = Modifier.clickable(onClick = open),
+                        style = paperStyle(MaterialTheme.typography.titleLarge),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(paper.authors.joinToString(", "), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        listOfNotNull(
+                            paper.sourceLabel,
+                            paper.displayId,
+                            // Comma separated: a paper filed under "law and politics" and "courts"
+                            // ran together as "law and politics courts", which reads as one subject
+                            // nobody has ever heard of.
+                            // Nothing at all for a paper with no subject, which a search can bring
+                            // in, rather than an empty field between two separators.
+                            paper.displayCategories.joinToString(", ").ifBlank { null },
+                            "submitted ${paper.published}",
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Venue.of(paper)?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary)
+                    }
+                    if (upvotes > 0) {
+                        Text(
+                            si.jakobkreft.aftergleam.data.Attention.label(upvotes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                    if (paper.comments.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(paper.comments, style = MaterialTheme.typography.labelSmall)
+                    }
+                    // Which keyword brought it here, and where: the mention may be deep in the abstract,
+                    // and a label the reader cannot find on the page is a label they stop trusting.
+                    matched.firstOrNull()?.let { k ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            (if (Keywords.isCombined(k)) "Matches" else "Mentions") +
+                                " your keyword \u201c$k\u201d, highlighted below",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
 
-            // The whole abstract, not a preview. This is the point of the screen.
-            Text(
-                highlighted(paper.displayAbstract, matched),
-                style = paperStyle(MaterialTheme.typography.bodyMedium),
-            )
+                    // The whole abstract, not a preview. This is the point of the screen.
+                    Text(
+                        highlighted(paper.displayAbstract, matched),
+                        style = paperStyle(MaterialTheme.typography.bodyMedium),
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
 
             InterestControl(confidence, liked, modelActive, onSteer)
