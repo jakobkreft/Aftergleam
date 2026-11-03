@@ -1,56 +1,62 @@
 package si.jakobkreft.aftergleam.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Venue
 
 /**
  * Keyword search with personalised re-ranking.
@@ -58,6 +64,10 @@ import si.jakobkreft.aftergleam.data.Venue
  * The wording is deliberately literal. This is arXiv's keyword index plus local reordering,
  * not semantic search over the whole archive, and saying otherwise would be found out on the
  * second query.
+ *
+ * The controls head the results and scroll away with them, like the top of any page. On a
+ * phone with large text they were half the screen, kept above the results throughout. Once
+ * they are out of sight, a button at the top brings them back.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -70,6 +80,7 @@ fun SearchScreen(
     onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
     onOpen: (Paper) -> Unit,
+    onBack: () -> Unit,
     onAddKeyword: (String) -> Unit = {},
     /** One keyword for another, in its place and with its bell: the better reading of a search. */
     onSwapKeyword: (String, String) -> Unit = { _, _ -> },
@@ -102,15 +113,165 @@ fun SearchScreen(
         keyboard?.hide()
         focus.clearFocus()
     }
+    // The controls are the list's first item: past it, they are out of sight, and typing into
+    // the field among them would be typing blind.
+    val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    LaunchedEffect(away) { if (away) dismiss() }
 
-    Column(
+    val nothingAtAll = state.searchLocalHits.isEmpty() && state.searchHits.isEmpty()
+    // A search that found what the reader wanted can go on finding it every morning. Offered
+    // only for an online search, which is the one that looks at new papers, and at the head of
+    // the results rather than among the controls, where with its second reading it took two
+    // more lines from them. Which words are one name and which separate ideas is read off the
+    // results: see [Keywords.watchFor].
+    val watch = remember(state.searchQuery, state.searchHits, state.searchLocalHits) {
+        Keywords.watchFor(state.searchQuery, (state.searchHits + state.searchLocalHits).map { it.paper })
+    }
+    val offerWatch = state.searchScope == SearchScope.ONLINE && watch != null && !state.searching
+
+    Box(
         Modifier
             .fillMaxSize()
             // Tapping anywhere off the field puts the keyboard away, which is what every
             // other app on the phone does.
             .pointerInput(Unit) { detectTapGestures(onTap = { dismiss() }) }
-            .padding(16.dp)
     ) {
+        // One list whatever is in it, the controls always its first item. Moved between a
+        // list and a plain column, they were made afresh, and the field lost the keyboard
+        // after the first letter typed.
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "controls") {
+                Controls(state, onBack, onQuery, { dismiss(); onSubmit() }, onScope, onPersonalisation)
+            }
+            when {
+                // Only a bare wait when there is genuinely nothing to show yet. Once the device
+                // results are up, the wait becomes a line at the bottom of them instead: a
+                // skeleton over the top of real results would hide the thing that just arrived.
+                state.searching && nothingAtAll -> {
+                    item(key = "waiting") {
+                        Text(
+                            when (state.searchScope) {
+                                SearchScope.ONLINE -> "Asking the preprint servers, then ranking for you"
+                                else -> "Searching this device"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    items(4, key = { "skeleton-$it" }) { SkeletonCard() }
+                }
+
+                state.searchError != null && nothingAtAll -> item(key = "error") {
+                    Text(state.searchError, style = MaterialTheme.typography.bodySmall)
+                }
+
+                nothingAtAll && state.searchQuery.isNotBlank() -> item(key = "nothing") {
+                    Text("Nothing found. Try fewer or more common words.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+
+                else -> results(
+                    state, watch.takeIf { offerWatch }, onSteer, onSave, onOpen, onAddKeyword, onSwapKeyword,
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = away,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Button(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null)
+                Text("Back to top")
+            }
+        }
+    }
+}
+
+/** What was found: on the device first, then from the servers, with the offer to watch for more. */
+private fun LazyListScope.results(
+    state: FeedState,
+    watch: Keywords.Watch?,
+    onSteer: (String, Boolean?) -> Unit,
+    onSave: (String) -> Unit,
+    onOpen: (Paper) -> Unit,
+    onAddKeyword: (String) -> Unit,
+    onSwapKeyword: (String, String) -> Unit,
+) {
+    if (watch != null) {
+        item(key = "watch") { WatchOffer(watch, state.keywords, onAddKeyword, onSwapKeyword) }
+    }
+    if (state.searchLocalHits.isNotEmpty()) {
+        item(key = "device-header") {
+            SectionLabel("Already on your device")
+        }
+        items(state.searchLocalHits, key = { "d-" + it.paper.id }) { hit ->
+            Result(state, hit, onSteer, onSave, onOpen, fromDevice = true)
+        }
+        if (state.searchLocalMore > 0) {
+            item(key = "device-more") {
+                Text(
+                    "${state.searchLocalMore} more on this device. " +
+                        "The On device chip shows them all.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        item(key = "arxiv-header") {
+            Spacer(Modifier.height(4.dp))
+            SectionLabel(
+                when {
+                    state.searching -> "Asking the preprint servers for the rest"
+                    state.searchError != null -> "From the preprint servers"
+                    else -> "New to you, from the preprint servers"
+                }
+            )
+        }
+    }
+
+    // The network's own report, under the results rather than instead of them.
+    state.searchError?.let { err ->
+        item(key = "error") {
+            Text(err, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+
+    items(state.searchHits, key = { it.paper.id }) { hit ->
+        Result(state, hit, onSteer, onSave, onOpen)
+    }
+
+    if (state.searching && state.searchLocalHits.isNotEmpty()) {
+        item(key = "pending") { PendingRow() }
+    }
+}
+
+/**
+ * The field, where to look, and how what was found is ordered.
+ *
+ * Each place is described until there are results; after that the chips' names are enough,
+ * and the two lines are the results'. The ordering is one line, its slider folded away: few
+ * searches need it, and open it took three lines from every one of them.
+ */
+@Composable
+private fun Controls(
+    state: FeedState,
+    onBack: () -> Unit,
+    onQuery: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onScope: (SearchScope) -> Unit,
+    onPersonalisation: (Float) -> Unit,
+) {
+    var ordering by rememberSaveable { mutableStateOf(false) }
+    Column {
+        TextButton(onClick = onBack) { Text("Back") }
+        Spacer(Modifier.height(8.dp))
         // A visible button as well as the keyboard action. Relying on the IME alone leaves
         // the feature unreachable whenever the keyboard does not offer a search key.
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -133,11 +294,11 @@ fun SearchScreen(
                     }
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { dismiss(); onSubmit() }),
+                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
             )
             Spacer(Modifier.width(8.dp))
             Button(
-                onClick = { dismiss(); onSubmit() },
+                onClick = onSubmit,
                 enabled = state.searchQuery.trim().length >= 2,
             ) {
                 Text("Search")
@@ -156,115 +317,42 @@ fun SearchScreen(
                 )
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            when (state.searchScope) {
-                SearchScope.ONLINE ->
-                    "Keyword search on arXiv and seven other preprint servers, reordered " +
-                        "here by what you read."
-                SearchScope.CACHED -> "Everything this device has downloaded. No network."
-                SearchScope.KEPT -> "Only what you saved or reacted to. No network."
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (state.searchHits.isNotEmpty() || state.searchLocalHits.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
+        if (state.searchHits.isEmpty() && state.searchLocalHits.isEmpty()) {
+            Spacer(Modifier.height(4.dp))
             Text(
-                "Ordering: ${(state.personalisation * 100).toInt()}% my interests",
-                style = MaterialTheme.typography.labelSmall,
-            )
-            // Reordering is local, so this never re-queries arXiv.
-            Slider(state.personalisation, onPersonalisation, valueRange = 0f..1f)
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("closest to query", style = MaterialTheme.typography.labelSmall)
-                Text("closest to me", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        val nothingAtAll = state.searchLocalHits.isEmpty() && state.searchHits.isEmpty()
-
-        // A search that found what the reader wanted can go on finding it every morning.
-        // Offered only for an online search, which is the one that looks at new papers, and
-        // at the head of the results rather than pinned above them, where with its second
-        // reading it took two lines of a screen that already gives half its height to controls.
-        // Which words are one name and which separate ideas is read off the results: see
-        // [Keywords.watchFor].
-        val watch = remember(state.searchQuery, state.searchHits, state.searchLocalHits) {
-            Keywords.watchFor(state.searchQuery, (state.searchHits + state.searchLocalHits).map { it.paper })
-        }
-        val offerWatch = state.searchScope == SearchScope.ONLINE && watch != null && !state.searching
-
-        when {
-            // Only a bare wait when there is genuinely nothing to show yet. Once the device
-            // results are up, the wait becomes a line at the bottom of them instead: a
-            // skeleton over the top of real results would hide the thing that just arrived.
-            state.searching && nothingAtAll -> DigestSkeleton(
                 when (state.searchScope) {
-                    SearchScope.ONLINE -> "Asking the preprint servers, then ranking for you"
-                    else -> "Searching this device"
-                }
+                    SearchScope.ONLINE ->
+                        "Keyword search on arXiv and seven other preprint servers, reordered " +
+                            "here by what you read."
+                    SearchScope.CACHED -> "Everything this device has downloaded. No network."
+                    SearchScope.KEPT -> "Only what you saved or reacted to. No network."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            state.searchError != null && nothingAtAll ->
-                Text(state.searchError, style = MaterialTheme.typography.bodySmall)
-
-            nothingAtAll && state.searchQuery.isNotBlank() && !state.searching ->
-                Text("Nothing found. Try fewer or more common words.",
-                    style = MaterialTheme.typography.bodySmall)
-
-            else -> LazyColumn(
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { ordering = !ordering }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (offerWatch && watch != null) {
-                    item(key = "watch") { WatchOffer(watch, state.keywords, onAddKeyword, onSwapKeyword) }
-                }
-                if (state.searchLocalHits.isNotEmpty()) {
-                    item(key = "device-header") {
-                        SectionLabel("Already on your device")
-                    }
-                    items(state.searchLocalHits, key = { "d-" + it.paper.id }) { hit ->
-                        Result(state, hit, onSteer, onSave, onOpen, fromDevice = true)
-                    }
-                    if (state.searchLocalMore > 0) {
-                        item(key = "device-more") {
-                            Text(
-                                "${state.searchLocalMore} more on this device. " +
-                                    "The On device chip shows them all.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    item(key = "arxiv-header") {
-                        Spacer(Modifier.height(4.dp))
-                        SectionLabel(
-                            when {
-                                state.searching -> "Asking the preprint servers for the rest"
-                                state.searchError != null -> "From the preprint servers"
-                                else -> "New to you, from the preprint servers"
-                            }
-                        )
-                    }
-                }
-
-                // The network's own report, under the results rather than instead of them.
-                state.searchError?.let { err ->
-                    item(key = "error") {
-                        Text(err, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-
-                items(state.searchHits, key = { it.paper.id }) { hit ->
-                    Result(state, hit, onSteer, onSave, onOpen)
-                }
-
-                if (state.searching && state.searchLocalHits.isNotEmpty()) {
-                    item(key = "pending") { PendingRow() }
+                Text(
+                    "Ordering: ${(state.personalisation * 100).toInt()}% my interests",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Icon(
+                    if (ordering) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (ordering) "Hide the ordering" else "Change the ordering",
+                )
+            }
+            if (ordering) {
+                // Reordering is local, so this never re-queries arXiv.
+                Slider(state.personalisation, onPersonalisation, valueRange = 0f..1f)
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("closest to query", style = MaterialTheme.typography.labelSmall)
+                    Text("closest to me", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

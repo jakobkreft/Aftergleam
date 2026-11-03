@@ -444,12 +444,16 @@ private fun App(vm: FeedViewModel = viewModel()) {
 
         val searchOpen = state.searchOpen
         if (searchOpen) {
-            BackHandler { vm.closeSearch() }
+            // Closed, it forgets how far down the results it was, so that it opens again on its
+            // field rather than somewhere below it. A paper opened from it does not close it.
+            val closeSearch = {
+                vm.closeSearch()
+                screenState.removeState("search")
+            }
+            BackHandler(onBack = closeSearch)
             Scaffold { inner ->
                 Box(Modifier.padding(inner)) {
-                    Column {
-                        TextButton(onClick = vm::closeSearch) { Text("Back") }
-                        screenState.SaveableStateProvider("search") {
+                    screenState.SaveableStateProvider("search") {
                         SearchScreen(
                             state = state,
                             onQuery = vm::setSearchQuery,
@@ -459,10 +463,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSteer = vm::steer,
                             onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
+                            onBack = closeSearch,
                             onAddKeyword = vm::addKeyword,
                             onSwapKeyword = vm::swapKeyword,
                         )
-                        }
                     }
                 }
             }
