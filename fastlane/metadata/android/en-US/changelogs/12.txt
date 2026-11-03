@@ -1,0 +1,4 @@
+- Long press to select and copy text, in a paper's abstract and on PDF pages
+- Text copied from a PDF pastes as running sentences, without the page's line breaks
+- Search controls scroll away with the results, and a button brings you back to them
+- The ordering slider in search folds into one line until you need it
