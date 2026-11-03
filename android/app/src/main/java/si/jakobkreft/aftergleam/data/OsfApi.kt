@@ -21,7 +21,8 @@ import java.time.LocalDate
  * to platforms of their own, so only the live ones are wired up. Measured by publications
  * since 2026-08-01: PsyArXiv 1702, SocArXiv 848, EdArXiv 233, Law Archive 55, MetaArXiv 41.
  * SportRxiv last published in 2021, engrXiv in 2022, EarthArXiv and AgriXiv in 2020, and
- * pointing the app at those would be offering a subject that never updates.
+ * pointing the app at those would be offering a subject that never updates. EarthArXiv and
+ * EcoEvoRxiv carry on elsewhere and are read through Crossref: see CrossrefServers.
  *
  * Records carry a hierarchical subject taxonomy, so the leaf ("Cognitive Psychology",
  * "Criminal Law") is what a topic subscribes to. Like bioRxiv there is no usable server-side

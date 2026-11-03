@@ -31,7 +31,7 @@ object Bridge {
         "biorxiv:bioinformatics" to listOf("q-bio.QM", "cs.LG", "stat.ME"),
         "biorxiv:cancer biology" to listOf("medrxiv:oncology", "q-bio.TO", "biorxiv:immunology"),
         "biorxiv:immunology" to listOf("medrxiv:infectious diseases", "q-bio.MN"),
-        "biorxiv:ecology" to listOf("q-bio.PE", "biorxiv:evolutionary biology"),
+        "biorxiv:ecology" to listOf("q-bio.PE", "biorxiv:evolutionary biology", "ecoevorxiv:ecology"),
         "biorxiv:evolutionary biology" to listOf("q-bio.PE", "biorxiv:ecology"),
         "biorxiv:biophysics" to listOf("physics.bio-ph", "cond-mat.soft", "q-bio.BM"),
         "biorxiv:systems biology" to listOf("q-bio.MN", "q-bio.QM"),
@@ -47,7 +47,7 @@ object Bridge {
         "cs.CL" to listOf("cs.IR", "q-bio.NC", "cs.CY", "cs.SD"),
         "cs.AI" to listOf("cs.LO", "cs.MA", "q-bio.NC", "math.OC"),
         "cs.RO" to listOf("eess.SY", "cs.CV", "math.OC"),
-        "cs.CR" to listOf("cs.IT", "math.NT", "cs.DC"),
+        "cs.CR" to listOf("cs.IT", "math.NT", "cs.DC", "eprint:Cryptographic protocols"),
         "cs.SE" to listOf("cs.PL", "cs.LO", "cs.DC"),
         "cs.IR" to listOf("cs.CL", "cs.DL", "stat.ML"),
         "stat.ML" to listOf("math.ST", "cs.LG", "math.OC"),
@@ -70,6 +70,19 @@ object Bridge {
         "socarxiv:sociology" to listOf("cs.SI", "econ.GN", "physics.soc-ph"),
         "edarxiv:education" to listOf("cs.CY", "psyarxiv:developmental psychology"),
         "lawarchive:law" to listOf("cs.CY", "econ.GN"),
+        "ecoevorxiv:ecology" to listOf("biorxiv:ecology", "q-bio.PE", "eartharxiv:earth sciences"),
+        "eartharxiv:earth sciences" to listOf("physics.geo-ph", "physics.ao-ph", "ecoevorxiv:ecology"),
+        "physics.geo-ph" to listOf("eartharxiv:earth sciences", "physics.flu-dyn"),
+        "physics.ao-ph" to listOf("eartharxiv:earth sciences", "physics.flu-dyn"),
+        // Cryptography's theory borrows from complexity and number theory, and its practice
+        // meets the rest of security on arXiv.
+        "eprint:Cryptographic protocols" to listOf("cs.CR", "cs.DC"),
+        "eprint:Public-key cryptography" to listOf("math.NT", "cs.CR"),
+        "eprint:Secret-key cryptography" to listOf("cs.IT", "cs.CR"),
+        "eprint:Attacks and cryptanalysis" to listOf("math.NT", "cs.CR"),
+        "eprint:Foundations" to listOf("cs.CC", "cs.IT"),
+        "eprint:Implementation" to listOf("cs.AR", "cs.CR"),
+        "eprint:Applications" to listOf("cs.CR", "cs.DC"),
     )
 
     /** A short, non-empty list of categories to fetch a bridge pool from. */

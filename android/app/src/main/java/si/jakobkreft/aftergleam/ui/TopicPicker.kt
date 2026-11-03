@@ -83,7 +83,8 @@ fun TopicFields(
             if (results.isEmpty()) {
                 Text(
                     "Nothing matches \"$query\". The app covers arXiv, bioRxiv, medRxiv, " +
-                        "PsyArXiv, SocArXiv, EdArXiv, Law Archive and ChemRxiv.",
+                        "PsyArXiv, SocArXiv, EdArXiv, Law Archive, ChemRxiv, EarthArXiv, " +
+                        "EcoEvoRxiv and IACR ePrint.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),

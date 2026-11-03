@@ -8,6 +8,8 @@ It learns what you like from how you react to papers. The model is trained on yo
 * PsyArXiv, SocArXiv and EdArXiv: psychology, social science and education
 * Law Archive: law
 * ChemRxiv: chemistry
+* EarthArXiv and EcoEvoRxiv: earth sciences and ecology
+* IACR ePrint: cryptography
 
 Only the servers your subjects need are contacted.
 

@@ -10,7 +10,7 @@ import si.jakobkreft.aftergleam.data.Topics
 /**
  * Which servers a subscription is allowed to wake up.
  *
- * The app reads seven servers and nobody reads all seven. A computer scientist who waits on
+ * The app reads eleven servers and nobody reads all of them. A computer scientist who waits on
  * OSF and Crossref every morning is waiting on law and psychology they did not ask for, and
  * every extra server is another way for the morning to be slow or to fail.
  */
@@ -45,6 +45,12 @@ class FetcherTest {
     }
 
     @Test
+    fun `a cryptographer only wakes ePrint, and an earth scientist only EarthArXiv`() {
+        assertEquals(setOf(Source.EPRINT), Fetcher.serversFor(cats("ep-protocols", "ep-symmetric")))
+        assertEquals(setOf(Source.EARTHARXIV), Fetcher.serversFor(cats("ea-hydrology")))
+    }
+
+    @Test
     fun `mixed interests wake exactly the servers they name`() {
         assertEquals(
             setOf(Source.ARXIV, Source.MEDRXIV, Source.EDARXIV),
@@ -64,6 +70,7 @@ class FetcherTest {
         for (s in listOf(
             Source.ARXIV, Source.BIORXIV, Source.MEDRXIV, Source.PSYARXIV,
             Source.SOCARXIV, Source.EDARXIV, Source.LAWARCHIVE, Source.CHEMRXIV,
+            Source.EARTHARXIV, Source.ECOEVORXIV, Source.EPRINT,
         )) {
             assertTrue("no topic fetches from $s", s in all)
         }

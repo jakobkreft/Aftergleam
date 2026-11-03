@@ -227,8 +227,11 @@ fun DetailScreen(
                 OutlinedButton(onClick = onSave) {
                     ButtonLabel(if (reaction.saved) "Saved" else "Save for later")
                 }
-                OutlinedButton(onClick = { onOpenExternal(paper.absUrl) }) {
-                    ButtonLabel("On " + Source.label(paper.source))
+                // Where the paper is only read on its server's page, the button below goes there.
+                if (paper.readableInApp) {
+                    OutlinedButton(onClick = { onOpenExternal(paper.absUrl) }) {
+                        ButtonLabel("On " + Source.label(paper.source))
+                    }
                 }
                 OutlinedButton(onClick = onShare) { ButtonLabel("Share") }
             }

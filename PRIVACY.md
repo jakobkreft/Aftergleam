@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 3 October 2026.
+Effective 3 November 2026.
 
 Aftergleam is a reader for research preprints. It has no account, no server of its own, no
 analytics, no crash reporting, no advertising and no third-party tracking code. The developer
@@ -29,7 +29,9 @@ from Aftergleam. The app only contacts the servers your subjects need.
 | **arXiv** (arxiv.org) | the arXiv categories you follow, and a few related ones for suggestions outside your usual reading; your search terms; the titles in a library you import, to match them; the identifiers of papers from your past digests, three to twelve months later, to check whether they have since been published; and the identifier of any paper whose PDF you open. While a paper is open, the app asks whether arXiv has an HTML version of it, and fetches that version and its figures if you open the reader view |
 | **bioRxiv and medRxiv** (biorxiv.org, medrxiv.org) | a range of dates, and the identifier of any paper whose PDF you open. Your subjects are not sent: papers are filtered on your phone |
 | **OSF**, which hosts PsyArXiv, SocArXiv, EdArXiv and Law Archive (osf.io) | the name of the server and a date, and the identifier of any paper whose PDF you open. Your subjects are not sent. OSF stores its files with Google Cloud, so a PDF download is completed by storage.googleapis.com, which also receives that request |
-| **Crossref** (crossref.org), for ChemRxiv, and for searching bioRxiv, medRxiv, ChemRxiv, PsyArXiv, SocArXiv, EdArXiv and Law Archive | a date and the app's contact address; and your search terms when you search online |
+| **Crossref** (crossref.org), for ChemRxiv, EarthArXiv and EcoEvoRxiv, and for searching all of these and bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv and Law Archive | a date and the app's contact address; your search terms when you search online; and the identifier of an EarthArXiv or EcoEvoRxiv paper whose PDF you open, to find where it is |
+| **EarthArXiv and EcoEvoRxiv** (eartharxiv.org, ecoevorxiv.org) | the identifier of any paper whose PDF you open |
+| **IACR ePrint** (eprint.iacr.org) | a request for its public feed of new papers, which is the same for everyone, at most about once a day. Your subjects are not sent: papers are filtered on your phone |
 | **Hugging Face** (huggingface.co) | a request for its public list of the day's popular papers, which is the same for everyone. Nothing about you |
 
 Search terms, keywords and imported titles are the most revealing of these, because you wrote
@@ -43,7 +45,7 @@ Each of these services has its own privacy policy, which applies to the requests
 ## When something leaves your device because you asked
 
 - **Opening a paper's page** opens it in your browser, where the publisher's own terms apply.
-  ChemRxiv papers are read this way, because ChemRxiv does not let apps download them.
+  ChemRxiv and IACR ePrint papers are read this way, because they do not let apps download them.
 - **Sharing** a paper or a PDF sends it to the app you choose.
 - **Exporting a backup** writes a file where you choose. It contains your subjects,
   reactions and settings, so treat it as private.

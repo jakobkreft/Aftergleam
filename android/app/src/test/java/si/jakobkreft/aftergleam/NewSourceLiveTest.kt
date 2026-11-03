@@ -6,7 +6,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import si.jakobkreft.aftergleam.data.ChemRxivApi
+import si.jakobkreft.aftergleam.data.CrossrefServers
+import si.jakobkreft.aftergleam.data.EprintApi
 import si.jakobkreft.aftergleam.data.CrossrefSearch
 import si.jakobkreft.aftergleam.data.OsfApi
 import si.jakobkreft.aftergleam.data.Source
@@ -110,7 +111,7 @@ class NewSourceLiveTest {
     @Test
     fun `chemrxiv returns usable papers with plain text abstracts`() = runBlocking {
         assumeTrue("offline", online())
-        val papers = orSkip("ChemRxiv") { ChemRxivApi.recent(setOf(ChemRxivApi.CATEGORY), days = 5) }
+        val papers = orSkip("ChemRxiv") { CrossrefServers.recent(CrossrefServers.CHEMRXIV, days = 5) }
         println("chemrxiv: ${papers.size} papers")
         papers.take(3).forEach { println("   ${it.title.take(70)}") }
         assert(papers.isNotEmpty()) { "no papers came back" }
@@ -128,8 +129,40 @@ class NewSourceLiveTest {
     }
 
     @Test
+    fun `earth sciences and ecology arrive with abstracts and a PDF the reader can open`() = runBlocking {
+        assumeTrue("offline", online())
+        for (server in listOf(CrossrefServers.EARTHARXIV, CrossrefServers.ECOEVORXIV)) {
+            val papers = orSkip(server.source) { CrossrefServers.recent(server, days = 7) }
+            println("${server.source}: ${papers.size} papers")
+            assert(papers.isNotEmpty()) { "no papers came back from ${server.source}" }
+            assert(papers.all { it.source == server.source && it.abstract.isNotBlank() })
+            // The address the reader's download asks for, followed to the file itself.
+            val link = CrossrefServers.pdfLink(papers.first().id)
+            assert(link != null) { "no PDF named for ${papers.first().id}" }
+            val head = java.net.URL(link).openStream().use { it.readNBytes(5) }.decodeToString()
+            assert(head == "%PDF-") { "$link did not serve a PDF: $head" }
+        }
+    }
+
+    @Test
+    fun `ePrint returns its newest papers in its own categories`() = runBlocking {
+        assumeTrue("offline", online())
+        val all = setOf(
+            "Applications", "Cryptographic protocols", "Foundations", "Implementation",
+            "Secret-key cryptography", "Public-key cryptography", "Attacks and cryptanalysis",
+        )
+        val papers = orSkip("IACR ePrint") { EprintApi.recent(all) }
+        println("eprint: ${papers.size} papers, newest ${papers.firstOrNull()?.published}")
+        assert(papers.size >= 90) { "the feed holds a hundred, ${papers.size} came back" }
+        // The newest hundred, posted within the last weeks even after a quiet spell.
+        val month = java.time.LocalDate.now().minusDays(30).toString()
+        assert(papers.all { it.published >= month }) { "an old paper came back as new" }
+        assert(papers.all { it.displayCategories.single() in all && it.authors.isNotEmpty() })
+    }
+
+    @Test
     fun `jats stripping leaves readable prose`() {
-        val cleaned = ChemRxivApi.stripJats(
+        val cleaned = CrossrefServers.stripJats(
             "<jats:p>The quintet-to-singlet   process in [Fe(tpy)<jats:sub>2</jats:sub>]" +
                 "<jats:sup>2+</jats:sup> is studied &amp; compared.</jats:p>"
         )

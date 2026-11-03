@@ -30,8 +30,18 @@ object Source {
 
     const val CHEMRXIV = "chemrxiv"
 
+    // Read through Crossref like ChemRxiv; see CrossrefServers.
+    const val EARTHARXIV = "eartharxiv"
+    const val ECOEVORXIV = "ecoevorxiv"
+
+    /** The IACR's Cryptology ePrint Archive. See EprintApi. */
+    const val EPRINT = "eprint"
+
     /** The OSF-hosted servers, which share one API and one URL shape. */
     val OSF_SERVERS = setOf(PSYARXIV, SOCARXIV, EDARXIV, LAWARCHIVE)
+
+    /** The servers that give their PDFs to a browser and not to an app: see [Paper.readableInApp]. */
+    val READ_ELSEWHERE = setOf(CHEMRXIV, EPRINT)
 
     fun label(source: String): String = when (source) {
         BIORXIV -> "bioRxiv"
@@ -41,6 +51,9 @@ object Source {
         EDARXIV -> "EdArXiv"
         LAWARCHIVE -> "Law Archive"
         CHEMRXIV -> "ChemRxiv"
+        EARTHARXIV -> "EarthArXiv"
+        ECOEVORXIV -> "EcoEvoRxiv"
+        EPRINT -> "IACR ePrint"
         else -> "arXiv"
     }
 
@@ -111,26 +124,35 @@ data class Paper(
         // The id carries its provider so ids stay unique across servers; the guid is the
         // part OSF knows about.
         in Source.OSF_SERVERS -> "https://osf.io/${id.substringAfter(':')}"
-        Source.CHEMRXIV -> "https://doi.org/$id"
+        Source.CHEMRXIV, Source.EARTHARXIV, Source.ECOEVORXIV -> "https://doi.org/$id"
+        Source.EPRINT -> "https://eprint.iacr.org/$id"
         else -> "https://arxiv.org/abs/$id"
     }
 
-    val pdfUrl: String get() = when (source) {
+    /**
+     * Null where the address cannot be built from the id. EarthArXiv's and EcoEvoRxiv's name
+     * the file, which changes with each version, and are looked up when the paper is opened:
+     * see [PdfStore.download].
+     */
+    val pdfUrl: String? get() = when (source) {
+        Source.ARXIV -> "https://arxiv.org/pdf/$id"
         Source.BIORXIV, Source.MEDRXIV -> "$absUrl.full.pdf"
         in Source.OSF_SERVERS -> "https://osf.io/download/${id.substringAfter(':')}/"
-        else -> "https://arxiv.org/pdf/$id"
+        else -> null
     }
 
     /**
      * Whether the in-app reader can actually get the PDF.
      *
-     * False for ChemRxiv: its DOI resolves to chemrxiv.org, which answers anything that is
-     * not a browser with a Cloudflare challenge. Offering "Download and read" there would be
-     * offering a button that always fails, so those papers say "Read on ChemRxiv" and hand
-     * the reader to a browser, which can pass the challenge. Everything the app is actually
-     * for, the ranking, the abstract, the library, works the same either way.
+     * False for ChemRxiv and IACR ePrint: both answer anything that is not a browser with a
+     * Cloudflare challenge. Offering "Download and read" there would be offering a button that
+     * always fails, so those papers say "Read on ChemRxiv" and hand the reader to the paper's
+     * page in a browser, which can pass the challenge. Its page and not its PDF: sent straight
+     * to an ePrint PDF, the phone's browser sat behind the challenge for over a minute, where
+     * the page's own PDF link downloaded at once. Everything the app is actually for, the
+     * ranking, the abstract, saving, works the same either way.
      */
-    val readableInApp: Boolean get() = source != Source.CHEMRXIV
+    val readableInApp: Boolean get() = source !in Source.READ_ELSEWHERE
 
     /**
      * The identifier as its own archive writes it.

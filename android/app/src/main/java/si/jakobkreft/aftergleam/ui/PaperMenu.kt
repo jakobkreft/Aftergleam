@@ -52,7 +52,8 @@ fun PaperMenu(
         when {
             downloading -> Item("Downloading…", close, enabled = false) {}
             downloaded -> Item("Delete download", close, action = onDeleteDownload)
-            else -> Item("Download for offline", close, action = onDownload)
+            // Not for a paper only its server's page can give, where it could only fail.
+            paper.readableInApp -> Item("Download for offline", close, action = onDownload)
         }
 
         Item("Share", close, action = onShare)

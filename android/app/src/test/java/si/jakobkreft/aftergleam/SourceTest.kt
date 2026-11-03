@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +40,19 @@ class SourceTest {
         )
         val m = paper("10.1101/2026.09.01.1234v1", Source.MEDRXIV, "medrxiv:epidemiology")
         assertTrue(m.absUrl.startsWith("https://www.medrxiv.org/content/"))
+
+        // Janeway's PDF names a file that changes with each version, so it is looked up.
+        val e = paper("10.31223/X5N22R", Source.EARTHARXIV, "eartharxiv:earth sciences")
+        assertEquals("https://doi.org/10.31223/X5N22R", e.absUrl)
+        assertNull(e.pdfUrl)
+        assertTrue(e.readableInApp)
+
+        // ePrint gives its PDFs to browsers only: its papers are read on its own page.
+        val c = paper("2026/2684", Source.EPRINT, "eprint:Cryptographic protocols")
+        assertEquals("https://eprint.iacr.org/2026/2684", c.absUrl)
+        assertFalse(c.readableInApp)
+        assertEquals("IACR ePrint", c.sourceLabel)
+        assertEquals("Cryptographic protocols", c.displayCategories.single())
     }
 
     @Test

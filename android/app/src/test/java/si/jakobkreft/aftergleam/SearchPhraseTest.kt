@@ -9,7 +9,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import si.jakobkreft.aftergleam.data.ChemRxivApi
+import si.jakobkreft.aftergleam.data.CrossrefServers
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
@@ -139,8 +139,8 @@ class SearchPhraseTest {
     @Test
     fun `an abstract loses its own heading, and keeps its sections`() {
         assertEquals("The first publication.",
-            ChemRxivApi.stripJats("<jats:title>Abstract</jats:title>\n <jats:p>The first publication.</jats:p>"))
+            CrossrefServers.stripJats("<jats:title>Abstract</jats:title>\n <jats:p>The first publication.</jats:p>"))
         assertEquals("Background Difficulty in diagnosis.",
-            ChemRxivApi.stripJats("<jats:title>ABSTRACT</jats:title><jats:sec><jats:title>Background</jats:title><jats:p>Difficulty in diagnosis.</jats:p></jats:sec>"))
+            CrossrefServers.stripJats("<jats:title>ABSTRACT</jats:title><jats:sec><jats:title>Background</jats:title><jats:p>Difficulty in diagnosis.</jats:p></jats:sec>"))
     }
 }

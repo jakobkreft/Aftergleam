@@ -5,7 +5,7 @@ import kotlinx.coroutines.async
 /**
  * Fetches a subscription from whichever servers it actually mentions.
  *
- * The app now reads seven servers. Nobody reads all seven: a computer scientist's categories
+ * The app reads eleven servers, and nobody reads all of them: a computer scientist's categories
  * name arXiv and nothing else, and asking OSF and Crossref on their behalf would be minutes
  * of waiting for papers they did not ask for and will never see. So each server is consulted
  * only when the reader's own categories include one of its subjects, which falls out of
@@ -86,9 +86,15 @@ object Fetcher {
             ask(server) { OsfApi.recent(server, subjects, maxPages = osfPages) }
         }
 
-        val chem = Topics.categoriesOf(Source.CHEMRXIV, subscribed)
-        if (chem.isNotEmpty()) {
-            ask(Source.CHEMRXIV) { ChemRxivApi.recent(chem, days = days) }
+        for (server in CrossrefServers.ALL) {
+            if (Topics.categoriesOf(server.source, subscribed).isEmpty()) continue
+            ask(server.source) { CrossrefServers.recent(server, days = days) }
+        }
+
+        // ePrint keeps its own window too: see EprintApi.
+        val crypto = Topics.categoriesOf(Source.EPRINT, subscribed)
+        if (crypto.isNotEmpty()) {
+            ask(Source.EPRINT) { EprintApi.recent(crypto) }
         }
 
         return Outcome(stored, failed)
@@ -145,7 +151,8 @@ object Fetcher {
     }
 
     fun serversFor(subscribed: Set<String>): Set<String> =
-        (listOf(Source.ARXIV, Source.BIORXIV, Source.MEDRXIV, Source.CHEMRXIV) + OSF)
+        (listOf(Source.ARXIV, Source.BIORXIV, Source.MEDRXIV, Source.EPRINT) + OSF +
+            CrossrefServers.ALL.map { it.source })
             .filter { Topics.categoriesOf(it, subscribed).isNotEmpty() }
             .toSet()
 }

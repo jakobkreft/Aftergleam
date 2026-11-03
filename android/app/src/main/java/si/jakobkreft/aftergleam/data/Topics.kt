@@ -79,6 +79,36 @@ object Topics {
             Topic("formal", "Logic and verification", listOf("cs.LO", "cs.FL"),
                 "formal verification model checking theorem prover semantics automata proof assistant"),
         )),
+        Field("Cryptography, from IACR ePrint", listOf(
+            Topic("ep-protocols", "Cryptographic protocols", listOf("Cryptographic protocols"),
+                "protocol zero-knowledge proof prover verifier commitment secure multi-party computation "
+                    + "parties communication secret sharing threshold succinct argument",
+                Source.EPRINT),
+            Topic("ep-publickey", "Public-key and post-quantum cryptography", listOf("Public-key cryptography"),
+                "encryption scheme ciphertext decryption homomorphic bootstrapping lattice ring polynomial "
+                    + "signature post-quantum assumption isogeny",
+                Source.EPRINT),
+            Topic("ep-symmetric", "Symmetric cryptography", listOf("Secret-key cryptography"),
+                "block cipher permutation hash function round differential distinguisher forgery "
+                    + "authenticated encryption mode of operation collision",
+                Source.EPRINT),
+            Topic("ep-cryptanalysis", "Cryptanalysis", listOf("Attacks and cryptanalysis"),
+                "attack key recovery cryptanalysis differential linear distinguisher lattice reduction "
+                    + "probability secret key bits complexity",
+                Source.EPRINT),
+            Topic("ep-foundations", "Foundations", listOf("Foundations"),
+                "construction lower bound complexity one-way function pseudorandom obfuscation reduction "
+                    + "random oracle model codes security definition impossibility",
+                Source.EPRINT),
+            Topic("ep-implementation", "Implementations and side channels", listOf("Implementation"),
+                "implementation hardware side-channel masking fault injection cortex-m arm fpga latency "
+                    + "memory constant time performance",
+                Source.EPRINT),
+            Topic("ep-applications", "Applications", listOf("Applications"),
+                "privacy-preserving blockchain voting credentials messaging real-world deployment system "
+                    + "practical anonymity payment",
+                Source.EPRINT),
+        )),
         Field("Physics", listOf(
             Topic("astro", "Astrophysics", listOf("astro-ph.GA", "astro-ph.CO", "astro-ph.HE",
                 "astro-ph.SR", "astro-ph.EP", "astro-ph.IM"),
@@ -131,6 +161,32 @@ object Topics {
                 listOf("nlin.CD", "nlin.AO", "nlin.PS", "nlin.SI", "nlin.CG", "cond-mat.stat-mech"),
                 "chaos bifurcation attractor synchronisation pattern formation soliton complex system "
                     + "statistical mechanics entropy equilibrium integrable lattice"),
+        )),
+        Field("Earth sciences, from EarthArXiv", listOf(
+            Topic("ea-hydrology", "Hydrology and water", listOf(CrossrefServers.EARTHARXIV.category),
+                "groundwater aquifer catchment streamflow water storage hydrological flow recharge "
+                    + "drought water resources river",
+                Source.EARTHARXIV),
+            Topic("ea-geophysics", "Earthquakes, faults and volcanoes", listOf(CrossrefServers.EARTHARXIV.category),
+                "fault slip seismic earthquake rupture stress inversion tectonic volcano eruption magma "
+                    + "deformation",
+                Source.EARTHARXIV),
+            Topic("ea-geology", "Geology and geochemistry", listOf(CrossrefServers.EARTHARXIV.category),
+                "rock mineral geochemical magmatic sediment formation isotope carbonate weathering basin "
+                    + "crust",
+                Source.EARTHARXIV),
+            Topic("ea-climate", "Oceans, atmosphere and climate", listOf(CrossrefServers.EARTHARXIV.category),
+                "ocean atmospheric precipitation climate wind seasonal temperature circulation sea level "
+                    + "warming monsoon",
+                Source.EARTHARXIV),
+            Topic("ea-remote", "Remote sensing and mapping", listOf(CrossrefServers.EARTHARXIV.category),
+                "satellite imagery landsat sentinel land cover mapping geospatial classification gis "
+                    + "urban validation",
+                Source.EARTHARXIV),
+            Topic("ea-hazards", "Environment and hazards", listOf(CrossrefServers.EARTHARXIV.category),
+                "environmental change landslide flood erosion hazard risk pollution soil sediment "
+                    + "transport land use",
+                Source.EARTHARXIV),
         )),
         Field("Mathematics", listOf(
             Topic("analysis", "Analysis and PDEs", listOf("math.AP", "math.CA", "math.CV"),
@@ -236,6 +292,24 @@ object Topics {
                 listOf("physiology", "pharmacology and toxicology"),
                 "muscle metabolism response dose exposure animals measurement organ function drug",
                 Source.BIORXIV),
+        )),
+        Field("Ecology, from EcoEvoRxiv", listOf(
+            Topic("ee-biodiversity", "Biodiversity and conservation", listOf(CrossrefServers.ECOEVORXIV.category),
+                "biodiversity conservation species richness protected areas habitat loss extinction "
+                    + "monitoring restoration management",
+                Source.ECOEVORXIV),
+            Topic("ee-evolution", "Evolution and populations", listOf(CrossrefServers.ECOEVORXIV.category),
+                "evolutionary genetic genomic population selection adaptation phylogenetic divergence "
+                    + "fitness speciation",
+                Source.ECOEVORXIV),
+            Topic("ee-animals", "Animal ecology and behaviour", listOf(CrossrefServers.ECOEVORXIV.category),
+                "behaviour individual social foraging predator prey birds insects movement mating "
+                    + "behavioural responses",
+                Source.ECOEVORXIV),
+            Topic("ee-plants", "Plants, forests and agroecology", listOf(CrossrefServers.ECOEVORXIV.category),
+                "plant community forest tree functional traits soil pollination crop agricultural "
+                    + "pathogen disease landscape",
+                Source.ECOEVORXIV),
         )),
         Field("Medicine, from medRxiv", listOf(
             Topic("mr-epi", "Epidemiology and public health",
@@ -438,27 +512,27 @@ object Topics {
         )),
         Field("Chemistry, from ChemRxiv", listOf(
             Topic("chem-organic", "Organic chemistry and synthesis",
-                listOf(ChemRxivApi.CATEGORY),
+                listOf(CrossrefServers.CHEMRXIV.category),
                 "synthesis reaction catalyst yield substrate selectivity ligand asymmetric "
                     + "total synthesis mechanism functional group",
                 Source.CHEMRXIV),
             Topic("chem-physical", "Physical and computational chemistry",
-                listOf(ChemRxivApi.CATEGORY),
+                listOf(CrossrefServers.CHEMRXIV.category),
                 "density functional calculations energies excited states dynamics simulation "
                     + "spectroscopy potential surface kinetics quantum chemical",
                 Source.CHEMRXIV),
             Topic("chem-materials", "Materials and nanochemistry",
-                listOf(ChemRxivApi.CATEGORY),
+                listOf(CrossrefServers.CHEMRXIV.category),
                 "nanoparticles framework porous electrode battery film polymer surface "
                     + "crystal structure conductivity composite",
                 Source.CHEMRXIV),
             Topic("chem-analytical", "Analytical chemistry",
-                listOf(ChemRxivApi.CATEGORY),
+                listOf(CrossrefServers.CHEMRXIV.category),
                 "detection sensor chromatography mass spectrometry quantification samples "
                     + "calibration limit of detection assay separation",
                 Source.CHEMRXIV),
             Topic("chem-bio", "Biological and medicinal chemistry",
-                listOf(ChemRxivApi.CATEGORY),
+                listOf(CrossrefServers.CHEMRXIV.category),
                 "inhibitor binding affinity protein target compounds docking drug activity "
                     + "peptide enzyme selectivity",
                 Source.CHEMRXIV),

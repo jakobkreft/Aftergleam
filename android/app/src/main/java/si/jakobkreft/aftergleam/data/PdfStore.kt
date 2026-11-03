@@ -136,12 +136,14 @@ class PdfStore(private val context: Context) {
      * Fetches the PDF if it is not already cached. Returns the local file.
      *
      * Takes the paper rather than the id: each server keeps its PDFs somewhere different,
-     * and the paper is the only thing that knows which server it came from.
+     * and the paper is the only thing that knows which server it came from. Where its address
+     * cannot be built, Crossref's record of it names the file.
      */
     suspend fun download(paper: Paper): File = withContext(Dispatchers.IO) {
         cachedFile(paper.id)?.let { return@withContext it }
 
-        val url = paper.pdfUrl
+        val url = paper.pdfUrl ?: CrossrefServers.pdfLink(paper.id)
+            ?: throw DownloadError("${Source.label(paper.source)} did not say where the PDF is")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             setRequestProperty("User-Agent", Http.USER_AGENT)
             instanceFollowRedirects = true

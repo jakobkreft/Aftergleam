@@ -6,7 +6,8 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 /**
- * Keyword search over every preprint server the app reads except arXiv, in one request.
+ * Keyword search over every preprint server the app reads except arXiv and IACR ePrint, in one
+ * request. ePrint registers no DOIs, so its papers are found once they are on the device.
  *
  * Search used to ask arXiv and nothing else. A reader who follows biology searched for
  * "CRISPR gene editing" and got machine learning papers about CRISPR from cs.LG, while
@@ -15,10 +16,10 @@ import java.net.URLEncoder
  *
  * None of the other servers offers a usable keyword search to an app: bioRxiv's API lists by
  * date and DOI only, ChemRxiv sits behind a browser challenge, and OSF's search is being
- * replaced. Crossref holds all of their records, with abstracts, and the app already asks it
- * for ChemRxiv, so searching through it adds no new party. Each server registers its
- * preprints under its own DOI prefix, which is how one request covers all of them and
- * nothing else.
+ * replaced. Crossref holds all of their records, with abstracts, and the app already reads
+ * ChemRxiv, EarthArXiv and EcoEvoRxiv through it, so searching it adds no new party. Each
+ * server registers its preprints under its own DOI prefix, which is how one request covers
+ * all of them and nothing else.
  */
 object CrossrefSearch {
 
@@ -32,9 +33,7 @@ object CrossrefSearch {
         "10.35542" to Source.EDARXIV,
         "10.31228" to Source.LAWARCHIVE,
     )
-    private const val CHEMRXIV = "10.26434"
-
-    private val PREFIXES = listOf(OPENRXIV, CHEMRXIV) + OSF_PREFIXES.keys
+    private val PREFIXES = listOf(OPENRXIV) + OSF_PREFIXES.keys + CrossrefServers.ALL.map { it.prefix }
 
     // `institution`, which would name bioRxiv or medRxiv outright, cannot be selected on this
     // route; the record's link says the same thing.
@@ -58,8 +57,8 @@ object CrossrefSearch {
             "&filter=" + enc(filter) +
             "&rows=$rows" +
             "&select=" + enc(FIELDS) +
-            "&mailto=" + enc(ChemRxivApi.CONTACT)
-        val body = ChemRxivApi.get(url) ?: throw java.io.IOException("Crossref did not answer")
+            "&mailto=" + enc(CrossrefServers.CONTACT)
+        val body = CrossrefServers.get(url) ?: throw java.io.IOException("Crossref did not answer")
         val items = runCatching { JSONObject(body) }.getOrNull()
             ?.optJSONObject("message")?.optJSONArray("items")
             ?: return@withContext emptyList()
@@ -90,11 +89,12 @@ object CrossrefSearch {
 
     internal fun parse(o: JSONObject): Paper? {
         if (o.optString("type") != "posted-content") return null
-        return when (val prefix = o.optString("prefix")) {
-            CHEMRXIV -> ChemRxivApi.parse(o)
-            OPENRXIV -> openRxiv(o)
-            in OSF_PREFIXES -> osf(o, OSF_PREFIXES.getValue(prefix))
-            else -> null
+        val prefix = o.optString("prefix")
+        return when {
+            prefix == OPENRXIV -> openRxiv(o)
+            prefix in OSF_PREFIXES -> osf(o, OSF_PREFIXES.getValue(prefix))
+            else -> CrossrefServers.ALL.firstOrNull { it.prefix == prefix }
+                ?.let { CrossrefServers.parse(o, it) }
         }
     }
 
@@ -112,16 +112,16 @@ object CrossrefSearch {
             "biorxiv.org" in link(o) -> Source.BIORXIV
             else -> return null
         }
-        val title = ChemRxivApi.title(o) ?: return null
-        val abstract = ChemRxivApi.stripJats(o.optString("abstract")).ifBlank { return null }
-        val date = ChemRxivApi.postedDate(o) ?: return null
+        val title = CrossrefServers.title(o) ?: return null
+        val abstract = CrossrefServers.stripJats(o.optString("abstract")).ifBlank { return null }
+        val date = CrossrefServers.postedDate(o) ?: return null
         // The subject, in the words bioRxiv's own API uses once lowercased.
         val subject = o.optString("group-title").trim().lowercase().ifBlank { "unclassified" }
         return Paper(
             id = doi,
             title = title,
             abstract = abstract,
-            authors = ChemRxivApi.authors(o),
+            authors = CrossrefServers.authors(o),
             categories = listOf(Source.qualify(server, subject)),
             published = date,
             updated = date,
@@ -141,14 +141,14 @@ object CrossrefSearch {
         val fromDoi = o.optString("DOI").substringAfterLast('/')
         val guid = listOf(fromLink, fromDoi).map { it.lowercase() }
             .firstOrNull { OSF_ID.matches(it) } ?: return null
-        val title = ChemRxivApi.title(o) ?: return null
-        val abstract = ChemRxivApi.stripJats(o.optString("abstract")).ifBlank { return null }
-        val date = ChemRxivApi.postedDate(o) ?: return null
+        val title = CrossrefServers.title(o) ?: return null
+        val abstract = CrossrefServers.stripJats(o.optString("abstract")).ifBlank { return null }
+        val date = CrossrefServers.postedDate(o) ?: return null
         return Paper(
             id = "$server:$guid",
             title = title,
             abstract = abstract,
-            authors = ChemRxivApi.authors(o),
+            authors = CrossrefServers.authors(o),
             categories = emptyList(),
             published = date,
             updated = date,

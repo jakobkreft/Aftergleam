@@ -11,6 +11,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import si.jakobkreft.aftergleam.data.ArxivApi
 import si.jakobkreft.aftergleam.data.CrossrefSearch
+import si.jakobkreft.aftergleam.data.CrossrefServers
 import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Source
@@ -93,6 +94,27 @@ class SearchAcrossServersTest {
             "https://chemrxiv.org/doi/full/10.26434/chemrxiv.15002326/v2"))!!
         assertEquals(Source.CHEMRXIV, p.source)
         assertEquals("10.26434/chemrxiv.15002326/v2", p.id)
+    }
+
+    @Test
+    fun `EarthArXiv and EcoEvoRxiv records join their server's one pool`() {
+        val e = parse(record("10.31223", "10.31223/X5N22R", "https://eartharxiv.org/repository/view/15361/"))!!
+        assertEquals(Source.EARTHARXIV, e.source)
+        assertEquals(listOf("eartharxiv:earth sciences"), e.categories)
+        val c = parse(record("10.32942", "10.32942/X27104", "https://ecoevorxiv.org/repository/view/13239/"))!!
+        assertEquals(Source.ECOEVORXIV, c.source)
+    }
+
+    @Test
+    fun `a record's PDF is the link it marks as one`() {
+        val o = JSONObject(
+            """{"link": [
+                {"URL": "https://eartharxiv.org/repository/view/15361/", "content-type": "text/html"},
+                {"URL": "https://eartharxiv.org/repository/object/15361/download/26632/",
+                 "content-type": "application/pdf"}]}"""
+        )
+        assertEquals("https://eartharxiv.org/repository/object/15361/download/26632/", CrossrefServers.pdfLinkIn(o))
+        assertNull(CrossrefServers.pdfLinkIn(JSONObject("{}")))
     }
 
     @Test

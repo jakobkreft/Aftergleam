@@ -9,36 +9,37 @@ import java.net.URLEncoder
 import java.time.LocalDate
 
 /**
- * ChemRxiv, reached through Crossref rather than through ChemRxiv.
+ * The preprint servers read through Crossref rather than through an API of their own.
  *
- * Chemistry is the largest field with no home on arXiv. physics.chem-ph carries chemical
- * physics and cond-mat.mtrl-sci carries materials, but synthesis, analytical chemistry and
- * medicinal chemistry are simply absent, and ChemRxiv posts around forty five a day.
+ * Each registers every preprint under its own DOI prefix, and Crossref serves the records
+ * openly, with abstracts, no key, and a documented courtesy of identifying yourself in the
+ * request. Search reaches the other servers the same way, so these add no new party.
  *
- * Its own API sits behind a Cloudflare browser challenge and answers a plain client with a
- * 403 and an interstitial. Working around that would mean pretending to be a browser, which
- * is neither honest nor stable. Crossref is the way in that is meant to be used: ChemRxiv
- * registers every preprint under DOI prefix 10.26434, and Crossref serves the records openly,
- * with abstracts, no key, and a documented courtesy of identifying yourself in the request.
+ * ChemRxiv because chemistry is the largest field with no home on arXiv, around forty five a
+ * day, and its own API sits behind a Cloudflare browser challenge that answers a plain client
+ * with a 403. Working around that would mean pretending to be a browser, which is neither
+ * honest nor stable. EarthArXiv and EcoEvoRxiv because earth sciences and ecology have little
+ * on arXiv either; they left OSF, in 2020 and 2022, for Janeway at the California Digital
+ * Library, whose records here are complete, and they post around seven and five a day.
  *
- * The cost of the route is that Crossref carries no subject for these records, so chemistry
- * arrives as one pool rather than pre-sorted. Every chemistry topic therefore subscribes to
- * the same single category and it is the seed vocabularies that separate organic from
- * analytical, which is the same mechanism that already decides what a digest puts first.
+ * The cost of the route is that Crossref carries no subject for these records, so each server
+ * arrives as one pool rather than pre-sorted. Every topic of a server therefore subscribes to
+ * the same single category, and it is the seed vocabularies that separate organic chemistry
+ * from analytical, or hydrology from seismology, which is the same mechanism that already
+ * decides what a digest puts first.
  */
-object ChemRxivApi {
-
-
-    /** ChemRxiv's DOI prefix at Crossref. */
-    private const val PREFIX = "10.26434"
+object CrossrefServers {
 
     /**
-     * The one category every chemistry topic subscribes to.
-     *
-     * Crossref returns no subject for these records, so there is nothing to sort them by at
-     * fetch time. Naming it once here keeps the topics honest about that.
+     * A server, by the DOI prefix it registers its preprints under, and the one category
+     * every topic of it subscribes to: Crossref has no subject to sort them by at fetch time.
      */
-    const val CATEGORY = "chemistry"
+    class Server(val source: String, val prefix: String, val category: String)
+
+    val CHEMRXIV = Server(Source.CHEMRXIV, "10.26434", "chemistry")
+    val EARTHARXIV = Server(Source.EARTHARXIV, "10.31223", "earth sciences")
+    val ECOEVORXIV = Server(Source.ECOEVORXIV, "10.32942", "ecology")
+    val ALL = listOf(CHEMRXIV, EARTHARXIV, ECOEVORXIV)
 
     /**
      * Crossref asks that automated clients identify themselves, and rewards it with the
@@ -48,34 +49,31 @@ object ChemRxivApi {
     internal const val CONTACT = "user@aftergleam.app"
 
     suspend fun recent(
-        subjects: Set<String>,
+        server: Server,
         days: Long = 3,
         max: Int = 300,
         today: LocalDate = LocalDate.now(),
     ): List<Paper> = withContext(Dispatchers.IO) {
-        if (subjects.isEmpty()) return@withContext emptyList()
         val since = today.minusDays(days).toString()
-        val url = "https://api.crossref.org/prefixes/$PREFIX/works" +
+        val url = "https://api.crossref.org/prefixes/${server.prefix}/works" +
             "?filter=" + enc("from-posted-date:$since") +
             "&rows=$max" +
             "&select=" + enc("DOI,title,abstract,author,posted") +
             "&mailto=" + enc(CONTACT)
 
         val body = get(url)
-            ?: throw java.io.IOException("ChemRxiv did not answer")
+            ?: throw java.io.IOException("${Source.label(server.source)} did not answer")
         val items = runCatching { JSONObject(body) }.getOrNull()
             ?.optJSONObject("message")?.optJSONArray("items")
             ?: return@withContext emptyList()
 
-        val out = mutableListOf<Paper>()
-        for (i in 0 until items.length()) {
-            parse(items.optJSONObject(i) ?: continue)?.let { out += it }
-        }
-        // A revision gets its own DOI suffixed /v2; keep one entry per preprint.
-        out.associateBy { it.id.substringBefore("/v") }.values.toList()
+        val out = (0 until items.length())
+            .mapNotNull { items.optJSONObject(it)?.let { o -> parse(o, server) } }
+        // A revision of a ChemRxiv preprint gets its own DOI suffixed /v2.
+        CrossrefSearch.latestVersions(out)
     }
 
-    internal fun parse(o: JSONObject): Paper? {
+    internal fun parse(o: JSONObject, server: Server): Paper? {
         val doi = o.optString("DOI").ifBlank { return null }
         val title = title(o) ?: return null
         val abstract = stripJats(o.optString("abstract")).ifBlank { return null }
@@ -86,11 +84,28 @@ object ChemRxivApi {
             title = title,
             abstract = abstract,
             authors = authors(o),
-            categories = listOf(Source.qualify(Source.CHEMRXIV, CATEGORY)),
+            categories = listOf(Source.qualify(server.source, server.category)),
             published = date,
             updated = date,
-            source = Source.CHEMRXIV,
+            source = server.source,
         )
+    }
+
+    /**
+     * Where the PDF of the preprint [doi] is, from its record's link. Needed where the address
+     * cannot be built from the DOI: Janeway's names the file, which changes with each version.
+     */
+    suspend fun pdfLink(doi: String): String? = withContext(Dispatchers.IO) {
+        get("https://api.crossref.org/works/$doi?mailto=" + enc(CONTACT))
+            ?.let { runCatching { JSONObject(it).getJSONObject("message") }.getOrNull() }
+            ?.let(::pdfLinkIn)
+    }
+
+    internal fun pdfLinkIn(o: JSONObject): String? {
+        val links = o.optJSONArray("link") ?: return null
+        return (0 until links.length()).mapNotNull { links.optJSONObject(it) }
+            .firstOrNull { it.optString("content-type") == "application/pdf" }
+            ?.optString("URL")?.ifBlank { null }
     }
 
     /**

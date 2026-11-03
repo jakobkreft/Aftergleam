@@ -2,10 +2,16 @@
 
 ## Fetching
 
-Papers come from arXiv, bioRxiv, medRxiv, OSF (PsyArXiv, SocArXiv, EdArXiv, Law Archive) and
-ChemRxiv through Crossref. The app only asks the servers your subjects need. arXiv announces new
-papers once each weekday, so between announcements the app re-ranks what it has instead of
-fetching again. All arXiv requests share one rate limiter, one request every three seconds.
+Papers come from arXiv, bioRxiv, medRxiv, OSF (PsyArXiv, SocArXiv, EdArXiv, Law Archive),
+ChemRxiv, EarthArXiv and EcoEvoRxiv through Crossref, and IACR ePrint through its feed of new
+papers, which is asked at most about once a day as IACR requests. The app only asks the servers
+your subjects need. arXiv announces new papers once each weekday, so between announcements the
+app re-ranks what it has instead of fetching again. All arXiv requests share one rate limiter,
+one request every three seconds.
+
+ChemRxiv and IACR ePrint do not let apps download their PDFs, so their papers open on the
+server's own page in your browser. Everything else, the ranking, the abstract and saving, works
+the same.
 
 ## Ranking
 

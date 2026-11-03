@@ -1958,8 +1958,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val missing = when {
             fromArxiv.isFailure -> "arXiv did not answer, so these are from the other servers only."
             fromOthers.isFailure ->
-                "bioRxiv, medRxiv, ChemRxiv and the OSF servers could not be reached through " +
-                    "Crossref, so these are from arXiv only."
+                "The other preprint servers could not be reached through Crossref, so these " +
+                    "are from arXiv only."
             else -> null
         }
         // Crossref ranks by likeness and returns papers missing words: for "lanosterol hypoxia"

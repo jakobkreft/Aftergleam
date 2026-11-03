@@ -794,9 +794,10 @@ private fun AboutPage(
     Spacer(Modifier.height(4.dp))
     Spacer(Modifier.height(10.dp))
     Text(
-        "Papers come from arXiv, bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv, Law Archive " +
-            "and ChemRxiv, and only from the ones your subjects need; a search online asks " +
-            "arXiv and Crossref, which covers the rest. Popularity counts come " +
+        "Papers come from arXiv, bioRxiv, medRxiv, PsyArXiv, SocArXiv, EdArXiv, Law Archive, " +
+            "ChemRxiv, EarthArXiv, EcoEvoRxiv and IACR ePrint, and only from the ones your " +
+            "subjects need; a search online asks arXiv and Crossref, which covers the rest " +
+            "except IACR ePrint. Popularity counts come " +
             "from the Hugging Face daily papers list, fetched whole so it says nothing about " +
             "you. Ranking, your reactions and everything you read stay on this device.",
         style = MaterialTheme.typography.bodySmall,
@@ -805,8 +806,9 @@ private fun AboutPage(
     // arXiv's API terms ask for this acknowledgement in these words.
     Text(
         "Thank you to arXiv for use of its open access interoperability. Thanks also to " +
-            "bioRxiv and medRxiv, to the Center for Open Science for OSF, and to Crossref, " +
-            "for public APIs that ask nothing of the reader.",
+            "bioRxiv and medRxiv, to the Center for Open Science for OSF, to the IACR for the " +
+            "Cryptology ePrint Archive, and to Crossref, for public APIs that ask nothing of " +
+            "the reader.",
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(16.dp))

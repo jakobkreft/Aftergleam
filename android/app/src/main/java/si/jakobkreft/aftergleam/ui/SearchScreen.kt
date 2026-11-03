@@ -322,7 +322,7 @@ private fun Controls(
             Text(
                 when (state.searchScope) {
                     SearchScope.ONLINE ->
-                        "Keyword search on arXiv and seven other preprint servers, reordered " +
+                        "Keyword search on arXiv and nine other preprint servers, reordered " +
                             "here by what you read."
                     SearchScope.CACHED -> "Everything this device has downloaded. No network."
                     SearchScope.KEPT -> "Only what you saved or reacted to. No network."

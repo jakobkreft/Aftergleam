@@ -58,6 +58,8 @@ device. There is no account and nothing about your reading leaves your phone.
 | Psychology, social science, education | PsyArXiv, SocArXiv, EdArXiv |
 | Law | Law Archive |
 | Chemistry | ChemRxiv |
+| Earth sciences, ecology | EarthArXiv, EcoEvoRxiv |
+| Cryptography | IACR ePrint |
 
 Only the servers your subjects need are contacted.
 
