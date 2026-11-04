@@ -352,11 +352,22 @@ class Ranker(private val weights: Weights = Weights()) {
         }
 
         val pools = byTopic.mapValues { (_, v) -> v.toMutableList() }
+        // A topic the reader has never acted on takes no more than an equal share of the
+        // digest. Every slot is drawn before the reader has seen any of them, so a subject just
+        // added, which the bandit thinks could be anything, won draw after draw until its papers
+        // ran out: one subject each of earth sciences, ecology and cryptography, added by a
+        // reader of machine learning, took nineteen cards of twenty five. An equal share is
+        // still a real trial, and the first card the reader acts on lifts the limit.
+        val fair = (n + pools.size - 1) / pools.size
+        val taken = HashMap<String, Int>()
         val chosen = mutableListOf<Scored>()
         var guard = 0
         while (chosen.size < n && guard++ < n * 8) {
             val arms = pools.entries
-                .filter { it.value.isNotEmpty() }
+                .filter { (topic, pool) ->
+                    pool.isNotEmpty() &&
+                        ((topicHistory[topic]?.first ?: 0f) > 0f || (taken[topic] ?: 0) < fair)
+                }
                 .map { (topic, _) ->
                     val (engaged, ignored) = topicHistory[topic] ?: (0f to 0f)
                     TopicBandit.Arm(topic, engaged, ignored)
@@ -368,6 +379,7 @@ class Ranker(private val weights: Weights = Weights()) {
                 .firstOrNull() ?: break
             pool.remove(pick)
             chosen += pick
+            taken[topic] = (taken[topic] ?: 0) + 1
         }
         // A short pool or an unlucky run of draws must not leave the digest short.
         if (chosen.size < n) {

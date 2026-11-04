@@ -108,6 +108,35 @@ class DigestCompositionTest {
     }
 
     @Test
+    fun `a subject just added is tried without taking the digest over`() {
+        // Every slot is drawn before the reader has seen any, and an untried topic starts at a
+        // flat prior that beats anything read at a realistic rate, so a subject added to three
+        // the reader follows took nearly the whole digest. It gets an equal share instead.
+        val familiar = listOf("cs.LG", "cs.CL", "cs.CV").flatMap { cat ->
+            (1..15).map { paper("$cat-$it", listOf(cat), subjects[it % subjects.size] + " in $cat $it") }
+        }
+        val added = (1..15).map {
+            paper("e$it", listOf("eartharxiv:earth sciences"), "groundwater recharge in aquifers $it")
+        }
+        val rated = subjects.take(5).map { RatedDoc(null, it, 0.95f) }
+
+        val perDigest = (1..10).map { seed ->
+            Ranker(Weights(explorationRate = 0f, diversity = 0f)).digest(
+                candidates = familiar + added,
+                rated = rated,
+                seen = emptySet(),
+                subscribed = setOf("cs.LG", "cs.CL", "cs.CV", "eartharxiv:earth sciences"),
+                size = 10,
+                random = Random(seed),
+                negativePool = negatives,
+                topicHistory = mapOf("cs.LG" to (3f to 27f), "cs.CL" to (2f to 28f), "cs.CV" to (3f to 27f)),
+            ).count { it.paper.id.startsWith("e") }
+        }
+        assertTrue("the new subject should be tried, got $perDigest", perDigest.average() >= 1.0)
+        assertTrue("but not take over, got $perDigest", perDigest.all { it <= 4 })
+    }
+
+    @Test
     fun `variety applies across topics, not only within one draw`() {
         // With a topic history the digest is filled one paper at a time, a topic drawn for
         // each slot. Each of those draws started with nothing chosen, so there was nothing to
