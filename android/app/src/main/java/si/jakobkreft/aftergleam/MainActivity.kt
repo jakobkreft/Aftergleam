@@ -907,7 +907,7 @@ private fun sharePaper(context: android.content.Context, paper: Paper) {
         putExtra(
             Intent.EXTRA_TEXT,
             "${paper.displayTitle}\n${paper.absUrl}" +
-                "\n\nFound with Aftergleam, a privacy reader for arXiv scientific papers.",
+                "\n\nFound with Aftergleam, a private reader for new research papers.",
         )
     }
     context.startActivity(Intent.createChooser(share, null))
