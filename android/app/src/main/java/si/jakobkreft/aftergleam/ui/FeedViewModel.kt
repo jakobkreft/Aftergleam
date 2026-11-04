@@ -158,6 +158,11 @@ data class FeedState(
     val backupSummary: String? = null,
     val detail: Paper? = null,
     val searchQuery: String = "",
+    /**
+     * The query last searched for, so that "Nothing found" waits for a search to find nothing
+     * rather than appearing at the first letter typed.
+     */
+    val searchedFor: String? = null,
     val searching: Boolean = false,
     val searchHits: List<SearchRanker.Hit> = emptyList(),
     /**
@@ -1863,7 +1868,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val q = _state.value.searchQuery.trim()
         if (q.length < 2) return
         _state.value = _state.value.copy(
-            searching = true, searchError = null,
+            searchedFor = q, searching = true, searchError = null,
             searchHits = emptyList(), searchLocalHits = emptyList(), searchLocalMore = 0,
         )
         if (_state.value.searchScope == SearchScope.ONLINE) searchOnDevice(q)

@@ -48,11 +48,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import si.jakobkreft.aftergleam.data.Keywords
@@ -84,6 +88,9 @@ fun SearchScreen(
     onAddKeyword: (String) -> Unit = {},
     /** One keyword for another, in its place and with its bell: the better reading of a search. */
     onSwapKeyword: (String, String) -> Unit = { _, _ -> },
+    /** Whether to put the cursor in the field and the keyboard up, once, on opening. */
+    focusField: Boolean = false,
+    onFieldFocused: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -145,7 +152,10 @@ fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "controls") {
-                Controls(state, onBack, onQuery, { dismiss(); onSubmit() }, onScope, onPersonalisation)
+                Controls(
+                    state, onBack, onQuery, { dismiss(); onSubmit() }, onScope, onPersonalisation,
+                    focusField, onFieldFocused,
+                )
             }
             when {
                 // Only a bare wait when there is genuinely nothing to show yet. Once the device
@@ -169,7 +179,7 @@ fun SearchScreen(
                     Text(state.searchError, style = MaterialTheme.typography.bodySmall)
                 }
 
-                nothingAtAll && state.searchQuery.isNotBlank() -> item(key = "nothing") {
+                nothingAtAll && state.searchedFor == state.searchQuery.trim() -> item(key = "nothing") {
                     Text("Nothing found. Try fewer or more common words.",
                         style = MaterialTheme.typography.bodySmall)
                 }
@@ -267,8 +277,24 @@ private fun Controls(
     onSubmit: () -> Unit,
     onScope: (SearchScope) -> Unit,
     onPersonalisation: (Float) -> Unit,
+    focusField: Boolean,
+    onFieldFocused: () -> Unit,
 ) {
     var ordering by rememberSaveable { mutableStateOf(false) }
+    val field = remember { FocusRequester() }
+    // The field keeps its own cursor, so that search opened on the last query puts it after the
+    // last letter, ready to type on, rather than before the first. It follows the query when
+    // something else changes it: the clear button, or a keyword's alert.
+    var typed by remember { mutableStateOf(atEnd(state.searchQuery)) }
+    if (typed.text != state.searchQuery) typed = atEnd(state.searchQuery)
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(focusField) {
+        if (focusField) {
+            field.requestFocus()
+            keyboard?.show()
+            onFieldFocused()
+        }
+    }
     Column {
         TextButton(onClick = onBack) { Text("Back") }
         Spacer(Modifier.height(8.dp))
@@ -276,9 +302,12 @@ private fun Controls(
         // the feature unreachable whenever the keyboard does not offer a search key.
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = onQuery,
-                modifier = Modifier.weight(1f),
+                value = typed,
+                onValueChange = {
+                    typed = it
+                    onQuery(it.text)
+                },
+                modifier = Modifier.weight(1f).focusRequester(field),
                 // Not "Search arXiv": the scope chips below say where, and two of the three
                 // do not touch arXiv at all.
                 label = { Text("Search anything") },
@@ -358,6 +387,8 @@ private fun Controls(
         }
     }
 }
+
+private fun atEnd(text: String) = TextFieldValue(text, TextRange(text.length))
 
 /** The offer to watch a search: the likelier reading, and the other one beside it, smaller. */
 @OptIn(ExperimentalLayoutApi::class)

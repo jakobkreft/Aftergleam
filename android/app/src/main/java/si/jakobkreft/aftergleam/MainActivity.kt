@@ -244,6 +244,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
         // through no fault of the reader, and the fix for both is in Subjects.
         var tuneStart by rememberSaveable { mutableStateOf<String?>(null) }
         val browseSubjects = { tuneStart = "SUBJECTS"; showTune = true }
+        // Set by the search button, so that search opens ready to type into. Not by a keyword's
+        // alert, which opens it on that keyword's papers, nor by coming back from a paper to
+        // the results: neither wants the keyboard up.
+        var typeInSearch by remember { mutableStateOf(false) }
 
         // Above everything, onboarding included. An import is minutes long and every other
         // screen in the app has a way off it, so the only way to guarantee it is not walked
@@ -467,6 +471,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onSave = vm::toggleSave,
                             onOpen = vm::openDetail,
                             onBack = closeSearch,
+                            focusField = typeInSearch,
+                            onFieldFocused = { typeInSearch = false },
                             onAddKeyword = vm::addKeyword,
                             onSwapKeyword = vm::swapKeyword,
                         )
@@ -608,6 +614,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     title = { Text(tab.label) },
                     actions = {
                         IconButton(onClick = {
+                            typeInSearch = true
                             vm.openSearch(
                                 if (tab == Tab.LIBRARY) si.jakobkreft.aftergleam.ui.SearchScope.KEPT
                                 else null
