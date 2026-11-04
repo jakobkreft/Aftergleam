@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Library: books on a shelf. Filled, for the tab that is showing. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4.40,5.70 H6.40 A1.80,1.80 0 0 1 8.20,7.50 V18.30 A1.80,1.80 0 0 1 6.40,20.10 H4.40 A1.80,1.80 0 0 1 2.60,18.30 V7.50 A1.80,1.80 0 0 1 4.40,5.70 Z M3.35,9.05 H7.45 A0.55,0.55 0 0 1 8.00,9.60 V9.60 A0.55,0.55 0 0 1 7.45,10.15 H3.35 A0.55,0.55 0 0 1 2.80,9.60 V9.60 A0.55,0.55 0 0 1 3.35,9.05 Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M11.00,3.30 H13.00 A1.80,1.80 0 0 1 14.80,5.10 V18.30 A1.80,1.80 0 0 1 13.00,20.10 H11.00 A1.80,1.80 0 0 1 9.20,18.30 V5.10 A1.80,1.80 0 0 1 11.00,3.30 Z M9.95,6.85 H14.05 A0.55,0.55 0 0 1 14.60,7.40 V7.40 A0.55,0.55 0 0 1 14.05,7.95 H9.95 A0.55,0.55 0 0 1 9.40,7.40 V7.40 A0.55,0.55 0 0 1 9.95,6.85 Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M16.12,18.27 L18.97,7.64 L22.45,8.57 L19.60,19.20 Z M18.59,9.82 L18.31,10.88 L21.40,11.71 L21.68,10.65 Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M16.12,18.27 L18.97,7.64 L22.45,8.57 L19.60,19.20 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M2.8,21.6 H21.2"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

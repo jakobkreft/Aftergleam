@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- For you: the feed's own cards, a whole one and the next below it. Filled, for the tab that is showing. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5.90,2.50 H18.10 A3.30,3.30 0 0 1 21.40,5.80 V10.40 A3.30,3.30 0 0 1 18.10,13.70 H5.90 A3.30,3.30 0 0 1 2.60,10.40 V5.80 A3.30,3.30 0 0 1 5.90,2.50 Z M5.70,14.90 H18.30 A3.10,3.10 0 0 1 21.40,18.00 V18.40 A3.10,3.10 0 0 1 18.30,21.50 H5.70 A3.10,3.10 0 0 1 2.60,18.40 V18.00 A3.10,3.10 0 0 1 5.70,14.90 Z M7.20,6.00 H16.80 A0.90,0.90 0 0 1 17.70,6.90 V6.90 A0.90,0.90 0 0 1 16.80,7.80 H7.20 A0.90,0.90 0 0 1 6.30,6.90 V6.90 A0.90,0.90 0 0 1 7.20,6.00 Z M7.20,8.70 H13.40 A0.90,0.90 0 0 1 14.30,9.60 V9.60 A0.90,0.90 0 0 1 13.40,10.50 H7.20 A0.90,0.90 0 0 1 6.30,9.60 V9.60 A0.90,0.90 0 0 1 7.20,8.70 Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+</vector>

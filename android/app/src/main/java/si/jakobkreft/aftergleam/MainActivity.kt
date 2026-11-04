@@ -28,12 +28,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.annotation.DrawableRes
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import si.jakobkreft.aftergleam.data.Paper
@@ -101,15 +99,20 @@ class MainActivity : ComponentActivity() {
  * app to be in search. It is now an action in the bar, leaving the tabs for the four things a
  * reader actually comes back for.
  */
-private enum class Tab(val label: String) {
+private enum class Tab(
+    val label: String,
+    /** In line, and filled for the tab that is showing, as the bar's selection. */
+    @DrawableRes val icon: Int,
+    @DrawableRes val iconShowing: Int,
+) {
     /** What you probably want, finishable. */
-    TODAY("For you"),
+    TODAY("For you", R.drawable.ic_tab_foryou, R.drawable.ic_tab_foryou_filled),
     /** What you might not know you want, wider and less sure of itself. */
-    EXPLORE("Explore"),
+    EXPLORE("Explore", R.drawable.ic_tab_explore, R.drawable.ic_tab_explore_filled),
     /** What everyone is reading, with the model switched off. */
-    POPULAR("Popular"),
+    POPULAR("Popular", R.drawable.ic_tab_popular, R.drawable.ic_tab_popular_filled),
     /** What you kept. */
-    LIBRARY("Library"),
+    LIBRARY("Library", R.drawable.ic_tab_library, R.drawable.ic_tab_library_filled),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -630,23 +633,10 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 pagerScope.launch { pager.animateScrollToPage(t.ordinal) }
                             },
                             icon = {
-                                if (t == Tab.EXPLORE) {
-                                    Icon(
-                                        androidx.compose.ui.res.painterResource(
-                                            si.jakobkreft.aftergleam.R.drawable.ic_explore
-                                        ),
-                                        contentDescription = t.label,
-                                    )
-                                } else {
-                                    Icon(
-                                        when (t) {
-                                            Tab.TODAY -> Icons.Filled.List
-                                            Tab.POPULAR -> Icons.Filled.ThumbUp
-                                            else -> Icons.Filled.Star
-                                        },
-                                        contentDescription = t.label,
-                                    )
-                                }
+                                Icon(
+                                    painterResource(if (tab == t) t.iconShowing else t.icon),
+                                    contentDescription = t.label,
+                                )
                             },
                             label = { Text(t.label) },
                         )
