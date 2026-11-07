@@ -1,0 +1,4 @@
+- New subjects: earth sciences from EarthArXiv, ecology from EcoEvoRxiv and cryptography from IACR ePrint
+- A subject you have just added is tried in your digest without taking it over
+- Redrawn tab icons, filled for the tab you are on
+- Search opens ready to type
