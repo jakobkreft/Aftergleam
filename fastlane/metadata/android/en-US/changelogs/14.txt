@@ -1,0 +1,3 @@
+- Lighter paper cards, so the feed is easier on the eye
+- Tabs switch directly to the one you pick
+- Database work runs in the background, so the app stays responsive
