@@ -1,28 +1,21 @@
 package si.jakobkreft.aftergleam.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Venue
 
 /**
  * What the field is reading, with the model switched off entirely.
@@ -99,22 +92,10 @@ fun PopularScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        items(state.popular, key = { it.id }) { p ->
-            val reaction = state.reactions[p.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE
-            PaperCard(
-                paper = p,
-                // No reason line: this surface is explicitly not personalised, and inventing
-                // one would undercut the only thing it promises.
-                reason = null,
-                slot = null,
-                liked = state.likedFlag(p.id),
-                saved = reaction.saved,
-                viewed = reaction.viewed,
-                upvotes = state.attention[p.id] ?: 0,
-                onSteer = { onSteer(p.id, it) },
-                onSave = { onSave(p.id) },
-                onOpen = { onOpen(p) },
-            )
+        items(state.popular, key = { it.id }, contentType = { PAPER }) { p ->
+            // No reason line: this surface is explicitly not personalised, and inventing one
+            // would undercut the only thing it promises.
+            PaperCard(state, p, reason = null, slot = null, onSteer, onSave, onOpen)
         }
     }
 }

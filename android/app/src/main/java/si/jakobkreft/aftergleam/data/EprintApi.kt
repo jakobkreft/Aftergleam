@@ -8,8 +8,6 @@ import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.StringReader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -47,7 +45,7 @@ object EprintApi {
         val all = lock.withLock {
             held?.takeIf { System.currentTimeMillis() - it.first < KEEP_MS }?.second
                 ?: withContext(Dispatchers.IO) {
-                    parse(get(FEED) ?: throw IOException("IACR ePrint did not answer"))
+                    parse(Http.get(FEED) ?: throw IOException("IACR ePrint did not answer"))
                 }.also { held = System.currentTimeMillis() to it }
         }
         return all.filter { Source.display(it.primaryCategory) in subjects }
@@ -97,17 +95,4 @@ object EprintApi {
             source = Source.EPRINT,
         )
     }
-
-    private fun get(url: String): String? = runCatching {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", Http.USER_AGENT)
-            connectTimeout = 20_000
-            readTimeout = 30_000
-        }
-        try {
-            if (conn.responseCode != 200) null else conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
-    }.getOrNull()
 }

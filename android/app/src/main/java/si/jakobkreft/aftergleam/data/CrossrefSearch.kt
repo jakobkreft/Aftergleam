@@ -3,7 +3,9 @@ package si.jakobkreft.aftergleam.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
+import java.time.LocalDate
 
 /**
  * Keyword search over every preprint server the app reads except arXiv and IACR ePrint, in one
@@ -46,7 +48,7 @@ object CrossrefSearch {
     suspend fun search(
         query: String,
         rows: Int = 60,
-        since: java.time.LocalDate? = null,
+        since: LocalDate? = null,
     ): List<Paper> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.length < 2) return@withContext emptyList()
@@ -58,7 +60,7 @@ object CrossrefSearch {
             "&rows=$rows" +
             "&select=" + enc(FIELDS) +
             "&mailto=" + enc(CrossrefServers.CONTACT)
-        val body = CrossrefServers.get(url) ?: throw java.io.IOException("Crossref did not answer")
+        val body = CrossrefServers.get(url) ?: throw IOException("Crossref did not answer")
         val items = runCatching { JSONObject(body) }.getOrNull()
             ?.optJSONObject("message")?.optJSONArray("items")
             ?: return@withContext emptyList()

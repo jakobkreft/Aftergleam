@@ -1,6 +1,8 @@
 package si.jakobkreft.aftergleam.data
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import java.time.LocalDate
 
 /**
  * Fetches a subscription from whichever servers it actually mentions.
@@ -113,7 +115,7 @@ object Fetcher {
      */
     suspend fun fetchKeywords(
         keywords: List<String>,
-        today: java.time.LocalDate = java.time.LocalDate.now(),
+        today: LocalDate = LocalDate.now(),
         store: suspend (List<Paper>) -> Unit,
     ): List<String> {
         val since = today.minusDays(Keywords.WINDOW_DAYS)
@@ -125,7 +127,7 @@ object Fetcher {
         // has no AND, and asked for "hypoxia sleep apnea" it returned sixty papers of which
         // none mentioned both. Asked word by word, the rarest word comes back whole, and the
         // check below keeps only the papers that mention every word.
-        val crossref = kotlinx.coroutines.coroutineScope {
+        val crossref = coroutineScope {
             keywords.associateWith { k ->
                 Keywords.terms(k).map { term ->
                     async { runCatching { CrossrefSearch.search(term, rows = 30, since = since) } }

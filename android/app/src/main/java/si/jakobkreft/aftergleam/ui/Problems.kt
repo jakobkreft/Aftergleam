@@ -4,8 +4,6 @@ import android.database.sqlite.SQLiteDatabaseLockedException
 import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteFullException
 import si.jakobkreft.aftergleam.data.ArxivApi
-import java.net.ConnectException
-import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -28,16 +26,16 @@ object Problems {
 
     /** Whether [e], or anything that caused it, is the network failing. */
     fun isNetwork(e: Throwable): Boolean = causes(e).any {
-        it is UnknownHostException || it is ConnectException || it is NoRouteToHostException ||
-            it is SocketException || it is SocketTimeoutException || it is SSLException ||
-            it is ArxivApi.FetchError
+        it is UnknownHostException || it is SocketException || it is SocketTimeoutException ||
+            it is SSLException || it is ArxivApi.FetchError
     }
 
-    /** Whether the phone could not get out at all, as opposed to a server being slow or refusing. */
-    private fun isOffline(e: Throwable): Boolean = causes(e).any {
-        it is UnknownHostException || it is ConnectException || it is NoRouteToHostException ||
-            (it is SocketException && it !is SocketTimeoutException)
-    }
+    /**
+     * Whether the phone could not get out at all, as opposed to a server being slow or refusing.
+     * A refused connection and no route to the host are socket errors too; a timeout is not one.
+     */
+    private fun isOffline(e: Throwable): Boolean =
+        causes(e).any { it is UnknownHostException || it is SocketException }
 
     private fun isTimeout(e: Throwable): Boolean = causes(e).any { it is SocketTimeoutException }
 

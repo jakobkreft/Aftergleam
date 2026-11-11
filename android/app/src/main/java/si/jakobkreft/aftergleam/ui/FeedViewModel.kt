@@ -1,63 +1,70 @@
 package si.jakobkreft.aftergleam.ui
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.ArxivApi
-import si.jakobkreft.aftergleam.data.Source
-import si.jakobkreft.aftergleam.data.BioRxivApi
 import si.jakobkreft.aftergleam.data.Attention
+import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Bridge
+import si.jakobkreft.aftergleam.data.CrossrefSearch
+import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Drift
 import si.jakobkreft.aftergleam.data.Dwell
-import si.jakobkreft.aftergleam.data.Backup
-import si.jakobkreft.aftergleam.data.Resurfaced
-import si.jakobkreft.aftergleam.data.Venue
-import si.jakobkreft.aftergleam.data.Db
-import si.jakobkreft.aftergleam.data.CrossrefSearch
 import si.jakobkreft.aftergleam.data.Evidence
 import si.jakobkreft.aftergleam.data.FetchPlan
-import si.jakobkreft.aftergleam.data.SearchTerms
-import si.jakobkreft.aftergleam.data.Signal
-import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Fetcher
 import si.jakobkreft.aftergleam.data.KeywordAlerts
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.LibraryImport
-import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.OfflineFiles
+import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Prefs
 import si.jakobkreft.aftergleam.data.Reaction
-import si.jakobkreft.aftergleam.data.ShownItem
+import si.jakobkreft.aftergleam.data.Resurfaced
+import si.jakobkreft.aftergleam.data.SearchTerms
+import si.jakobkreft.aftergleam.data.Signal
+import si.jakobkreft.aftergleam.data.Source
+import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.data.Taste
 import si.jakobkreft.aftergleam.data.Topics
-import si.jakobkreft.aftergleam.rank.RatedDoc
+import si.jakobkreft.aftergleam.data.Venue
 import si.jakobkreft.aftergleam.rank.DigestBuilder
 import si.jakobkreft.aftergleam.rank.Explain
 import si.jakobkreft.aftergleam.rank.Ranker
+import si.jakobkreft.aftergleam.rank.RatedDoc
 import si.jakobkreft.aftergleam.rank.Scored
 import si.jakobkreft.aftergleam.rank.SearchRanker
 import si.jakobkreft.aftergleam.rank.Slot
 import si.jakobkreft.aftergleam.rank.Weights
 import si.jakobkreft.aftergleam.work.KeywordAlertWorker
 import si.jakobkreft.aftergleam.work.Notifications
+import java.io.File
+import java.io.IOException
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
@@ -238,7 +245,7 @@ data class FeedState(
     val survey: SurveyState = SurveyState(),
     val topics: Set<String> = emptySet(),
     val reading: Paper? = null,
-    val readingFile: java.io.File? = null,
+    val readingFile: File? = null,
     val readingError: String? = null,
     /**
      * A download the in-app reader cannot render, waiting to be handed to another app.
@@ -247,7 +254,7 @@ data class FeedState(
      * serve Word documents. That one arrived as a .docx, and because the reader only knew
      * how to show PDFs it showed its loading state and never stopped.
      */
-    val readingUnsupported: java.io.File? = null,
+    val readingUnsupported: File? = null,
     val readingPage: Int = 0,
     /** The reader view of the paper being read: whether it can be offered, and whether it is on. */
     val article: ArticleUi = ArticleUi(),
@@ -415,6 +422,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     private val db = Db(app)
     private val prefs = Prefs(app)
+    private val pdfs = PdfStore(app)
+    private val articles = ArticleStore(app)
 
     /**
      * The trained model, kept between rebuilds.
@@ -427,11 +436,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private var cachedModel: Ranker.Model? = null
     private var cachedSignature: String? = null
 
-    /**
-     * The interest model, trained once and reused until the reader reacts to something.
-     *
-     * Both the digest and search want the same thing, and it depends only on the ledger.
-     */
     /**
      * Fills in everything the reader has not asked for yet, while they read what they did.
      *
@@ -462,10 +466,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * what the reader just asked for. Doing it here spends that time while they are reading
      * the first card, and both are instant when they get there.
      */
-    private fun warmModel() {
-        viewModelScope.launch { warmModelNow() }
-    }
-
     private suspend fun warmModelNow() {
         if (cachedModel != null) return
         withContext(Dispatchers.Default) {
@@ -482,7 +482,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * paid for two fits at nine seconds each, one of which was thrown away. Now the second
      * caller waits for the first and takes its result.
      */
-    private val modelLock = kotlinx.coroutines.sync.Mutex()
+    private val modelLock = Mutex()
 
     private suspend fun ensureModelShared(rated: List<RatedDoc>): Ranker.Model? =
         modelLock.withLock { ensureModel(rated) }
@@ -535,57 +535,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     val openOnPopular: Boolean =
         prefs.onboarded && db.digestFor(LocalDate.now().toString()).isEmpty()
 
-    init {
-        // For the Notifications page as well as the keywords: how often each keyword finds
-        // papers is what a bell is decided by.
-        refreshKeywordCounts()
-        _state.value = _state.value.copy(
-            reminderEnabled = prefs.reminderEnabled,
-            noteOffer = noteOfferDue(),
-            reminderHour = prefs.reminderHour,
-            paperSerif = prefs.paperSerif,
-            paperTextSize = PaperTextSize.nearest(prefs.paperTextSize),
-            libraryOrders = LibraryShelf.entries.associateWith { shelf ->
-                LibraryOrder.entries.firstOrNull { it.name == prefs.libraryOrder(shelf.name) }
-                    ?: LibraryOrder.RECENT
-            },
-            interfaceSerif = prefs.interfaceSerif,
-            dynamicColour = prefs.dynamicColour,
-        )
-        // Downloads kept in the cache by 1.1.0 and earlier, moved to where clearing the cache
-        // does not reach them. The stores read both places until this is done.
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { OfflineFiles.moveFromCache(getApplication()) }
-        }
-        if (prefs.onboarded) {
-            // Before anything else, so a cold start with no fetch due still knows what the
-            // field was reading. Popular has nothing else to rank by, and ranking it before
-            // this line would quietly demote it to venue matches.
-            _state.value = _state.value.copy(attention = db.attention())
-            // Popular is the landing screen when the digest is not ready, and nothing else
-            // would fill it in time: the usual precompute waits for a digest that is, by
-            // definition, not there yet.
-            if (openOnPopular) loadPopular()
-            restore()
-        }
-    }
-
     /**
-     * Fills the survey deck in the background while the user answers.
-     *
-     * Two passes of one paper per probe rather than two papers from each probe in turn. The
-     * first pass alone gives a card from every field, so the questions alternate subject
-     * from the very start, and the second pass only matters for someone who keeps going.
-     */
-    /**
-     * Starts the paper survey using the topics the user chose, not a fixed list.
-     *
-     * The previous version drew from a hardcoded set that was almost all machine learning,
-     * so anyone outside that field was asked to judge a dozen papers they had no reason to
-     * care about.
-     */
-    /**
-     * Fills the survey from the reader's own feed, in one request per server.
+     * Starts the survey on the topics the reader chose, filled from their own feed in one
+     * request per server.
      *
      * This used to ask arXiv for one paper per topic, twelve times, three seconds apart,
      * because the published rate limit is one request every three seconds. Thirty-six
@@ -720,20 +672,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         // Into the ledger, which is the only thing the model reads. This used to write the
         // legacy `interest` column instead, so a reader who finished onboarding taught the
         // ranker precisely nothing and the library showed their answers with neither chip lit.
-        db.addSignal(head.second.id, if (liked) Signal.LIKED else Signal.DISLIKED)
+        record { addSignal(head.second.id, if (liked) Signal.LIKED else Signal.DISLIKED) }
         invalidateModel()
         surveyAnswers.value++
-        _state.value = _state.value.copy(
-            survey = sv.copy(
-                deck = sv.deck.drop(1),
-                liked = if (liked) sv.liked + head else sv.liked,
-                seen = sv.seen + 1,
-                history = sv.history + head,
-            ),
-            evidence = db.evidence(),
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-        )
+        _state.update {
+            it.copy(
+                survey = sv.copy(
+                    deck = sv.deck.drop(1),
+                    liked = if (liked) sv.liked + head else sv.liked,
+                    seen = sv.seen + 1,
+                    history = sv.history + head,
+                )
+            )
+        }
     }
 
     /**
@@ -746,21 +697,22 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun undoSurveyAnswer() {
         val sv = _state.value.survey
         val last = sv.history.lastOrNull() ?: return
-        db.removeSignal(last.second.id, Signal.LIKED)
-        db.removeSignal(last.second.id, Signal.DISLIKED)
+        record {
+            removeSignal(last.second.id, Signal.LIKED)
+            removeSignal(last.second.id, Signal.DISLIKED)
+        }
         invalidateModel()
         surveyAnswers.value++
-        _state.value = _state.value.copy(
-            survey = sv.copy(
-                deck = listOf(last) + sv.deck,
-                liked = sv.liked.filterNot { it.second.id == last.second.id },
-                seen = (sv.seen - 1).coerceAtLeast(0),
-                history = sv.history.dropLast(1),
-            ),
-            evidence = db.evidence(),
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-        )
+        _state.update {
+            it.copy(
+                survey = sv.copy(
+                    deck = listOf(last) + sv.deck,
+                    liked = sv.liked.filterNot { answered -> answered.second.id == last.second.id },
+                    seen = (sv.seen - 1).coerceAtLeast(0),
+                    history = sv.history.dropLast(1),
+                )
+            )
+        }
     }
 
     /** Records the chosen topics and their categories, before any papers are fetched. */
@@ -814,7 +766,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private val surveyAnswers = MutableStateFlow(0)
 
     /** Held while the first digest is being prepared, so finishing waits for it. */
-    private val prepLock = kotlinx.coroutines.sync.Mutex()
+    private val prepLock = Mutex()
 
     /**
      * Gets the first digest ready while the reader is still answering.
@@ -830,8 +782,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * Collected rather than collected-latest: work already under way is never cancelled,
      * and an answer given during it simply causes one more pass afterwards.
      */
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
-    private val firstDigestPrep = viewModelScope.launch {
+    @OptIn(FlowPreview::class)
+    private fun watchSurvey() = viewModelScope.launch {
         surveyAnswers.drop(1).debounce(SURVEY_SETTLE_MS).collect {
             prepLock.withLock { prepareFirstDigest() }
         }
@@ -852,22 +804,8 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val cats = surveyCategories(sv)
         prefs.categories = cats
         prefs.onboarded = true
-        val reactions = db.allReactions()
-        _state.value = _state.value.copy(
-            categories = cats,
-            onboarded = true,
-            reactions = reactions,
-            evidence = db.evidence(),
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-            modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
-        )
+        _state.update { it.copy(categories = cats, onboarded = true) }
         sync(force = true, firstDigest = true)
-    }
-
-    fun setCategories(cats: Set<String>) {
-        prefs.categories = cats
-        _state.value = _state.value.copy(categories = cats)
     }
 
     fun finishOnboarding() {
@@ -884,6 +822,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             // all: a reader who found their feed would not load also found everything they had
             // saved apparently gone, though every one of them was still in the database.
             loadLedger()
+            // And the shelves with it, so the library is there before its tab is first opened
+            // rather than a moment after, with "Nothing saved yet" shown in between.
+            loadLibrary()
             val cards = withContext(Dispatchers.IO) { storedDigest(LocalDate.now().toString()) }
             if (cards.isNotEmpty()) {
                 // The resurfaced card has to be computed here too, not only when the digest
@@ -909,13 +850,50 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Where the reader's ledger is written and read back: off the main thread, one thing at a
+     * time, in the order it was asked for.
+     *
+     * A reaction used to be written, and the whole ledger read back two or three times, on the
+     * main thread before the heart that was tapped could change colour, and a page turned in
+     * the reader wrote to the database from the middle of a scroll.
+     */
+    private val ledger = Dispatchers.IO.limitedParallelism(1)
+
+    /**
      * Everything the reader has told the app, straight from the database: what they saved,
      * opened and reacted to, and the counts the screens show.
      */
     private suspend fun loadLedger() {
-        val (reactions, evidence) = withContext(Dispatchers.IO) { db.allReactions() to db.evidence() }
+        val (reactions, evidence) = withContext(ledger) { db.allReactions() to db.evidence() }
+        _state.update { it.withLedger(reactions, evidence) }
+    }
+
+    /** Makes [change] to the ledger, then shows what it holds. */
+    private fun record(change: Db.() -> Unit): Job = viewModelScope.launch {
+        withContext(ledger) { db.change() }
+        loadLedger()
+    }
+
+    /**
+     * Records something the reader did without saying so, once: staying on a paper, turning
+     * its pages, passing it on. The reader reports a page every time one is turned, and the
+     * ledger only needs telling the first time.
+     */
+    private fun note(paperId: String, signal: Signal) {
+        val held = _state.value.evidence[paperId]?.signals.orEmpty()
+        if (signal !in held) record { addSignal(paperId, signal) }
+    }
+
+    /** The ledger as read, with the counts the screens show worked out from that one reading. */
+    private fun FeedState.withLedger(
+        reactions: Map<String, Reaction>,
+        evidence: Map<String, Evidence>,
+    ): FeedState {
+        // Papers carrying any signal at all, which is what decides how far the model's
+        // confidence is pulled toward the prior: a reader who never presses a button still
+        // accumulates it. Those they pressed a button on are a smaller and different number.
         val rated = evidence.count { it.value.label() != null }
-        _state.value = _state.value.copy(
+        return copy(
             reactions = reactions,
             evidence = evidence,
             ratedCount = rated,
@@ -1061,13 +1039,15 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 if (shouldFetch) {
                     _state.value = _state.value.copy(loadingLabel = "Ranking")
                 }
+                // A reaction given a moment ago is written before the ranking reads the ledger.
+                withContext(ledger) { }
                 withContext(Dispatchers.Default) {
                     // Through the shared lock, so a model the survey is still training is
                     // waited for and reused rather than trained a second time alongside it.
                     ensureModelShared(ratedDocs())
                     rebuild(cats)
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 showFailure(e, cats)
@@ -1084,7 +1064,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * failure left an empty screen behind a message, as if the reader had nothing at all.
      */
     private suspend fun showFailure(e: Exception, cats: List<String>) {
-        android.util.Log.w("Aftergleam", "Could not build the digest", e)
+        Log.w("Aftergleam", "Could not build the digest", e)
         val servers = Fetcher.serversFor(cats.toSet()).map { Source.label(it) }.sorted()
         val current = _state.value
         val (cards, day) = if (current.cards.isNotEmpty()) {
@@ -1209,7 +1189,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Words the papers on this device use, for questioning a likely misspelling. */
     private var vocabulary: Map<String, Int>? = null
     private var vocabularyKey: String? = null
-    private val vocabularyLock = kotlinx.coroutines.sync.Mutex()
+    private val vocabularyLock = Mutex()
 
     /**
      * The vocabulary, rebuilt first if papers have arrived since it was made.
@@ -1326,16 +1306,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val cards = built.cards
         cachedModel = built.model
         cachedSignature = signature
-        val reactions = db.allReactions()
         // Everything read from the database first, and the state changed in one step at the
         // end. This runs on a background thread; it used to read the state, run these queries
         // inside the copy and write the copy back, so a keyword's bell rung while it ran was
         // silently switched off again.
-        val evidenced = evidenceCount()
-        val judged = judgedCount()
+        val reactions = db.allReactions()
+        val evidence = db.evidence()
         val resurfaced = findResurfaced()
         val support = supportCard()
-        _state.update { it.copy(
+        // The counts come from the ledger and not from `rated`, which includes the seed
+        // documents built from the chosen subjects: the ranker legitimately fits on those, but
+        // the reader never reacted to them. Counting them made the header claim judgements
+        // that did not exist and switched the model on before it had been taught anything.
+        _state.update { it.withLedger(reactions, evidence).copy(
             loading = false,
             cards = cards,
             cardsDay = null,
@@ -1345,15 +1328,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             // out even after a fetch brought new papers in.
             explore = emptyList(),
             exploreExhausted = false,
-            reactions = reactions,
             emptyDay = cards.isEmpty(),
-            // `rated` includes the seed documents built from the chosen subjects, which the
-            // ranker legitimately fits on but the reader never reacted to. Counting them
-            // here made the header claim judgements that did not exist and switched the
-            // model on before it had been taught anything.
-            ratedCount = evidenced,
-            judgedCount = judged,
-            modelActive = evidenced >= Ranker.MIN_RATINGS,
             resurfaced = resurfaced,
             support = support,
         ) }
@@ -1361,12 +1336,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         prewarm()
     }
 
-    /**
-     * Compares the last fortnight of ratings against the fortnight before it.
-     *
-     * Two weeks is short enough that a change of project shows up and long enough that a
-     * single evening of reading does not look like a trend.
-     */
     /**
      * The reading card, from the model the digest ranks with: a paper's themes are its reasons,
      * worked out as a card's are. Done once the digest is on screen and the model is warm, off
@@ -1377,6 +1346,12 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(drift = drift) }
     }
 
+    /**
+     * Compares the last fortnight of ratings against the fortnight before it.
+     *
+     * Two weeks is short enough that a change of project shows up and long enough that a
+     * single evening of reading does not look like a trend.
+     */
     private fun computeDrift(model: Ranker.Model?): Drift.Report {
         val now = System.currentTimeMillis()
         val fortnight = 14L * 24 * 60 * 60 * 1000
@@ -1457,35 +1432,43 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         val r = _state.value.resurfaced ?: return
         // "Still not interested" is itself a strong training signal, so record it.
         if (stillNotInterested) {
-            db.addSignal(r.paper.id, Signal.DISLIKED)
+            record { addSignal(r.paper.id, Signal.DISLIKED) }
             invalidateModel()
         }
-        _state.value = _state.value.copy(
-            resurfaced = null,
-            evidence = db.evidence(),
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-        )
+        _state.update { it.copy(resurfaced = null) }
     }
 
-    fun exportBackup(): String = Backup.export(db, prefs)
+    /** Writes the backup into the file the reader made for it. */
+    fun exportBackup(file: Uri) {
+        viewModelScope.launch {
+            val summary = try {
+                val json = withContext(ledger) { Backup.export(db, prefs) }
+                withContext(Dispatchers.IO) {
+                    files.openOutputStream(file)?.use { it.write(json.toByteArray()) }
+                        ?: throw IOException("it could not be opened")
+                    "Exported to ${nameOf(file)}."
+                }
+            } catch (e: Exception) {
+                "Could not write that file: ${e.message}"
+            }
+            _state.update { it.copy(backupSummary = summary) }
+        }
+    }
 
-    fun restoreBackup(json: String) {
+    fun restoreBackup(file: Uri) {
         viewModelScope.launch {
             try {
-                val r = withContext(Dispatchers.IO) { Backup.restore(json, db, prefs) }
-                val reactions = db.allReactions()
-                _state.value = _state.value.copy(
-                    reactions = reactions,
-                    evidence = db.evidence(),
-                    ratedCount = evidenceCount(),
-                    judgedCount = judgedCount(),
-                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
-                    categories = prefs.categories,
-                    keywords = prefs.keywords,
-                    keywordAlerts = prefs.keywordAlerts.keys,
-                    backupSummary = "Restored ${r.reactions} ratings.",
-                )
+                val json = textOf(file)
+                val r = withContext(ledger) { Backup.restore(json, db, prefs) }
+                loadLedger()
+                _state.update {
+                    it.copy(
+                        categories = prefs.categories,
+                        keywords = prefs.keywords,
+                        keywordAlerts = prefs.keywordAlerts.keys,
+                        backupSummary = "Restored ${r.reactions} ratings.",
+                    )
+                }
                 if (prefs.keywordAlerts.isNotEmpty()) KeywordAlertWorker.schedule(getApplication())
                 refreshKeywordCounts()
                 rerank()
@@ -1497,9 +1480,19 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun noteExported(name: String) {
-        _state.value = _state.value.copy(backupSummary = "Exported to $name.")
+    private val files get() = getApplication<Application>().contentResolver
+
+    /** The text of a file the reader picked. */
+    private suspend fun textOf(file: Uri): String = withContext(Dispatchers.IO) {
+        files.openInputStream(file)?.bufferedReader()?.use { it.readText() }
+            ?: throw IOException("it could not be opened")
     }
+
+    /** What the reader calls [file]. Its address does not say: to Downloads it is "746". */
+    private fun nameOf(file: Uri): String =
+        files.query(file, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        } ?: "file"
 
     /**
      * Imports a library, recording every resolved paper as an explicit like.
@@ -1509,7 +1502,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * legacy rating column, where the model never saw it: importing a hundred papers taught
      * the ranker nothing at all.
      */
-    fun importLibrary(text: String) {
+    fun importLibrary(file: Uri) {
         if (_state.value.importing) return
         stopImportRequested = false
         viewModelScope.launch {
@@ -1519,34 +1512,29 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 importing = true,
             )
             try {
-                val result = LibraryImport.run(text, shouldStop = { stopImportRequested }) { p ->
-                    _state.value = _state.value.copy(importProgress = p)
+                val result = LibraryImport.run(textOf(file), shouldStop = { stopImportRequested }) { p ->
+                    // Called from the import's own thread, so not a read and a write.
+                    _state.update { it.copy(importProgress = p) }
                 }
-                withContext(Dispatchers.IO) {
-                    db.upsertPapers(result.papers)
-                    result.papers.forEach { db.addSignal(it.id, Signal.LIKED) }
+                record {
+                    upsertPapers(result.papers)
+                    result.papers.forEach { addSignal(it.id, Signal.LIKED) }
+                }.join()
+                _state.update {
+                    it.copy(
+                        importProgress = null,
+                        importResult = result,
+                        survey = it.survey.copy(seeded = it.survey.seeded + result.papers.size),
+                        importSummary = buildString {
+                            append("Matched ${result.papers.size} of ${result.total}")
+                            if (result.unmatched > 0) {
+                                append(", ${result.unmatched} had no arXiv record")
+                            }
+                            if (result.failed > 0) append(", ${result.failed} could not be checked")
+                            append(".")
+                        },
+                    )
                 }
-                val reactions = db.allReactions()
-                _state.value = _state.value.copy(
-                    importProgress = null,
-                    importResult = result,
-                    survey = _state.value.survey.copy(
-                        seeded = _state.value.survey.seeded + result.papers.size,
-                    ),
-                    reactions = reactions,
-                    evidence = db.evidence(),
-                    ratedCount = evidenceCount(),
-                    judgedCount = judgedCount(),
-                    modelActive = evidenceCount() >= Ranker.MIN_RATINGS,
-                    importSummary = buildString {
-                        append("Matched ${result.papers.size} of ${result.total}")
-                        if (result.unmatched > 0) {
-                            append(", ${result.unmatched} had no arXiv record")
-                        }
-                        if (result.failed > 0) append(", ${result.failed} could not be checked")
-                        append(".")
-                    },
-                )
                 if (_state.value.onboarded) rerank()
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
@@ -1590,7 +1578,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Everything the user has accumulated: saved, downloaded, and rated. */
     fun loadLibrary() {
         viewModelScope.launch {
-            val store = PdfStore(getApplication())
             val loaded = withContext(Dispatchers.IO) {
                 // From the database rather than from the screen's state, which is filled in
                 // by other screens and may not be yet. The library is where a reader checks
@@ -1608,13 +1595,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                 // Downloaded is a property of the cache, not of any table, so it is asked
                 // of the store directly rather than tracked in a column that could drift.
                 val downloaded = db.papersById(
-                    (reactions.keys + ratings.keys + judged.keys).filter { store.isCached(it) }
+                    (reactions.keys + ratings.keys + judged.keys).filter { pdfs.isCached(it) }
                 )
-                val sizes = downloaded.associate { it.id to store.sizeOf(it.id) }
+                val sizes = downloaded.associate { it.id to pdfs.sizeOf(it.id) }
                 Shelves(
                     saved, downloaded, rated, sizes,
                     savedAt = db.signalTimes(Signal.SAVED),
-                    downloadedAt = downloaded.mapNotNull { p -> store.downloadedAt(p.id)?.let { p.id to it } }.toMap(),
+                    downloadedAt = downloaded
+                        .mapNotNull { p -> pdfs.downloadedAt(p.id)?.let { p.id to it } }.toMap(),
                     reactedAt = db.signalTimes(Signal.LIKED, Signal.DISLIKED),
                 )
             }
@@ -1639,7 +1627,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun deleteDownload(paperId: String) {
         viewModelScope.launch {
-            PdfStore(getApplication()).delete(paperId)
+            pdfs.delete(paperId)
             _state.value = _state.value.copy(
                 downloaded = _state.value.downloaded.filterNot { it.id == paperId },
                 downloadedBytes = _state.value.downloadedBytes - paperId,
@@ -1665,20 +1653,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             libraryMessage = null,
         )
         viewModelScope.launch {
-            val store = PdfStore(getApplication())
             try {
-                store.download(paper)
-                val onShelf = _state.value.downloaded.any { it.id == paper.id }
-                _state.value = _state.value.copy(
-                    downloaded = if (onShelf) _state.value.downloaded
-                    else _state.value.downloaded + paper,
-                    downloadedBytes = _state.value.downloadedBytes +
-                        (paper.id to store.sizeOf(paper.id)),
-                    // From the file, so reopening a paper downloaded last week leaves it where
-                    // it was on the shelf rather than bringing it to the top.
-                    downloadedAt = _state.value.downloadedAt +
-                        (paper.id to (store.downloadedAt(paper.id) ?: System.currentTimeMillis())),
-                )
+                pdfs.download(paper)
+                _state.update { it.onOfflineShelf(paper) }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     libraryMessage = humanError(e, "fetch that PDF", Source.label(paper.source))
@@ -1691,6 +1668,23 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * With [paper], just downloaded, on the offline shelf, the same way deleting takes it off.
+     *
+     * The shelf is rebuilt when the library tab is entered, which is why leaving it to that
+     * looked fine coming from the digest: that route leaves the tab and comes back. Reaching
+     * the reader from inside the library never changes tab, so nothing rebuilt it and a paper
+     * that had plainly just downloaded was not on the list of downloads.
+     */
+    private fun FeedState.onOfflineShelf(paper: Paper): FeedState = copy(
+        downloaded = if (downloaded.any { it.id == paper.id }) downloaded else downloaded + paper,
+        downloadedBytes = downloadedBytes + (paper.id to pdfs.sizeOf(paper.id)),
+        // From the file, so reopening a paper downloaded last week leaves it where it was on
+        // the shelf rather than bringing it to the top.
+        downloadedAt = downloadedAt +
+            (paper.id to (pdfs.downloadedAt(paper.id) ?: System.currentTimeMillis())),
+    )
+
     fun clearLibraryMessage() {
         _state.value = _state.value.copy(libraryMessage = null)
     }
@@ -1698,7 +1692,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Removes every download. Deleting forty of them one at a time is not a feature. */
     fun deleteAllDownloads() {
         viewModelScope.launch {
-            PdfStore(getApplication()).deleteAll()
+            pdfs.deleteAll()
             _state.value = _state.value.copy(
                 downloaded = emptyList(),
                 downloadedBytes = emptyMap(),
@@ -1756,7 +1750,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val papers = withContext(Dispatchers.IO) {
                 val since = LocalDate.now().minusDays(1)
-                    .atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 val ids = db.alertedSince(keyword, since)
                 val byId = db.papersById(ids).associateBy { it.id }
                 ids.mapNotNull { byId[it] }
@@ -1816,18 +1810,20 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     /** Clears the model but keeps papers. Trust requires an exit. */
     fun resetModel() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { db.clearFeedback() }
+            record { clearFeedback() }.join()
             invalidateModel()
-            _state.value = _state.value.copy(
-                reactions = emptyMap(), evidence = emptyMap(), ratedPapers = emptyList(),
-                ratedCount = 0, judgedCount = 0, modelActive = false,
-            )
+            _state.update { it.copy(ratedPapers = emptyList()) }
             rerank()
         }
     }
 
     fun setSearchQuery(q: String) {
         _state.value = _state.value.copy(searchQuery = q)
+    }
+
+    fun setSearchScope(scope: SearchScope) {
+        _state.value = _state.value.copy(searchScope = scope)
+        if (_state.value.searchQuery.trim().length >= 2) runSearch()
     }
 
     /**
@@ -1838,11 +1834,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * version called the full ranker here, which refit the vectoriser and retrained the
      * classifier for every pixel of the drag.
      */
-    fun setSearchScope(scope: SearchScope) {
-        _state.value = _state.value.copy(searchScope = scope)
-        if (_state.value.searchQuery.trim().length >= 2) runSearch()
-    }
-
     fun setPersonalisation(v: Float) {
         val st = _state.value
         _state.value = st.copy(
@@ -2019,16 +2010,6 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private fun ratedDocs(): List<RatedDoc> = DigestBuilder.ratedDocs(db, prefs)
 
     /**
-     * Papers carrying any signal at all. This is what decides how far the model's confidence
-     * is pulled toward the prior, so it counts evidence rather than explicit judgements: a
-     * reader who never presses a button still accumulates it.
-     */
-    private fun evidenceCount(): Int = db.evidence().count { it.value.label() != null }
-
-    /** Papers the reader pressed a button on, which is a smaller and different number. */
-    private fun judgedCount(): Int = db.evidence().count { it.value.explicit }
-
-    /**
      * A sentence a reader can act on, rather than the exception's own words.
      *
      * An offline-first app that answers "why is this blank" with
@@ -2044,15 +2025,10 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private var dwell: Job? = null
     private var readerDwell: Job? = null
 
-    /** Records a behavioural signal. Free for the reader, and far more honest than a rating. */
-    fun signal(paperId: String, signal: Signal) {
-        invalidateModel()
-        db.addSignal(paperId, signal)
-        _state.value = _state.value.copy(
-            evidence = db.evidence(),
-            ratedCount = evidenceCount(),
-            judgedCount = judgedCount(),
-        )
+    /** Any new signal makes the cached model wrong, so it is dropped rather than aged. */
+    private fun invalidateModel() {
+        cachedModel = null
+        cachedSignature = null
     }
 
     /**
@@ -2061,51 +2037,45 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      * "More like this" and "less like this" rather than a number: a steering instruction has
      * no scale to calibrate, so it means the same thing coming from any two readers.
      */
-    /** Any new signal makes the cached model wrong, so it is dropped rather than aged. */
-    private fun invalidateModel() {
-        cachedModel = null
-        cachedSignature = null
-    }
-
     fun steer(paperId: String, liked: Boolean?) {
         invalidateModel()
-        db.removeSignal(paperId, Signal.LIKED)
-        db.removeSignal(paperId, Signal.DISLIKED)
-        when (liked) {
-            true -> db.addSignal(paperId, Signal.LIKED)
-            false -> db.addSignal(paperId, Signal.DISLIKED)
-            null -> Unit
+        // Looked up now: the card that was pressed may be gone by the time the ledger answers.
+        val pressed = _state.value.paperById(paperId)
+        viewModelScope.launch {
+            record {
+                removeSignal(paperId, Signal.LIKED)
+                removeSignal(paperId, Signal.DISLIKED)
+                when (liked) {
+                    true -> addSignal(paperId, Signal.LIKED)
+                    false -> addSignal(paperId, Signal.DISLIKED)
+                    null -> Unit
+                }
+            }.join()
+            _state.update { st ->
+                // Keep the library shelf in step. Reacting to a paper in the digest has to make
+                // it appear there, and clearing a reaction has to remove it, without reopening
+                // the tab.
+                val paper = st.ratedPapers.firstOrNull { it.first.id == paperId }?.first ?: pressed
+                val rest = st.ratedPapers.filterNot { it.first.id == paperId }
+                // A paper reacted to for the first time goes to the top of "recently reacted".
+                // One already on the shelf keeps its place until the library is next opened:
+                // the shelf is where reactions are changed, and a row that jumped to the top
+                // under the reader's finger at every change would be impossible to work down.
+                val times = st.reactedAt
+                st.copy(
+                    // Which papers are on the shelf, not their order: the screen orders them,
+                    // see [LibrarySort].
+                    ratedPapers =
+                        if (liked == null || paper == null) rest
+                        else rest + (paper to (st.evidence[paperId]?.label() ?: 0f)),
+                    reactedAt = when {
+                        liked == null -> times - paperId
+                        paperId in times -> times
+                        else -> times + (paperId to System.currentTimeMillis())
+                    },
+                )
+            }
         }
-        val ev = db.evidence()
-        val judged = ev.count { it.value.label() != null }
-        // Keep the library shelf in step. Reacting to a paper in the digest has to make it
-        // appear there, and clearing a reaction has to remove it, without reopening the tab.
-        val paper = _state.value.ratedPapers.firstOrNull { it.first.id == paperId }?.first
-            ?: _state.value.paperById(paperId)
-        val rest = _state.value.ratedPapers.filterNot { it.first.id == paperId }
-        // Which papers are on the shelf, not their order: the screen orders them, see
-        // [LibrarySort].
-        val shelf =
-            if (liked == null || paper == null) rest
-            else rest + (paper to (ev[paperId]?.label() ?: 0f))
-        // A paper reacted to for the first time goes to the top of "recently reacted". One
-        // already on the shelf keeps its place until the library is next opened: the shelf is
-        // where reactions are changed, and a row that jumped to the top under the reader's
-        // finger at every change would be impossible to work down.
-        val times = _state.value.reactedAt
-        val reactedAt = when {
-            liked == null -> times - paperId
-            paperId in times -> times
-            else -> times + (paperId to System.currentTimeMillis())
-        }
-        _state.value = _state.value.copy(
-            evidence = ev,
-            ratedCount = judged,
-            judgedCount = judgedCount(),
-            modelActive = judged >= Ranker.MIN_RATINGS,
-            ratedPapers = shelf,
-            reactedAt = reactedAt,
-        )
     }
 
     /**
@@ -2150,7 +2120,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     subscribed = cats.toSet(),
                     size = EXPLORE_PAGE,
                     attention = _state.value.attention,
-                    evidenceCount = evidenceCount(),
+                    evidenceCount = _state.value.ratedCount,
                     topicHistory = db.topicHistory(subscribed = cats.toSet()),
                     prebuilt = model,
                 )
@@ -2282,7 +2252,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
                     subscribed = _state.value.categories,
                     size = CATCH_UP_SIZE,
                     attention = _state.value.attention,
-                    evidenceCount = evidenceCount(),
+                    evidenceCount = _state.value.ratedCount,
                     topicHistory = db.topicHistory(subscribed = _state.value.categories),
                     prebuilt = ensureModelShared(rated),
                 )
@@ -2300,16 +2270,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun openPastDay(day: String) {
         _state.value = _state.value.copy(pastDay = day, pastCards = emptyList())
         viewModelScope.launch {
-            val cards = withContext(Dispatchers.IO) {
-                val items = db.digestFor(day)
-                val byId = db.papersById(items.map { it.paperId }).associateBy { it.id }
-                items.mapNotNull { item ->
-                    byId[item.paperId]?.let {
-                        Scored(it, 0f, item.confidence, runCatching { Slot.valueOf(item.slot) }
-                            .getOrDefault(Slot.RELEVANCE), storedReason = item.reason)
-                    }
-                }
-            }
+            val cards = withContext(Dispatchers.IO) { storedDigest(day) }
             if (_state.value.pastDay == day) {
                 _state.value = _state.value.copy(pastCards = cards)
             }
@@ -2321,16 +2282,14 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openDetail(paper: Paper) {
-        val current = _state.value.reactions[paper.id] ?: Reaction.NONE
-        if (!current.viewed) db.setReaction(paper.id, current.copy(viewed = true))
-        db.addSignal(paper.id, Signal.OPENED)
+        record {
+            val current = allReactions()[paper.id] ?: Reaction.NONE
+            if (!current.viewed) setReaction(paper.id, current.copy(viewed = true))
+            addSignal(paper.id, Signal.OPENED)
+        }
         dwell?.cancel()
         dwell = startDwell(paper.id, Signal.DWELLED, Dwell.DETAIL_MILLIS)
-        _state.value = _state.value.copy(
-            detail = paper,
-            reactions = db.allReactions(),
-            evidence = db.evidence(),
-        )
+        _state.update { it.copy(detail = paper) }
     }
 
     fun closeDetail() {
@@ -2340,10 +2299,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Records a paper being passed on to somebody, which is a strong thing to do quietly. */
-    fun share(paperId: String) {
-        db.addSignal(paperId, Signal.SHARED)
-        _state.value = _state.value.copy(evidence = db.evidence())
-    }
+    fun share(paperId: String) = note(paperId, Signal.SHARED)
 
     /**
      * Arms a signal that only fires if the reader is still on the paper when the clock runs out.
@@ -2356,11 +2312,9 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     private fun startDwell(paperId: String, signal: Signal, millis: Long): Job =
         viewModelScope.launch {
             delay(millis)
-            db.addSignal(paperId, signal)
-            _state.value = _state.value.copy(evidence = db.evidence())
+            note(paperId, signal)
         }
 
-    /** Opens the reader, downloading first if the file is not already cached. */
     /**
      * Throws away the copy on the phone and fetches the paper again.
      *
@@ -2369,14 +2323,13 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun redownload(paper: Paper) {
         viewModelScope.launch {
-            PdfStore(getApplication()).delete(paper.id)
+            pdfs.delete(paper.id)
             openReader(paper)
         }
     }
 
+    /** Opens the reader, downloading first if the file is not already cached. */
     fun openReader(paper: Paper) {
-        val store = PdfStore(getApplication())
-        val articles = ArticleStore(getApplication())
         // A paper last read in the reader view opens in it, where it was left, as long as the
         // copy is still on the phone. Otherwise it opens as the PDF, which is always there.
         val position = prefs.articlePosition(paper.id)
@@ -2399,39 +2352,25 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             try {
-                val file = store.download(paper)
+                val file = pdfs.download(paper)
                 // The download itself is not the signal. Tapping Read is one tap, and this
                 // used to score it 0.7 whether the reader took in a word of it or reversed
                 // straight back out. The clock starts once the file is actually on screen.
                 readerDwell?.cancel()
                 readerDwell = startDwell(paper.id, Signal.DOWNLOADED, Dwell.READER_MILLIS)
-                // Put it on the offline shelf now, the same way deleting takes it off.
-                //
-                // The shelf is rebuilt when the library tab is entered, which is why this
-                // looked fine coming from the digest: that route leaves the tab and comes
-                // back. Reaching the reader from inside the library never changes tab, so
-                // nothing rebuilt it and a paper that had plainly just downloaded was not
-                // on the list of downloads.
-                val onShelf = _state.value.downloaded.any { it.id == paper.id }
                 // Checked by its bytes rather than its name. Rendering is the only thing
                 // that cannot cope; the paper is still downloaded, still on the offline
                 // shelf, and still readable in whatever app owns that format.
-                val renderable = store.looksLikePdf(file)
-                _state.value = _state.value.copy(
-                    readingFile = if (renderable) file else null,
-                    readingUnsupported = if (renderable) null else file,
-                    evidence = db.evidence(),
-                    downloaded = if (onShelf) _state.value.downloaded
-                    else _state.value.downloaded + paper,
-                    downloadedBytes = _state.value.downloadedBytes +
-                        (paper.id to store.sizeOf(paper.id)),
-                    // From the file, so reopening a paper downloaded last week leaves it where
-                    // it was on the shelf rather than bringing it to the top.
-                    downloadedAt = _state.value.downloadedAt +
-                        (paper.id to (store.downloadedAt(paper.id) ?: System.currentTimeMillis())),
-                )
+                val renderable = pdfs.looksLikePdf(file)
+                _state.update {
+                    it.onOfflineShelf(paper).copy(
+                        readingFile = if (renderable) file else null,
+                        readingUnsupported = if (renderable) null else file,
+                    )
+                }
             } catch (e: Exception) {
-                _state.value = _state.value.copy(readingError = humanError(e, "fetch this PDF", Source.label(paper.source)))
+                val why = humanError(e, "fetch this PDF", Source.label(paper.source))
+                _state.update { it.copy(readingError = why) }
             }
         }
     }
@@ -2464,7 +2403,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun loadArticle(paper: Paper) {
         try {
-            val article = ArticleStore(getApplication()).load(paper)
+            val article = articles.load(paper)
             updateArticle(paper.id) {
                 it.copy(article = article, availability = ArticleStore.Availability.READY)
             }
@@ -2475,7 +2414,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
             updateArticle(paper.id) {
                 it.copy(availability = ArticleStore.Availability.NONE, error = e.message)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             updateArticle(paper.id) { it.copy(error = humanError(e, "fetch the HTML version", "arXiv")) }
@@ -2499,7 +2438,7 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
         if (!_state.value.article.showing) return
         prefs.setArticlePosition(paperId, position)
         updateArticle(paperId) { it.copy(position = position) }
-        if (position >= 0.2f) db.addSignal(paperId, Signal.READ_PAGES)
+        if (position >= 0.2f) note(paperId, Signal.READ_PAGES)
     }
 
     /** The sun or moon in the reader view: a light page or a dark one, for the reader only. */
@@ -2518,18 +2457,52 @@ class FeedViewModel(app: Application) : AndroidViewModel(app) {
     fun rememberPage(paperId: String, page: Int) {
         prefs.setLastPage(paperId, page)
         // Getting past the third page is about the strongest thing a reader does silently.
-        if (page >= 2) db.addSignal(paperId, Signal.READ_PAGES)
+        if (page >= 2) note(paperId, Signal.READ_PAGES)
     }
 
     fun toggleSave(paperId: String) {
-        val current = _state.value.reactions[paperId] ?: Reaction.NONE
-        val next = current.copy(saved = !current.saved)
-        db.setReaction(paperId, next)
-        if (next.saved) db.addSignal(paperId, Signal.SAVED)
-        else db.removeSignal(paperId, Signal.SAVED)
+        record {
+            val current = allReactions()[paperId] ?: Reaction.NONE
+            setReaction(paperId, current.copy(saved = !current.saved))
+            if (current.saved) removeSignal(paperId, Signal.SAVED) else addSignal(paperId, Signal.SAVED)
+        }
+    }
+
+    // Last in the class, so that everything above exists before anything here starts: what it
+    // launches begins running at once, and found a member declared below it still unset.
+    init {
+        watchSurvey()
+        // For the Notifications page as well as the keywords: how often each keyword finds
+        // papers is what a bell is decided by.
+        refreshKeywordCounts()
         _state.value = _state.value.copy(
-            reactions = db.allReactions(),
-            evidence = db.evidence(),
+            reminderEnabled = prefs.reminderEnabled,
+            noteOffer = noteOfferDue(),
+            reminderHour = prefs.reminderHour,
+            paperSerif = prefs.paperSerif,
+            paperTextSize = PaperTextSize.nearest(prefs.paperTextSize),
+            libraryOrders = LibraryShelf.entries.associateWith { shelf ->
+                LibraryOrder.entries.firstOrNull { it.name == prefs.libraryOrder(shelf.name) }
+                    ?: LibraryOrder.RECENT
+            },
+            interfaceSerif = prefs.interfaceSerif,
+            dynamicColour = prefs.dynamicColour,
         )
+        // Downloads kept in the cache by 1.1.0 and earlier, moved to where clearing the cache
+        // does not reach them. The stores read both places until this is done.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { OfflineFiles.moveFromCache(getApplication()) }
+        }
+        if (prefs.onboarded) {
+            // Before anything else, so a cold start with no fetch due still knows what the
+            // field was reading. Popular has nothing else to rank by, and ranking it before
+            // this line would quietly demote it to venue matches.
+            _state.value = _state.value.copy(attention = db.attention())
+            // Popular is the landing screen when the digest is not ready, and nothing else
+            // would fill it in time: the usual precompute waits for a digest that is, by
+            // definition, not there yet.
+            if (openOnPopular) loadPopular()
+            restore()
+        }
     }
 }

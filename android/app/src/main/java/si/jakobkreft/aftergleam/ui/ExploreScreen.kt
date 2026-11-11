@@ -1,6 +1,5 @@
 package si.jakobkreft.aftergleam.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,22 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Venue
 
 /**
  * The wider feed, from everything the digest passed over.
@@ -94,20 +86,8 @@ fun ExploreScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        items(state.explore, key = { it.paper.id }) { card ->
-            val reaction = state.reactions[card.paper.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE
-            PaperCard(
-                paper = card.paper,
-                reason = card.why(),
-                slot = card.slot,
-                liked = state.likedFlag(card.paper.id),
-                saved = reaction.saved,
-                viewed = reaction.viewed,
-                upvotes = state.attention[card.paper.id] ?: 0,
-                onSteer = { onSteer(card.paper.id, it) },
-                onSave = { onSave(card.paper.id) },
-                onOpen = { onOpen(card.paper) },
-            )
+        items(state.explore, key = { it.paper.id }, contentType = { PAPER }) { card ->
+            PaperCard(state, card.paper, card.why(), card.slot, onSteer, onSave, onOpen)
         }
         item {
             Spacer(Modifier.height(8.dp))

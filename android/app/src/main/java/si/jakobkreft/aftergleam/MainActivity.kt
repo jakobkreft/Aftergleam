@@ -1,73 +1,98 @@
 package si.jakobkreft.aftergleam
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings as SystemSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Button
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.annotation.DrawableRes
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
+import si.jakobkreft.aftergleam.data.Backup
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.data.PdfStore
+import si.jakobkreft.aftergleam.data.Reaction
+import si.jakobkreft.aftergleam.data.Signal
+import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Support
 import si.jakobkreft.aftergleam.ui.AftergleamTheme
 import si.jakobkreft.aftergleam.ui.DetailScreen
-import si.jakobkreft.aftergleam.ui.PastScreen
+import si.jakobkreft.aftergleam.ui.ExploreScreen
 import si.jakobkreft.aftergleam.ui.FeedScreen
+import si.jakobkreft.aftergleam.ui.FeedState
 import si.jakobkreft.aftergleam.ui.FeedViewModel
 import si.jakobkreft.aftergleam.ui.ImportScreen
-import si.jakobkreft.aftergleam.ui.OnboardingScreen
-import si.jakobkreft.aftergleam.ui.PdfReaderScreen
-import si.jakobkreft.aftergleam.ui.ReaderTheme
 import si.jakobkreft.aftergleam.ui.LibraryScreen
 import si.jakobkreft.aftergleam.ui.LibraryShelf
-import si.jakobkreft.aftergleam.ui.ExploreScreen
+import si.jakobkreft.aftergleam.ui.OnboardingScreen
+import si.jakobkreft.aftergleam.ui.PastScreen
+import si.jakobkreft.aftergleam.ui.PdfReaderScreen
 import si.jakobkreft.aftergleam.ui.PopularScreen
+import si.jakobkreft.aftergleam.ui.ReaderTheme
+import si.jakobkreft.aftergleam.ui.SearchScope
 import si.jakobkreft.aftergleam.ui.SearchScreen
 import si.jakobkreft.aftergleam.ui.TuneScreen
 import si.jakobkreft.aftergleam.work.Notifications
 import si.jakobkreft.aftergleam.work.Schedule
+import java.io.File
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
 
@@ -135,7 +160,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
      * Its state is saved across rotation the way the plain selection was, so a rotation no
      * longer drops the reader back on Today from whichever tab they were using.
      */
-    val pager = androidx.compose.foundation.pager.rememberPagerState(
+    val pager = rememberPagerState(
         // Landing on the one screen that is ready, rather than on placeholder cards.
         initialPage = if (vm.openOnPopular) Tab.POPULAR.ordinal else Tab.TODAY.ordinal,
         pageCount = { Tab.entries.size },
@@ -145,6 +170,18 @@ private fun App(vm: FeedViewModel = viewModel()) {
     // moving, and the page has something on it by the time it arrives.
     val tab = Tab.entries[pager.currentPage]
     val pagerScope = rememberCoroutineScope()
+
+    /**
+     * Goes to a tab: slid to when it is next door, the way a swipe arrives, and jumped to
+     * otherwise. Sliding to a far one passed over the tabs between, each drawn in full, list
+     * and title, for the frame or two it was crossed in, which read as the app stumbling.
+     */
+    fun show(t: Tab) {
+        pagerScope.launch {
+            if (abs(t.ordinal - pager.currentPage) == 1) pager.animateScrollToPage(t.ordinal)
+            else pager.scrollToPage(t.ordinal)
+        }
+    }
 
     /**
      * Keeps each screen's scroll position while it is off the composition.
@@ -158,14 +195,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
      */
     val screenState = rememberSaveableStateHolder()
 
-    // Any text MIME type: exports are variously text/plain, text/x-bibtex or octet-stream,
-    // and a narrow filter would hide the user's own file from them in the picker.
     // Below 33 there is no runtime permission and notifications are simply allowed.
     fun notificationsAllowed(): Boolean =
-        android.os.Build.VERSION.SDK_INT < 33 ||
-            androidx.core.content.ContextCompat.checkSelfPermission(
-                context, android.Manifest.permission.POST_NOTIFICATIONS
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
 
     // What to do once the reader has answered. Set before launching, because the result
     // arrives on a later frame and the switch that asked is long gone by then.
@@ -195,39 +230,20 @@ private fun App(vm: FeedViewModel = viewModel()) {
             return
         }
         onPermissionResult = { granted -> apply(granted) }
-        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    // CreateDocument needs the MIME type up front; the suggested name is passed at launch.
+    // Only the file is chosen here. Reading and writing it is the view model's, off this thread:
+    // the file may be in a synced folder that has to fetch it first.
     val exportBackup = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(si.jakobkreft.aftergleam.data.Backup.MIME)
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openOutputStream(uri)?.use {
-                it.write(vm.exportBackup().toByteArray())
-            }
-            vm.noteExported(uri.lastPathSegment?.substringAfterLast('/') ?: "file")
-        }
-    }
-
+        ActivityResultContracts.CreateDocument(Backup.MIME)
+    ) { it?.let(vm::exportBackup) }
     val restoreBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-        }.getOrNull()?.let { vm.restoreBackup(it) }
-    }
-
+    ) { it?.let(vm::restoreBackup) }
     val pickLibrary = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-        }.getOrNull()?.let { vm.importLibrary(it) }
-    }
+    ) { it?.let(vm::importLibrary) }
 
     AftergleamTheme(
         dark = dark,
@@ -279,7 +295,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onAnswer = vm::answerSurvey,
                             onBack = vm::undoSurveyAnswer,
                             onFinish = vm::finishSurvey,
-                            onImport = { pickLibrary.launch(arrayOf("*/*")) },
+                            onImport = { pickLibrary.launch(ANY_FILE) },
                             onSkip = vm::finishOnboarding,
                         )
                     }
@@ -349,21 +365,21 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             )
                             file == null -> Box(
                                 Modifier.fillMaxSize(),
-                                contentAlignment = androidx.compose.ui.Alignment.Center,
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                    androidx.compose.material3.CircularProgressIndicator()
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator()
                                     Text("Fetching the PDF", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                             else -> PdfReaderScreen(
                                 file = file,
                                 title = reading.displayTitle,
-                                store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) },
+                                store = remember { PdfStore(context) },
                                 initialPage = state.readingPage,
                                 onPageChanged = { vm.rememberPage(reading.id, it) },
                                 onBack = vm::closeReader,
-                                sourceName = si.jakobkreft.aftergleam.data.Source.label(reading.source),
+                                sourceName = Source.label(reading.source),
                                 onOpenSource = { openUrl(context, reading.absUrl) },
                                 liked = state.likedFlag(reading.id),
                                 saved = state.reactions[reading.id]?.saved == true,
@@ -397,11 +413,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 Box(Modifier.padding(inner)) {
                     DetailScreen(
                         paper = detail,
-                        reaction = state.reactions[detail.id] ?: si.jakobkreft.aftergleam.data.Reaction.NONE,
+                        reaction = state.reactions[detail.id] ?: Reaction.NONE,
                         liked = state.evidence[detail.id]?.let {
                             when {
-                                si.jakobkreft.aftergleam.data.Signal.LIKED in it.signals -> true
-                                si.jakobkreft.aftergleam.data.Signal.DISLIKED in it.signals -> false
+                                Signal.LIKED in it.signals -> true
+                                Signal.DISLIKED in it.signals -> false
                                 else -> null
                             }
                         },
@@ -518,7 +534,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                             onInterfaceSerif = vm::setInterfaceSerif,
                             onDynamicColour = vm::setDynamicColour,
                             onTopics = vm::setTopics,
-                            versionName = si.jakobkreft.aftergleam.BuildConfig.VERSION_NAME,
+                            versionName = BuildConfig.VERSION_NAME,
                             onDigestHour = { h ->
                                 vm.setDigestHour(h)
                                 Schedule.armMorning(context)
@@ -529,13 +545,8 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                 // not take the app down with it.
                                 runCatching {
                                     context.startActivity(
-                                        Intent(
-                                            android.provider.Settings
-                                                .ACTION_APP_NOTIFICATION_SETTINGS
-                                        ).putExtra(
-                                            android.provider.Settings.EXTRA_APP_PACKAGE,
-                                            context.packageName,
-                                        )
+                                        Intent(SystemSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                            .putExtra(SystemSettings.EXTRA_APP_PACKAGE, context.packageName)
                                     )
                                 }
                             },
@@ -546,11 +557,11 @@ private fun App(vm: FeedViewModel = viewModel()) {
                                     Schedule.planNote(context)
                                 }
                             },
-                            onPickLibrary = { pickLibrary.launch(arrayOf("*/*")) },
+                            onPickLibrary = { pickLibrary.launch(ANY_FILE) },
                             onExport = {
-                                exportBackup.launch(si.jakobkreft.aftergleam.data.Backup.suggestedFileName())
+                                exportBackup.launch(Backup.suggestedFileName())
                             },
-                            onRestore = { restoreBackup.launch(arrayOf("*/*")) },
+                            onRestore = { restoreBackup.launch(ANY_FILE) },
                             backupSummary = state.backupSummary,
                             onReset = vm::resetModel,
                             onOpenUrl = { url -> openUrl(context, url) },
@@ -589,9 +600,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
         }
 
         // For you is home: back from another tab comes here, and only from here leaves the app.
-        BackHandler(enabled = tab != Tab.TODAY) {
-            pagerScope.launch { pager.animateScrollToPage(Tab.TODAY.ordinal) }
-        }
+        BackHandler(enabled = tab != Tab.TODAY) { show(Tab.TODAY) }
 
         LaunchedEffect(tab) {
             when (tab) {
@@ -610,13 +619,13 @@ private fun App(vm: FeedViewModel = viewModel()) {
 
         Scaffold(
             topBar = {
-                androidx.compose.material3.TopAppBar(
+                TopAppBar(
                     title = { Text(tab.label) },
                     actions = {
                         IconButton(onClick = {
                             typeInSearch = true
                             vm.openSearch(
-                                if (tab == Tab.LIBRARY) si.jakobkreft.aftergleam.ui.SearchScope.KEPT
+                                if (tab == Tab.LIBRARY) SearchScope.KEPT
                                 else null
                             )
                         }) {
@@ -633,16 +642,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
                     Tab.entries.forEach { t ->
                         NavigationBarItem(
                             selected = tab == t,
-                            // Animated rather than jumped to, so tapping a tab and swiping
-                            // to it arrive the same way and the bar reads as the same
-                            // control as the gesture.
-                            onClick = {
-                                pagerScope.launch { pager.animateScrollToPage(t.ordinal) }
-                            },
+                            onClick = { show(t) },
+                            // No description: the label beside it already says which tab.
                             icon = {
                                 Icon(
                                     painterResource(if (tab == t) t.iconShowing else t.icon),
-                                    contentDescription = t.label,
+                                    contentDescription = null,
                                 )
                             },
                             label = { Text(t.label) },
@@ -651,8 +656,7 @@ private fun App(vm: FeedViewModel = viewModel()) {
                 }
             }
         ) { inner ->
-            val openExternal: (String) -> Unit = { url -> openUrl(context, url) }
-            androidx.compose.foundation.pager.HorizontalPager(
+            HorizontalPager(
                 state = pager,
                 modifier = Modifier.padding(inner),
                 // Keyed by the screen rather than by position, so a page keeps its identity
@@ -755,6 +759,12 @@ private fun App(vm: FeedViewModel = viewModel()) {
 }
 
 /**
+ * Any type of file. Exports are variously text/plain, text/x-bibtex or octet-stream, and a
+ * narrower filter would hide the reader's own file from them in the picker.
+ */
+private val ANY_FILE = arrayOf("*/*")
+
+/**
  * The reader in its own light or dark, see [ReaderTheme.dark].
  *
  * The app's theme sets the status bar's icons to suit its background, and so does this one;
@@ -765,15 +775,15 @@ private fun App(vm: FeedViewModel = viewModel()) {
 private fun ReaderThemed(
     dark: Boolean,
     appDark: Boolean,
-    state: si.jakobkreft.aftergleam.ui.FeedState,
+    state: FeedState,
     content: @Composable () -> Unit,
 ) {
-    val view = androidx.compose.ui.platform.LocalView.current
-    val app by androidx.compose.runtime.rememberUpdatedState(appDark)
+    val view = LocalView.current
+    val app by rememberUpdatedState(appDark)
     DisposableEffect(Unit) {
         onDispose {
-            (view.context as? android.app.Activity)?.window?.let { window ->
-                androidx.core.view.WindowCompat.getInsetsController(window, view)
+            (view.context as? Activity)?.window?.let { window ->
+                WindowCompat.getInsetsController(window, view)
                     .isAppearanceLightStatusBars = !app
             }
         }
@@ -810,9 +820,9 @@ private fun ReaderThemed(
  * open reports no pages and nothing told the difference between that and a slow download.
  */
 @Composable
-private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
+private fun UnsupportedFile(file: File, onBack: () -> Unit) {
     val context = LocalContext.current
-    val store = remember { si.jakobkreft.aftergleam.data.PdfStore(context) }
+    val store = remember { PdfStore(context) }
     val kind = when (file.extension.lowercase()) {
         "docx", "doc", "odt", "rtf" -> "a Word document"
         "pptx", "ppt" -> "a slide deck"
@@ -834,7 +844,7 @@ private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
         Spacer(Modifier.height(20.dp))
         Button(
             onClick = {
-                val uri = androidx.core.content.FileProvider.getUriForFile(
+                val uri = FileProvider.getUriForFile(
                     context, context.packageName + ".files", file,
                 )
                 val view = Intent(Intent.ACTION_VIEW).apply {
@@ -862,7 +872,7 @@ private fun UnsupportedFile(file: java.io.File, onBack: () -> Unit) {
  * a button that only meant "show me the paper's page". Failing quietly is the right outcome:
  * there is nothing the app can open it with.
  */
-private fun openUrl(context: android.content.Context, url: String) {
+private fun openUrl(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
@@ -870,7 +880,7 @@ private fun openUrl(context: android.content.Context, url: String) {
  * Recommends the app itself. Only offered in a copy from Google Play, so the link is the
  * Play listing: the one place the person receiving it can be sure to install it from.
  */
-private fun shareApp(context: android.content.Context) {
+private fun shareApp(context: Context) {
     val share = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(
@@ -887,7 +897,7 @@ private fun shareApp(context: android.content.Context) {
  * a bug report says which build it is about. Nothing is attached and nothing is sent until
  * they send it.
  */
-private fun writeToDeveloper(context: android.content.Context) {
+private fun writeToDeveloper(context: Context) {
     val mail = Intent(
         Intent.ACTION_SENDTO,
         Uri.parse("mailto:${Support.CONTACT}"),
@@ -897,7 +907,7 @@ private fun writeToDeveloper(context: android.content.Context) {
     runCatching { context.startActivity(mail) }
 }
 
-private fun sharePaper(context: android.content.Context, paper: Paper) {
+private fun sharePaper(context: Context, paper: Paper) {
     val share = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, paper.displayTitle)

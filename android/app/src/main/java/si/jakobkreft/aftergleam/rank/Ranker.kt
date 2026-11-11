@@ -1,13 +1,14 @@
 package si.jakobkreft.aftergleam.rank
 
+import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
 import si.jakobkreft.aftergleam.data.Source
-import si.jakobkreft.aftergleam.data.Attention
 import si.jakobkreft.aftergleam.data.Venue
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.random.Random
 
 /** Why a card is in the digest. Shown to the user verbatim, so the labels are honest. */
@@ -40,7 +41,12 @@ data class Scored(
      * interest, venue and freshness, so a card showing 38% can legitimately sit above one
      * showing 47%. Without saying so, the visible number appears to contradict the order.
      */
-    fun why(): String = storedReason ?: when (slot) {
+    fun why(): String = reason
+
+    /** Worked out once: the words are found again in the paper's text, and a list asks often. */
+    private val reason: String by lazy { storedReason ?: composeReason() }
+
+    private fun composeReason(): String = when (slot) {
         Slot.EXPLORATION -> "testing whether this is for you"
         Slot.BRIDGE -> Source.display(paper.primaryCategory)
             .ifBlank { paper.sourceLabel ?: "another field" } + ", outside your usual"
@@ -225,7 +231,7 @@ class Ranker(private val weights: Weights = Weights()) {
 
     private fun logit(p: Float): Float {
         val q = p.coerceIn(1e-6f, 1f - 1e-6f)
-        return kotlin.math.ln(q / (1f - q))
+        return ln(q / (1f - q))
     }
 
     /**

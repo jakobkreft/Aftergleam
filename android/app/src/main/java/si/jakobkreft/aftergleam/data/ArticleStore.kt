@@ -3,7 +3,9 @@ package si.jakobkreft.aftergleam.data
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -190,8 +192,8 @@ class ArticleStore(context: Context) {
     }
 
     /** The bytes, or null past [cap]: one broken response should not fill the phone. */
-    private fun readCapped(input: java.io.InputStream, cap: Long): ByteArray? {
-        val out = java.io.ByteArrayOutputStream()
+    private fun readCapped(input: InputStream, cap: Long): ByteArray? {
+        val out = ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
         var total = 0L
         while (true) {

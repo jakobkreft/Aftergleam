@@ -1,6 +1,7 @@
 package si.jakobkreft.aftergleam.work
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -223,7 +224,7 @@ object Notifications {
         )
     }
 
-    private fun post(context: Context, id: Int, n: android.app.Notification) {
+    private fun post(context: Context, id: Int, n: Notification) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         // Asked here rather than trusted from the caller: posting without the permission
         // throws, and a refusal is the reader's answer, not a failure.
@@ -254,7 +255,7 @@ object Notifications {
                         val left = nm.activeNotifications.filter {
                             it.notification.group == group && it.id != id
                         }
-                        if (left.all { it.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0 }) {
+                        if (left.all { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }) {
                             left.forEach { nm.cancel(it.id) }
                         }
                     }

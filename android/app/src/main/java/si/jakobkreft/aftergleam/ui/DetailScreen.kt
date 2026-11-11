@@ -1,73 +1,55 @@
 package si.jakobkreft.aftergleam.ui
 
-import android.graphics.Bitmap
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import si.jakobkreft.aftergleam.data.Keywords
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import si.jakobkreft.aftergleam.R
+import si.jakobkreft.aftergleam.data.Attention
+import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.PdfStore
 import si.jakobkreft.aftergleam.data.Reaction
+import si.jakobkreft.aftergleam.data.Source
 import si.jakobkreft.aftergleam.data.Venue
-import kotlin.math.roundToInt
 
 /**
  * One paper, in full.
@@ -102,12 +84,6 @@ fun DetailScreen(
         keywords.filter { Keywords.mentions(paper.title + "\n" + paper.abstract, it) }
     }
     val store = remember { PdfStore(context) }
-    // Already downloaded means already wanted: asking a second time for a file that is
-    // sitting on disk is a button whose only function is to be pressed.
-    //
-    // rememberSaveable, not remember: a rotation recreates the activity, and plain remember
-    // would close the PDF the reader had open.
-    var showPdf by rememberSaveable(paper.id) { mutableStateOf(store.isCached(paper.id)) }
 
     // What opening this paper means, decided once. The title and the button at the foot do
     // the same thing, and a reader who taps a title expects to be reading, not to find out
@@ -116,7 +92,7 @@ fun DetailScreen(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -140,7 +116,7 @@ fun DetailScreen(
                     onSteer(if (liked == true) null else true)
                 }
                 DetailAction(
-                    painterResource(si.jakobkreft.aftergleam.R.drawable.ic_bookmark),
+                    painterResource(R.drawable.ic_bookmark),
                     reaction.saved,
                     if (reaction.saved) "Saved" else "Save for later",
                     onSave,
@@ -180,7 +156,7 @@ fun DetailScreen(
                     }
                     if (upvotes > 0) {
                         Text(
-                            si.jakobkreft.aftergleam.data.Attention.label(upvotes),
+                            Attention.label(upvotes),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )

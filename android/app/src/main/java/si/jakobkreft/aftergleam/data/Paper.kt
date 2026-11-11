@@ -99,10 +99,13 @@ data class Paper(
      * "Cylin-Painting: Seamless {360\textdegree} Panoramic Image", which looks like a bug
      * in the app rather than what it is. The ranker already strips this for its own
      * purposes; the reader deserves the same courtesy.
+     *
+     * Worked out once for each paper, like the abstract's: a card asked for both every time it
+     * was drawn, which is three passes over the whole abstract for each card scrolled into view.
      */
-    val displayTitle: String get() = cleanLatex(title)
+    val displayTitle: String by lazy { cleanLatex(title) }
 
-    val displayAbstract: String get() = cleanLatex(abstract)
+    val displayAbstract: String by lazy { cleanLatex(abstract) }
 
     /** "Park et al." rather than a bare surname, which reads as a fragment. */
     val shortAuthors: String
@@ -179,12 +182,13 @@ data class Paper(
 // backslash. Writing `\\\\` would match two of them and silently pass everything through.
 private val LATEX_CMD = Regex("""\\(?:text|math)?[a-zA-Z]+\s*""")
 private val LATEX_BRACES = Regex("""[{}$]""")
+private val WHITESPACE = Regex("""\s+""")
 
 private fun cleanLatex(s: String): String =
     LATEX_BRACES.replace(LATEX_CMD.replace(s) { m ->
         // Keep a space so "360\textdegree Panoramic" does not become "360Panoramic".
         if (m.value.trimEnd().endsWith("degree")) "\u00b0" else " "
-    }, "").replace(Regex("""\s+"""), " ").trim()
+    }, "").replace(WHITESPACE, " ").trim()
 
 /**
  * The two flags that are not judgements: whether a paper is on the reader's shelf, and

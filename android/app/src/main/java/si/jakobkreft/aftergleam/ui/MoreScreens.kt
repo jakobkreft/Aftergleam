@@ -1,23 +1,24 @@
 package si.jakobkreft.aftergleam.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -34,7 +35,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -54,14 +54,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 import si.jakobkreft.aftergleam.R
 import si.jakobkreft.aftergleam.data.KeywordAlerts
-import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Venue
+import si.jakobkreft.aftergleam.data.Support
+import kotlin.math.roundToInt
 
 /**
  * Settings, as an index of pages rather than one scroll.
@@ -300,13 +300,13 @@ private fun KeywordsPage(
     var explained by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { explained = !explained }, contentPadding = PaddingValues(horizontal = 0.dp)) {
         Icon(
-            androidx.compose.material.icons.Icons.Outlined.Info,
+            Icons.Outlined.Info,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
         )
         Text(if (explained) "  Hide how keywords are matched" else "  How keywords are matched")
     }
-    androidx.compose.animation.AnimatedVisibility(explained) {
+    AnimatedVisibility(explained) {
         Column {
             Text(
                 "Matching is exact apart from capitals, hyphens and plurals: U-Net also finds " +
@@ -785,7 +785,7 @@ private fun AboutPage(
             Text(
                 "Aftergleam",
                 style = MaterialTheme.typography.titleMedium,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                fontFamily = FontFamily.Serif,
             )
             Text("Version $versionName", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -828,7 +828,7 @@ private fun AboutPage(
     Spacer(Modifier.height(16.dp))
     Text(
         "Questions, bugs, or a source you would like added: " +
-            si.jakobkreft.aftergleam.data.Support.CONTACT,
+            Support.CONTACT,
         style = MaterialTheme.typography.bodySmall,
     )
     Spacer(Modifier.height(8.dp))

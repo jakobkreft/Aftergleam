@@ -25,6 +25,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.core.view.WindowCompat
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.max
 
 /**
  * The app's own colours and letterforms.
@@ -226,7 +229,7 @@ object PaperTextSize {
     const val DEFAULT = 100
 
     /** The nearest size offered, for a stored value from elsewhere. */
-    fun nearest(percent: Int): Int = SIZES.minBy { kotlin.math.abs(it - percent) }
+    fun nearest(percent: Int): Int = SIZES.minBy { abs(it - percent) }
 }
 
 /** [base] in the paper's face, at the reader's paper text size. */
@@ -255,7 +258,7 @@ fun TextStyle.forPaper(family: FontFamily, scale: Float): TextStyle = copy(
 fun paperLines(lines: Int): Int = paperLinesFor(lines, LocalPaperScale.current)
 
 fun paperLinesFor(lines: Int, scale: Float): Int =
-    kotlin.math.max(lines, kotlin.math.ceil(lines * scale - 0.25f).toInt())
+    max(lines, ceil(lines * scale - 0.25f).toInt())
 
 @Composable
 fun AftergleamTheme(

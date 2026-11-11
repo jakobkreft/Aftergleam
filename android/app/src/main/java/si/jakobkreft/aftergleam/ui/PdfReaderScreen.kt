@@ -2,13 +2,15 @@ package si.jakobkreft.aftergleam.ui
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -24,12 +26,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
@@ -63,25 +65,31 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import si.jakobkreft.aftergleam.R
 import si.jakobkreft.aftergleam.data.ArticleStore
 import si.jakobkreft.aftergleam.data.PdfFind
 import si.jakobkreft.aftergleam.data.PdfStore
@@ -96,7 +104,7 @@ import kotlin.math.roundToInt
  * between pages, which is exactly how the previous reader behaved. Here nothing is consumed
  * until a second finger is down, so one finger scrolls the list as usual and two fingers zoom.
  */
-private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPinchOnly(
+private suspend fun PointerInputScope.detectPinchOnly(
     onPinch: (zoom: Float, centroid: Offset) -> Unit,
     onPinchEnd: () -> Unit,
 ) {
@@ -146,6 +154,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPi
  * Find in paper works in both, with the same bar, and so does selecting text to copy it: the
  * reader view's is the web page's own, and the PDF's is [PdfTextSelection].
  */
+@OptIn(FlowPreview::class)
 @Composable
 fun PdfReaderScreen(
     file: File,
@@ -210,7 +219,7 @@ fun PdfReaderScreen(
     LaunchedEffect(article.showing) { find.close() }
 
     val baseWidthPx = with(LocalDensity.current) {
-        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
+        LocalConfiguration.current.screenWidthDp.dp.toPx()
     }
     zoom.baseWidth = baseWidthPx
     val renderWidth = zoom.pageWidth
@@ -227,13 +236,13 @@ fun PdfReaderScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to the paper")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to the paper")
                 }
                 Text(
                     title,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 if (showingArticle) {
@@ -241,8 +250,8 @@ fun PdfReaderScreen(
                     IconButton(onClick = onToggleArticleTheme) {
                         Icon(
                             painterResource(
-                                if (articleDark) si.jakobkreft.aftergleam.R.drawable.ic_light_page
-                                else si.jakobkreft.aftergleam.R.drawable.ic_dark_page
+                                if (articleDark) R.drawable.ic_light_page
+                                else R.drawable.ic_dark_page
                             ),
                             contentDescription = if (articleDark) "Light page" else "Dark page",
                         )
@@ -507,27 +516,30 @@ private fun PdfPages(
             }
         }
 
-        if (pages == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (val count = pages) {
+            null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else if (pages == 0) {
-            Unreadable(file, store, onRedownload)
-        } else {
-            Text(
-                "${listState.firstVisibleItemIndex + 1} / $pages",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(12.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+            0 -> Unreadable(file, store, onRedownload)
+            else -> PageNumber(listState, count, Modifier.align(Alignment.BottomEnd))
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.items(
+/** "7 / 31". On its own, so that turning a page recomposes this and not the reader around it. */
+@Composable
+private fun PageNumber(list: LazyListState, pages: Int, modifier: Modifier) {
+    Text(
+        "${list.firstVisibleItemIndex + 1} / $pages",
+        style = MaterialTheme.typography.labelSmall,
+        modifier = modifier
+            .padding(12.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+private fun LazyListScope.items(
     count: Int,
     content: @Composable (Int) -> Unit,
 ) = items(count = count, key = { it }) { content(it) }
@@ -650,7 +662,7 @@ private fun ReaderMenu(
     var open by remember { mutableStateOf(false) }
 
     /** The download as something another app is allowed to read. */
-    fun uri(): android.net.Uri = androidx.core.content.FileProvider.getUriForFile(
+    fun uri(): Uri = FileProvider.getUriForFile(
         context, context.packageName + ".files", file,
     )
 
@@ -694,7 +706,7 @@ private fun ReaderMenu(
             Judgement(
                 icon = { tint ->
                     Icon(
-                        painterResource(si.jakobkreft.aftergleam.R.drawable.ic_bookmark),
+                        painterResource(R.drawable.ic_bookmark),
                         null,
                         tint = tint,
                     )
@@ -720,7 +732,7 @@ private fun ReaderMenu(
                         type = store.mimeOf(file)
                         putExtra(
                             Intent.EXTRA_STREAM,
-                            androidx.core.content.FileProvider.getUriForFile(
+                            FileProvider.getUriForFile(
                                 context, context.packageName + ".files", named,
                             ),
                         )
@@ -802,7 +814,7 @@ private fun ReaderViewItem(availability: ArticleStore.Availability, onClick: () 
  */
 @Composable
 private fun Judgement(
-    icon: @Composable (androidx.compose.ui.graphics.Color) -> Unit,
+    icon: @Composable (Color) -> Unit,
     label: String,
     on: Boolean,
     onClick: () -> Unit,
@@ -847,7 +859,7 @@ private fun Unreadable(file: File, store: PdfStore, onRedownload: () -> Unit) {
             onClick = {
                 val view = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(
-                        androidx.core.content.FileProvider.getUriForFile(
+                        FileProvider.getUriForFile(
                             context, context.packageName + ".files", file,
                         ),
                         store.mimeOf(file),

@@ -89,10 +89,4 @@ class EvidenceTest {
         assertTrue("inferred $behaviour must stay under a like",
             behaviour < label(Signal.LIKED)!!)
     }
-
-    @Test
-    fun `a skip counts for a fraction of a real judgement`() {
-        assertEquals(1.0f, Evidence("x", setOf(Signal.LIKED)).sampleWeight(), 1e-6f)
-        assertEquals(0.05f, Evidence("x", setOf(Signal.PASSED)).sampleWeight(), 1e-6f)
-    }
 }

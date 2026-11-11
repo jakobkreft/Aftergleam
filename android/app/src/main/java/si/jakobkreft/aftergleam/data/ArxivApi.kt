@@ -1,12 +1,13 @@
 package si.jakobkreft.aftergleam.data
 
 import android.util.Xml
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * arXiv's Atom API. One request per digest, well inside the published limit of one
@@ -114,7 +115,7 @@ object ArxivApi {
     private val ARXIV_SYNTAX = Regex("""\b(AND|OR|ANDNOT)\b|\b(ti|au|abs|co|jr|cat|rn|id|all):""")
 
 
-    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+    private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     /**
      * Phrase search on the title field. Returns candidates for the caller to score; the
@@ -124,7 +125,7 @@ object ArxivApi {
     suspend fun searchTitle(title: String, max: Int = 5): List<Paper> {
         val q = BibTeX.cleanTitle(title)
         if (q.length < 12) return emptyList()
-        val encoded = java.net.URLEncoder.encode("ti:\"$q\"", "UTF-8")
+        val encoded = URLEncoder.encode("ti:\"$q\"", "UTF-8")
         return parse(get("$ENDPOINT?search_query=$encoded&max_results=$max"))
     }
 

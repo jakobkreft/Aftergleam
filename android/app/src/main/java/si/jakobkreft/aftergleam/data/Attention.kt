@@ -3,8 +3,7 @@ package si.jakobkreft.aftergleam.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
+import kotlin.math.ln
 
 /**
  * What the field is paying attention to right now, from Hugging Face's daily papers list.
@@ -31,19 +30,8 @@ object Attention {
     /** arXiv id to upvote count. Empty on any failure, by design. */
     suspend fun fetch(limit: Int = 100): Map<String, Int> = withContext(Dispatchers.IO) {
         try {
-            val conn = (URL("$ENDPOINT?limit=$limit").openConnection() as HttpURLConnection)
-                .apply {
-                    setRequestProperty("User-Agent", Http.USER_AGENT)
-                    connectTimeout = 15_000
-                    readTimeout = 20_000
-                }
-            val body = try {
-                if (conn.responseCode != 200) return@withContext emptyMap()
-                conn.inputStream.bufferedReader().readText()
-            } finally {
-                conn.disconnect()
-            }
-
+            val body = Http.get("$ENDPOINT?limit=$limit", readTimeout = 20_000)
+                ?: return@withContext emptyMap()
             val arr = JSONArray(body)
             buildMap {
                 for (i in 0 until arr.length()) {
@@ -66,7 +54,7 @@ object Attention {
      */
     fun score(upvotes: Int): Float {
         if (upvotes <= 0) return 0f
-        val scaled = kotlin.math.ln(1.0 + upvotes) / kotlin.math.ln(101.0)
+        val scaled = ln(1.0 + upvotes) / ln(101.0)
         return scaled.coerceIn(0.0, 1.0).toFloat()
     }
 

@@ -2,6 +2,7 @@ package si.jakobkreft.aftergleam.data
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import si.jakobkreft.aftergleam.rank.TopicBandit
@@ -285,7 +286,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9)
             LIMIT ?
             """.trimIndent(),
             arrayOf(fromDay, toDay, limit.toString()),
-        ).use { c -> buildList { while (c.moveToNext()) add(cursorToPaper(c)) } }
+        ).use { it.toPapers() }
 
     /**
      * Papers shown in the given window that still carry no venue.
@@ -403,7 +404,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9)
      * What a bell for [keyword] would otherwise announce at once: its recent papers already
      * on the phone, recorded as known, so that only what comes after is news.
      */
-    fun baselineAlerts(keyword: String, today: java.time.LocalDate = java.time.LocalDate.now()) {
+    fun baselineAlerts(keyword: String, today: LocalDate = LocalDate.now()) {
         val since = today.minusDays(Keywords.WINDOW_DAYS).toString()
         markAlerted(keywordCandidates(listOf(keyword), since, limit = 500).map { it.id }, keyword, baseline = true)
     }
@@ -507,31 +508,6 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9)
             "signals", "paper_id = ? AND signal = ?", arrayOf(paperId, signal.name)
         )
     }
-
-    /**
-     * Papers the reader explicitly judged, most recently first.
-     *
-     * The library shelf used to sort these by label, which put every "more like this" in one
-     * undifferentiated block of 0.95 and left the order inside it to whatever SQLite
-     * returned. Opening a paper refreshes the shelf, so that block reshuffled under the
-     * reader every time they looked at something, and their scroll position went with it.
-     * Most recent first is stable, and it is also the order somebody looking for what they
-     * reacted to last week actually wants.
-     */
-    fun judgedRecentFirst(): List<String> =
-        readableDatabase.rawQuery(
-            """
-            SELECT paper_id, MAX(ts) AS t FROM signals
-            WHERE signal IN ('LIKED', 'DISLIKED')
-            GROUP BY paper_id
-            -- The id breaks ties. A migration or an import writes a whole batch of
-            -- judgements with the same timestamp, and SQLite is free to return equal keys
-            -- in any order it likes, so without this the shelf still shuffled by a card or
-            -- two every time it reloaded.
-            ORDER BY t DESC, paper_id
-            """.trimIndent(),
-            null,
-        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
 
     /**
      * When each paper last received any of [signals], in milliseconds. A signal keeps the time
@@ -649,8 +625,6 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9)
             args.toTypedArray(),
         ).use { it.toPapers() }
     }
-
-    fun clearSignals() { writableDatabase.delete("signals", null, null) }
 
     /**
      * Forgets everything the reader has taught the app.
@@ -804,33 +778,47 @@ class Db(context: Context) : SQLiteOpenHelper(context, "aftergleam.db", null, 9)
             }
         }
 
-    private fun cursorToPaper(c: android.database.Cursor): Paper = with(c) {
-        Paper(
-            id = getString(getColumnIndexOrThrow("id")),
-            title = getString(getColumnIndexOrThrow("title")),
-            abstract = getString(getColumnIndexOrThrow("abstract")),
-            authors = getString(getColumnIndexOrThrow("authors")).split("|").filter { it.isNotBlank() },
-            categories = getString(getColumnIndexOrThrow("categories")).split("|").filter { it.isNotBlank() },
-            published = getString(getColumnIndexOrThrow("published")),
-            updated = getString(getColumnIndexOrThrow("updated")),
-            comments = getString(getColumnIndexOrThrow("comments")),
-            journalRef = getString(getColumnIndexOrThrow("journal_ref")),
-            source = c.getColumnIndex("source").let {
-                if (it >= 0 && !isNull(it)) getString(it) else Source.ARXIV
-            },
-        )
-    }
-
     /**
-     * Every list query goes through the single mapper.
+     * Every query for papers goes through this one mapper.
      *
-     * There used to be two, this one and [cursorToPaper], built column by column in
-     * parallel. Adding `source` to one of them and not the other made every paper in every
-     * list claim to be from arXiv while the row in the table said bioRxiv, which showed up
-     * as a missing label and would have shown up next as a broken PDF link.
+     * There used to be two, built column by column in parallel. Adding `source` to one of them
+     * and not the other made every paper in every list claim to be from arXiv while the row in
+     * the table said bioRxiv, which showed up as a missing label and would have shown up next
+     * as a broken PDF link.
+     *
+     * Each column is found once for the query, not once for every row: a pool of fifteen
+     * hundred papers was fifteen thousand lookups by name.
      */
-    private fun android.database.Cursor.toPapers(): List<Paper> = buildList {
-        while (moveToNext()) add(cursorToPaper(this@toPapers))
+    private fun Cursor.toPapers(): List<Paper> {
+        val id = getColumnIndexOrThrow("id")
+        val title = getColumnIndexOrThrow("title")
+        val abstract = getColumnIndexOrThrow("abstract")
+        val authors = getColumnIndexOrThrow("authors")
+        val categories = getColumnIndexOrThrow("categories")
+        val published = getColumnIndexOrThrow("published")
+        val updated = getColumnIndexOrThrow("updated")
+        val comments = getColumnIndexOrThrow("comments")
+        val journalRef = getColumnIndexOrThrow("journal_ref")
+        val source = getColumnIndexOrThrow("source")
+        fun list(column: Int) = getString(column).split("|").filter { it.isNotBlank() }
+        return buildList {
+            while (moveToNext()) {
+                add(
+                    Paper(
+                        id = getString(id),
+                        title = getString(title),
+                        abstract = getString(abstract),
+                        authors = list(authors),
+                        categories = list(categories),
+                        published = getString(published),
+                        updated = getString(updated),
+                        comments = getString(comments),
+                        journalRef = getString(journalRef),
+                        source = getString(source),
+                    )
+                )
+            }
+        }
     }
 
     /**

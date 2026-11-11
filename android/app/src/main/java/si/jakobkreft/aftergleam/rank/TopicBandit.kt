@@ -1,5 +1,6 @@
 package si.jakobkreft.aftergleam.rank
 
+import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -169,6 +170,6 @@ object TopicBandit {
         // Box-Muller. Only one of the pair is used; the second is not worth caching here.
         val u1 = random.nextDouble().coerceAtLeast(1e-12)
         val u2 = random.nextDouble()
-        return sqrt(-2.0 * ln(u1)) * kotlin.math.cos(2.0 * Math.PI * u2)
+        return sqrt(-2.0 * ln(u1)) * cos(2.0 * Math.PI * u2)
     }
 }

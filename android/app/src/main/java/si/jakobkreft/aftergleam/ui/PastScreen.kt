@@ -20,9 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import si.jakobkreft.aftergleam.data.Db
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Reaction
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
@@ -175,20 +173,8 @@ private fun DayList(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        items(cards, key = { it.paper.id }) { card ->
-            val reaction = state.reactions[card.paper.id] ?: Reaction.NONE
-            PaperCard(
-                paper = card.paper,
-                reason = card.why(),
-                slot = card.slot,
-                liked = state.likedFlag(card.paper.id),
-                saved = reaction.saved,
-                viewed = reaction.viewed,
-                upvotes = state.attention[card.paper.id] ?: 0,
-                onSteer = { onSteer(card.paper.id, it) },
-                onSave = { onSave(card.paper.id) },
-                onOpen = { onOpen(card.paper) },
-            )
+        items(cards, key = { it.paper.id }, contentType = { PAPER }) { card ->
+            PaperCard(state, card.paper, card.why(), card.slot, onSteer, onSave, onOpen)
         }
         item { Spacer(Modifier.height(24.dp)) }
     }

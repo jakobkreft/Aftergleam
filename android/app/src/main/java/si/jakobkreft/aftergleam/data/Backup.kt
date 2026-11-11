@@ -2,6 +2,7 @@ package si.jakobkreft.aftergleam.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
 
 /**
  * Exports and restores everything the user has taught the app.
@@ -27,7 +28,7 @@ object Backup {
     const val MIME = "application/json"
 
     fun suggestedFileName(): String {
-        val stamp = java.time.LocalDate.now().toString()
+        val stamp = LocalDate.now().toString()
         return "aftergleam-$stamp.json"
     }
 
@@ -116,7 +117,7 @@ object Backup {
         // the phone, as one turned on by hand does, rather than announcing all of it.
         root.optJSONArray("keywordAlerts")?.let { arr ->
             val before = prefs.keywordAlerts
-            val today = java.time.LocalDate.now().toString()
+            val today = LocalDate.now().toString()
             val rung = (0 until arr.length()).mapNotNull { Keywords.normalise(arr.optString(it)) }
                 .filter { it in prefs.keywords }
             prefs.keywordAlerts = before.filterKeys { it in prefs.keywords } + rung.associateWith { before[it] ?: today }

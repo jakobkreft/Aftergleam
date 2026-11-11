@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -109,7 +111,7 @@ private fun CardBody(alpha: Float) {
 }
 
 @Composable
-private fun Bar(widthFraction: Float, height: androidx.compose.ui.unit.Dp) {
+private fun Bar(widthFraction: Float, height: Dp) {
     Spacer(
         Modifier
             .fillMaxWidth(widthFraction)
@@ -119,7 +121,7 @@ private fun Bar(widthFraction: Float, height: androidx.compose.ui.unit.Dp) {
     )
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.items(
+private fun LazyListScope.items(
     count: Int,
     content: @Composable (Int) -> Unit,
 ) = items(count = count, key = { it }) { content(it) }

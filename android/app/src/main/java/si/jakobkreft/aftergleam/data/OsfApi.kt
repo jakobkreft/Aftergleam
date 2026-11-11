@@ -4,8 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.IOException
 import java.net.URLEncoder
 import java.time.LocalDate
 
@@ -29,15 +28,6 @@ import java.time.LocalDate
  * subject filter, so a date window is fetched and filtered here.
  */
 object OsfApi {
-
-
-    /** The servers that still publish. See the note above on the ones that do not. */
-    const val PSYARXIV = "psyarxiv"
-    const val SOCARXIV = "socarxiv"
-    const val EDARXIV = "edarxiv"
-    const val LAWARCHIVE = "lawarchive"
-
-    val SERVERS = listOf(PSYARXIV, SOCARXIV, EDARXIV, LAWARCHIVE)
 
     /**
      * Fifty, because OSF's cost is the payload rather than the number of requests.
@@ -90,11 +80,11 @@ object OsfApi {
                 "&filter%5Bdate_published%5D%5Bgte%5D=" + enc(since) +
                 "&page%5Bsize%5D=$PAGE&page=$page" +
                 "&fields%5Bpreprints%5D=" + enc(FIELDS)
-            val body = get(url)
+            val body = Http.get(url, Http.JSON, READ_TIMEOUT)
                 // Distinguished from "this server has nothing": returning an empty list for
                 // both is what let a timed out Law Archive be reported to the reader as a
                 // quiet day. Later pages may stop quietly, since by then there is real data.
-                ?: if (page == 1) throw java.io.IOException("${Source.label(provider)} did not answer")
+                ?: if (page == 1) throw IOException("${Source.label(provider)} did not answer")
                 else break
             val root = runCatching { JSONObject(body) }.getOrNull() ?: break
             val items = root.optJSONArray("data") ?: break
@@ -113,29 +103,6 @@ object OsfApi {
         // A preprint and its revisions share a guid stem, newest last.
         out.associateBy { it.id.substringBefore("_v") }.values.toList()
     }
-
-    /**
-     * The leaf subjects a provider has actually used, for building the topic list.
-     *
-     * Not called by the app. It exists so the taxonomy can be checked against the server
-     * rather than guessed, which is how five medRxiv subjects came to be unreachable.
-     */
-    suspend fun subjectsSeen(provider: String, since: String): Map<String, Int> =
-        withContext(Dispatchers.IO) {
-            val counts = HashMap<String, Int>()
-            val url = "https://api.osf.io/v2/preprints/?filter%5Bprovider%5D=" + enc(provider) +
-                "&filter%5Bdate_published%5D%5Bgte%5D=" + enc(since) + "&page%5Bsize%5D=$PAGE" +
-                "&fields%5Bpreprints%5D=" + enc(FIELDS)
-            val root = get(url)?.let { runCatching { JSONObject(it) }.getOrNull() }
-                ?: return@withContext counts
-            val items = root.optJSONArray("data") ?: return@withContext counts
-            for (i in 0 until items.length()) {
-                for (leaf in leaves(items.optJSONObject(i))) {
-                    counts[leaf] = (counts[leaf] ?: 0) + 1
-                }
-            }
-            counts
-        }
 
     /** The last element of each subject path, which is the specific one. */
     private fun leaves(o: JSONObject?): List<String> {
@@ -181,26 +148,12 @@ object OsfApi {
         )
     }
 
-
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
-    private fun get(url: String): String? = runCatching {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", Http.USER_AGENT)
-            setRequestProperty("Accept", "application/json")
-            connectTimeout = 20_000
-            // Generous, because OSF is genuinely slow and erratic with it: the same request
-            // for fifty records measured 12.8s once and 26.5s an hour later. At a thirty
-            // second read timeout the slow half of that range returns null, and null here
-            // is indistinguishable from a server with no papers, so psychology and law would
-            // quietly empty out for reasons nobody could see.
-            readTimeout = 60_000
-        }
-        try {
-            if (conn.responseCode != 200) null
-            else conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
-    }.getOrNull()
+    /**
+     * Generous, because OSF is genuinely slow and erratic with it: the same request for fifty
+     * records measured 12.8s once and 26.5s an hour later. At the usual thirty seconds the slow
+     * half of that range would count as no answer.
+     */
+    private const val READ_TIMEOUT = 60_000
 }

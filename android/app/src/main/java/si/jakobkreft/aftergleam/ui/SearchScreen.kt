@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,14 +54,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import si.jakobkreft.aftergleam.data.Keywords
 import si.jakobkreft.aftergleam.data.Paper
+import si.jakobkreft.aftergleam.rank.SearchRanker
 
 /**
  * Keyword search with personalised re-ranking.
@@ -221,7 +223,7 @@ private fun LazyListScope.results(
         item(key = "device-header") {
             SectionLabel("Already on your device")
         }
-        items(state.searchLocalHits, key = { "d-" + it.paper.id }) { hit ->
+        items(state.searchLocalHits, key = { "d-" + it.paper.id }, contentType = { PAPER }) { hit ->
             Result(state, hit, onSteer, onSave, onOpen, fromDevice = true)
         }
         if (state.searchLocalMore > 0) {
@@ -253,7 +255,7 @@ private fun LazyListScope.results(
         }
     }
 
-    items(state.searchHits, key = { it.paper.id }) { hit ->
+    items(state.searchHits, key = { it.paper.id }, contentType = { PAPER }) { hit ->
         Result(state, hit, onSteer, onSave, onOpen)
     }
 
@@ -339,7 +341,7 @@ private fun Controls(
         // would usually fail to find the very paper the reader meant.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SearchScope.entries.forEach { scope ->
-                androidx.compose.material3.FilterChip(
+                FilterChip(
                     selected = state.searchScope == scope,
                     onClick = { onScope(scope) },
                     label = { Text(scope.label, style = MaterialTheme.typography.labelSmall) },
@@ -466,24 +468,12 @@ private fun deviceReason(state: FeedState, id: String): String? =
 @Composable
 private fun Result(
     state: FeedState,
-    hit: si.jakobkreft.aftergleam.rank.SearchRanker.Hit,
+    hit: SearchRanker.Hit,
     onSteer: (String, Boolean?) -> Unit,
     onSave: (String) -> Unit,
-    onOpen: (si.jakobkreft.aftergleam.data.Paper) -> Unit,
+    onOpen: (Paper) -> Unit,
     fromDevice: Boolean = false,
 ) {
-    val reaction = state.reactions[hit.paper.id]
-        ?: si.jakobkreft.aftergleam.data.Reaction.NONE
-    PaperCard(
-        paper = hit.paper,
-        reason = if (fromDevice) deviceReason(state, hit.paper.id) else hit.why(),
-        slot = null,
-        liked = state.likedFlag(hit.paper.id),
-        saved = reaction.saved,
-        viewed = reaction.viewed,
-        upvotes = state.attention[hit.paper.id] ?: 0,
-        onSteer = { onSteer(hit.paper.id, it) },
-        onSave = { onSave(hit.paper.id) },
-        onOpen = { onOpen(hit.paper) },
-    )
+    val reason = if (fromDevice) deviceReason(state, hit.paper.id) else hit.why()
+    PaperCard(state, hit.paper, reason, slot = null, onSteer, onSave, onOpen)
 }

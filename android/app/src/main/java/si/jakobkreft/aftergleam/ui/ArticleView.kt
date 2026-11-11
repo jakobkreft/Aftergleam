@@ -8,6 +8,11 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -16,13 +21,9 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
@@ -251,6 +253,7 @@ internal object ArticleDocument {
  * the new size, which is what keeps the reading to one direction. A pinch that changed the
  * size as well was one more way to do the same thing, and easy to set off by accident.
  */
+@OptIn(FlowPreview::class)
 @Composable
 fun ArticleView(
     paperId: String,
@@ -296,7 +299,7 @@ fun ArticleView(
     // Read when the page has loaded, not when the view was made: switching between a light
     // and a dark page builds the view again, and the place it was left is saved as the old
     // one goes, a moment after the new one is made.
-    val latestPosition by androidx.compose.runtime.rememberUpdatedState(position)
+    val latestPosition by rememberUpdatedState(position)
     var canGoBack by remember { mutableStateOf(false) }
     // The web view lays the page out in its own time, about two seconds on a phone for the
     // longest paper seen; until it has drawn, the spinner stays rather than an empty page.

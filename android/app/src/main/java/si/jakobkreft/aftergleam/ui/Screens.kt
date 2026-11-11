@@ -1,62 +1,48 @@
 package si.jakobkreft.aftergleam.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import si.jakobkreft.aftergleam.rank.Slot
-import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import si.jakobkreft.aftergleam.data.Drift
 import si.jakobkreft.aftergleam.data.Paper
-import si.jakobkreft.aftergleam.data.Reaction
-import si.jakobkreft.aftergleam.data.Venue
-import si.jakobkreft.aftergleam.rank.Scored
-
-val COMMON_CATEGORIES = listOf(
-    "cs.LG", "cs.CV", "cs.CL", "cs.AI", "cs.RO", "cs.CR", "cs.SE", "cs.IR",
-    "stat.ML", "eess.IV", "eess.AS", "q-bio.NC", "math.OC", "astro-ph.GA",
-)
+import si.jakobkreft.aftergleam.data.Resurfaced
+import si.jakobkreft.aftergleam.data.Support
 
 @Composable
 fun FeedScreen(
@@ -121,14 +107,14 @@ fun FeedScreen(
 
         // Pull to refresh, because every other feed on the phone has it and its absence
         // reads as the screen being stuck.
-        else -> androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        else -> PullToRefreshBox(
             isRefreshing = state.loading,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -179,20 +165,8 @@ fun FeedScreen(
                     )
                 }
             }
-            items(state.cards, key = { it.paper.id }) { card ->
-                val reaction = state.reactions[card.paper.id] ?: Reaction.NONE
-                PaperCard(
-                    paper = card.paper,
-                    reason = card.why(),
-                    slot = card.slot,
-                    liked = state.likedFlag(card.paper.id),
-                    saved = reaction.saved,
-                    viewed = reaction.viewed,
-                    upvotes = state.attention[card.paper.id] ?: 0,
-                    onSteer = { onSteer(card.paper.id, it) },
-                    onSave = { onSave(card.paper.id) },
-                    onOpen = { onOpen(card.paper) },
-                )
+            items(state.cards, key = { it.paper.id }, contentType = { PAPER }) { card ->
+                PaperCard(state, card.paper, card.why(), card.slot, onSteer, onSave, onOpen)
             }
             item { EndCard(state, onRerank, onRefresh, onPast) }
             state.drift?.let { item { DriftCard(it) } }
@@ -251,12 +225,12 @@ fun InterestControl(
             Spacer(Modifier.height(6.dp))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.FilterChip(
+            FilterChip(
                 selected = liked == false,
                 onClick = { onSteer(if (liked == false) null else false) },
                 label = { Text("Less like this") },
             )
-            androidx.compose.material3.FilterChip(
+            FilterChip(
                 selected = liked == true,
                 onClick = { onSteer(if (liked == true) null else true) },
                 label = { Text("More like this") },
@@ -267,7 +241,7 @@ fun InterestControl(
 
 @Composable
 private fun ResurfacedCard(
-    resurfaced: si.jakobkreft.aftergleam.data.Resurfaced,
+    resurfaced: Resurfaced,
     onOpen: () -> Unit,
     onInterested: () -> Unit,
     onDismiss: () -> Unit,
@@ -426,7 +400,7 @@ private fun EndCard(
  * to get through, and it should not compete with the papers for attention.
  */
 @Composable
-private fun DriftCard(report: si.jakobkreft.aftergleam.data.Drift.Report) {
+private fun DriftCard(report: Drift.Report) {
     Card(
         Modifier.fillMaxWidth(),
         elevation = flatCard(),
@@ -519,7 +493,7 @@ private fun NoteOfferCard(onYes: () -> Unit, onNo: () -> Unit, onSettings: () ->
 
 @Composable
 private fun SupportCard(
-    card: si.jakobkreft.aftergleam.data.Support.Card,
+    card: Support.Card,
     donations: Boolean,
     onDonate: () -> Unit,
     onRate: () -> Unit,
@@ -527,7 +501,7 @@ private fun SupportCard(
     onLater: () -> Unit,
     onSettings: () -> Unit,
 ) {
-    val thanks = card == si.jakobkreft.aftergleam.data.Support.Card.THANKS
+    val thanks = card == Support.Card.THANKS
     Card(
         Modifier.fillMaxWidth(),
         elevation = flatCard(),

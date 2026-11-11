@@ -100,13 +100,6 @@ data class Evidence(
         return best.weight + (1f - best.weight) * CORROBORATION * (1f - doubt)
     }
 
-    /** How much this example counts, so a skip cannot shout as loudly as a download. */
-    fun sampleWeight(): Float = when {
-        explicit -> 1.0f
-        signals.any { it.positive } -> 1.0f
-        else -> -Signal.PASSED.weight   // 0.05
-    }
-
     private companion object {
         /**
          * How much of the gap to 1 the supporting signals may close.

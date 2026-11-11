@@ -4,8 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.IOException
 import java.time.LocalDate
 
 /**
@@ -56,10 +55,10 @@ object BioRxivApi {
         var total = Int.MAX_VALUE
         var page = 0
         while (cursor < total && page < maxPages) {
-            val body = get("https://api.biorxiv.org/details/$server/$from/$to/$cursor")
+            val body = Http.get("https://api.biorxiv.org/details/$server/$from/$to/$cursor", Http.JSON)
                 // The first page failing is the server being unreachable, which is a
                 // different thing to say than "nothing was posted".
-                ?: if (page == 0) throw java.io.IOException("${Source.label(server)} did not answer")
+                ?: if (page == 0) throw IOException("${Source.label(server)} did not answer")
                 else break
             val root = runCatching { JSONObject(body) }.getOrNull() ?: break
             total = root.optJSONArray("messages")
@@ -119,19 +118,4 @@ object BioRxivApi {
             source = server,
         )
     }
-
-    private fun get(url: String): String? = runCatching {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", Http.USER_AGENT)
-            setRequestProperty("Accept", "application/json")
-            connectTimeout = 20_000
-            readTimeout = 30_000
-        }
-        try {
-            if (conn.responseCode != 200) null
-            else conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
-    }.getOrNull()
 }

@@ -3,7 +3,7 @@ package si.jakobkreft.aftergleam.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
+import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
 import java.time.LocalDate
@@ -62,7 +62,7 @@ object CrossrefServers {
             "&mailto=" + enc(CONTACT)
 
         val body = get(url)
-            ?: throw java.io.IOException("${Source.label(server.source)} did not answer")
+            ?: throw IOException("${Source.label(server.source)} did not answer")
         val items = runCatching { JSONObject(body) }.getOrNull()
             ?.optJSONObject("message")?.optJSONArray("items")
             ?: return@withContext emptyList()
@@ -166,18 +166,6 @@ object CrossrefServers {
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
-    internal fun get(url: String): String? = runCatching {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", "${Http.USER_AGENT} mailto:$CONTACT")
-            setRequestProperty("Accept", "application/json")
-            connectTimeout = 20_000
-            readTimeout = 30_000
-        }
-        try {
-            if (conn.responseCode != 200) null
-            else conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
-    }.getOrNull()
+    internal fun get(url: String): String? =
+        Http.get(url, Http.JSON, agent = "${Http.USER_AGENT} mailto:$CONTACT")
 }
